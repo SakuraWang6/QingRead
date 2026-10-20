@@ -4,16 +4,20 @@
 
 SwiftUI / iOS 16+ / 本地优先 / 无账号 / 无广告 SDK / 无会员与内购。
 
-## 当前功能（0.2）
+## 当前功能（0.3）
 
 - 多来源搜索，来源失败分别显示；可以启用、停用和导入书源。
 - 三列封面书架，点击直接继续阅读，长按查看详情或管理。
 - 推荐与六类书库，实时读取来源站书目，可打开目录、收藏和阅读。
 - 点击正文中央呼出菜单；左右滑动、覆盖翻页、上下滚动三种模式。
 - 五种背景、独立夜间模式、字号、行距、页边距、字体、粗体及亮度设置。
-- 目录跳章、文字位置恢复；从屏幕左右边缘向内滑动退出阅读。
-- 系统中文听书、暂停、语速、段落与章节切换，支持后台音频和锁屏控制。
-- 按章节缓存正文，已读缓存可离线打开；清除缓存保留书架与进度。
+- 右下角显示整书百分比；中央菜单可拖动进度条跳转（按章节与章内文字位置估算）。
+- 左侧目录抽屉，逐章显示实际已读进度及缓存状态，支持搜索与定位当前章。
+- 阅读时自动预缓存后 10 章，共享正在加载的章节；退出取消后续队列。
+- 系统中文音色选择，优先已安装的增强音色；调整语速从当前词附近继续，暂停时不误播放。
+- 可选 Melo 离线 AI 听书：在 App 内主动下载约 61 MB 声库，之后在手机本地合成，无 API key、无额外 App；单一中文音色。语速直接调整播放器，保持当前声音位置。
+- 封面内存与磁盘缓存、480 像素缩略图、图片防盗链来源头；搜索未提供封面时尝试书籍详情页，来源仍缺图时保留书名封面。
+- 按章节缓存正文，已缓存章节可离线打开；清除缓存保留书架与进度。从屏幕左右边缘向内滑动退出阅读。
 - 内置《桃花源记》离线样例，便于在网络不可用时体验阅读器。
 
 内置 7 个来源（5 个网络小说站点与 2 个经典文本来源）；已针对《超神机械师》《这游戏也太真实了》核实站内搜索、目录和首章。各新增来源的实测记录见[书源说明](docs/sources.md)。站点可用性与内容质量仍需持续验证，**不承诺全网覆盖或每一章均已核对**。通用网站来源通过声明式 CSS 规则扩展，本地样例不插入联网搜索结果。推荐与分类当前来自笔趣阁，停用该来源后不会继续请求。
@@ -38,6 +42,8 @@ DEVELOPMENT_TEAM = 你的TeamID
 普通 Apple 账号可以安装自用，签名有效期为 7 天。付费 Developer Program 可使用更长有效期的签名。项目不包含签名证书、账号凭据或开发团队标识。
 
 本机已通过官方 Xcode 工具完成真正的无线续期：新签发时间和到期时间均延后，严格校验签名后无线安装成功。提供 Mac 用户后台任务，每四小时检查、剩余三天内尝试续签，不需要 AltStore。Mac 需登录 Xcode 账号并能通过网络连接手机；本次校园网无法互通，个人热点实测可用。安装、停止和日志见[无线续签](docs/sideloading.md)。免费签名仍为 7 天，断网、Mac 关机或账号需要重新验证时可能刷新失败。
+
+当前校园网条件下，这套任务仍需要可达网络和手机解锁，不是保证免操作的续签服务。SideStore 是另一套需额外安装 SideStore 与 LocalDevVPN 的手机方案，本次按用户希望减少额外软件的偏好未切换。
 
 重新生成工程（新增或删除 App Swift 文件后运行）：
 
@@ -66,7 +72,7 @@ xcodebuild build -project QingRead.xcodeproj -scheme QingRead \
   -derivedDataPath .build/xcode ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
 ```
 
-Debug 构建支持 `--qingread-preview search|sources|reader|recommendations|categories`；`reader` 打开真实的本地公版样例。可追加 `--reader-mode slide|cover|scroll`、`--reader-controls`、`--reader-settings`、`--reader-night`、`--reader-listen`。`--reader-self-test` 在 UIKit 中验证旧设置迁移、含 emoji 的分页完整性、字号重排锚点及停止取消续播意图。Release 不包含这些诊断入口。`scripts/simulator-preview.py` 保存实际模拟器截图。
+Debug 构建支持 `--qingread-preview search|sources|reader|recommendations|categories`；`reader` 打开真实的本地公版样例。可追加 `--reader-mode slide|cover|scroll`、`--reader-controls`、`--reader-settings`、`--reader-catalog`、`--reader-audio`、`--reader-night`、`--reader-listen`、`--reader-ai`。`--reader-self-test` 验证排版和语音状态；`--storage-self-test`、`--cover-self-test` 验证隔离存储与图片缓存；`--ai-self-test` 验证声库校验及已有模型的真实合成，显式附加 `--download-ai-model` 才会为诊断下载声库。Release 不包含这些入口。`scripts/simulator-preview.py` 运行确定性诊断并保存九张真实界面截图。
 
 ## 仓库结构
 
@@ -93,9 +99,10 @@ Z-Library 当前未接入在线搜书或章节阅读；它属于整本电子书�
 - [书源格式](docs/sources.md)
 - [验证记录](docs/verification.md)
 - [无线续签](docs/sideloading.md)
+- [离线 AI 声库、版本与依赖许可](docs/offline-voice.md)
 
 实际 iPhone 模拟器截图：[书架](docs/previews/library.png) · [搜书](docs/previews/search.png) · [书源](docs/previews/sources.png) · [阅读器](docs/previews/reader.png)。阅读器截图使用随包提供的公版样例，不是虚构网络结果。
 
 本地 iPhone 17 已验证两本用户书单的搜索、目录、首章及重启后继续阅读，见[本地书架截图](docs/previews/local-library.png)。
 
-独立实现，参考竞品的产品行为，没有复制竞品客户端源码。代码采用 MIT 许可，HTML 解析依赖 SwiftSoup（MIT）。
+独立实现，参考竞品的产品行为，没有复制竞品客户端源码。自行编写的源代码采用 MIT 许可；依赖与模型保留各自许可，预编译语音库包含 GPL 等组件，不能将整个二进制概括为 MIT。实际依赖记录见离线语音文档，完整声明随 App 打包，可在「书源 → 开源许可」查看。

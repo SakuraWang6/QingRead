@@ -45,8 +45,9 @@ enum HTMLParsing {
             guard !title.isEmpty, seen.insert(url).inserted else { continue }
             let cover: URL?
             if let selector = config.coverSelector, let image = try row.select(selector).first() {
-                let src = try image.hasAttr("data-src") ? image.attr("data-src") : image.attr("src")
-                cover = try? SourceURL.resolve(src, relativeTo: baseURL)
+                cover = try ["data-original", "data-src", "data-lazy-src", "src"].compactMap {
+                    resolvedImage(try image.attr($0), relativeTo: baseURL)
+                }.first
             } else { cover = nil }
             books.append(Book(title: title,
                               author: try text(config.authorSelector, in: row),
@@ -66,6 +67,33 @@ enum HTMLParsing {
             throw ReadingError.parsingFailed("没有找到目录链接。")
         }
         return try SourceURL.resolve(link.attr("href"), relativeTo: baseURL)
+    }
+
+    /// Search tables often omit artwork; inspect the actual book's detail page.
+    /// Never fall back to an arbitrary image (usually a site logo or an advert).
+    static func coverURL(_ html: String, baseURL: URL) throws -> URL? {
+        let document = try SwiftSoup.parse(html, baseURL.absoluteString)
+        for selector in ["meta[property=og:image]", "meta[name=og:image]", "meta[property=og:novel:image]", "meta[name=twitter:image]"] {
+            for element in try document.select(selector) {
+                if let url = resolvedImage(try element.attr("content"), relativeTo: baseURL) { return url }
+            }
+        }
+        for selector in ["#fmimg img", ".book-cover img", ".book-img img", ".book-info .cover img", ".book-info .image img", ".cover img", "img[src*='/files/article/image/']"] {
+            for image in try document.select(selector) {
+                for attribute in ["data-original", "data-src", "data-lazy-src", "src"] {
+                    if let url = resolvedImage(try image.attr(attribute), relativeTo: baseURL) { return url }
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func resolvedImage(_ value: String, relativeTo baseURL: URL) -> URL? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.lowercased().hasPrefix("data:"),
+              let url = try? SourceURL.resolve(value, relativeTo: baseURL),
+              !["logo", "loading", "nocover", "no-cover", "default", "blank", "spacer"].contains(where: { url.lastPathComponent.lowercased().contains($0) }) else { return nil }
+        return url
     }
 
     static func chapters(_ html: String, baseURL: URL, config: HTMLSourceConfiguration) throws -> [Chapter] {

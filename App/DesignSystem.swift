@@ -72,8 +72,10 @@ struct InlineNotice: View {
 }
 
 /// A cover that fills the proposed grid width. Fixed dimensions are optional.
-struct BookCoverView: View {
+@MainActor struct BookCoverView: View {
     let book: Book
+    @EnvironmentObject private var store: AppStore
+    @State private var artwork: UIImage?
     var width: CGFloat? = nil
     var height: CGFloat? = nil
     var aspectRatio: CGFloat = 0.72
@@ -96,15 +98,10 @@ struct BookCoverView: View {
         GeometryReader { geometry in
             ZStack {
                 fallbackCover(size: geometry.size)
-                if let coverURL = book.coverURL,
-                   coverURL.scheme == "https" || coverURL.scheme == "http" {
-                    AsyncImage(url: coverURL) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFill()
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                                .clipped()
-                        }
-                    }
+                if let image = artwork ?? BookCoverCache.shared.cachedImage(for: book) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
                 }
             }
         }
@@ -113,6 +110,11 @@ struct BookCoverView: View {
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(.black.opacity(0.04), lineWidth: 0.5))
         .accessibilityHidden(true)
+        .task(id: book) {
+            let loaded = await BookCoverCache.shared.image(for: book, sources: store.sources)
+            guard !Task.isCancelled else { return }
+            artwork = loaded
+        }
     }
 
     private func fallbackCover(size: CGSize) -> some View {

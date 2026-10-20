@@ -57,6 +57,12 @@ enum ReaderFont: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum SpeechEngine: String, Codable, CaseIterable, Identifiable {
+    case system, melo
+    var id: String { rawValue }
+    var name: String { self == .system ? "系统语音" : "离线 AI" }
+}
+
 struct ReaderSettings: Codable, Equatable {
     var fontSize: Double = 21
     var lineSpacing: Double = 9
@@ -69,13 +75,16 @@ struct ReaderSettings: Codable, Equatable {
     var followsSystemBrightness = true
     var brightness: Double = 0.55
     var speechRate: Double = 1
+    /// Empty means the best available on-device Chinese voice.
+    var speechVoiceIdentifier: String = ""
+    var speechEngine: SpeechEngine = .system
 
     var activeTheme: ReadingTheme { isNightMode ? .night : theme }
     init() {}
 
     private enum CodingKeys: String, CodingKey {
         case fontSize, lineSpacing, theme, isNightMode, turnMode, font, isBold
-        case horizontalMargin, followsSystemBrightness, brightness, speechRate
+        case horizontalMargin, followsSystemBrightness, brightness, speechRate, speechVoiceIdentifier, speechEngine
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +101,8 @@ struct ReaderSettings: Codable, Equatable {
         followsSystemBrightness = (try? values.decode(Bool.self, forKey: .followsSystemBrightness)) ?? true
         brightness = Self.bounded((try? values.decode(Double.self, forKey: .brightness)) ?? 0.55, in: 0.05...1, fallback: 0.55)
         speechRate = Self.bounded((try? values.decode(Double.self, forKey: .speechRate)) ?? 1, in: 0.6...1.8, fallback: 1)
+        speechVoiceIdentifier = (try? values.decode(String.self, forKey: .speechVoiceIdentifier)) ?? ""
+        speechEngine = (try? values.decode(SpeechEngine.self, forKey: .speechEngine)) ?? .system
     }
 
     private static func bounded(_ value: Double, in range: ClosedRange<Double>, fallback: Double) -> Double {

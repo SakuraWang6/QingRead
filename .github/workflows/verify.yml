@@ -18,6 +18,10 @@ jobs:
         run: bash scripts/verify-core.sh
       - name: Test device refresh safety checks
         run: python3 -m unittest discover -s scripts -p 'test_*refresh*.py' -v
+      - name: Test speech cursor, chunking and PCM
+        run: |
+          swiftc App/ReaderSpeechSupport.swift scripts/test-reader-speech.swift -o .build/reader-speech-tests
+          .build/reader-speech-tests
       - name: Build iPhone Simulator app
         run: >-
           xcodebuild build -project QingRead.xcodeproj -scheme QingRead

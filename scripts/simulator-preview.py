@@ -29,13 +29,29 @@ def main():
     run("xcrun", "simctl", "install", udid, str(app))
     directory = ROOT / ".build/previews"
     directory.mkdir(parents=True, exist_ok=True)
-    for index, screen in enumerate(["library", "search", "sources", "reader", "recommendations", "categories"]):
+    for index, screen in enumerate(["library", "search", "sources", "reader", "recommendations", "categories", "reader-controls", "catalog", "audio"]):
         if index:
             run("xcrun", "simctl", "terminate", udid, "app.qingread.personal")
-        arguments = [] if screen == "library" else ["--qingread-preview", screen]
-        launch = run("xcrun", "simctl", "launch", udid, "app.qingread.personal", *arguments)
+        if screen == "library":
+            arguments = ["--storage-self-test", "--cover-self-test", "--ai-self-test"]
+        elif screen in ["reader-controls", "catalog", "audio"]:
+            flag = {"reader-controls": "--reader-controls", "catalog": "--reader-catalog", "audio": "--reader-audio"}[screen]
+            arguments = ["--qingread-preview", "reader", flag]
+        else:
+            arguments = ["--qingread-preview", screen]
+            if screen == "reader": arguments.append("--reader-self-test")
+        stdout = directory / f"{screen}.stdout.log"
+        stderr = directory / f"{screen}.stderr.log"
+        launch = run("xcrun", "simctl", "launch", f"--stdout={stdout}", f"--stderr={stderr}", udid, "app.qingread.personal", *arguments)
         print(launch.strip())
         time.sleep(6)
+        markers = {"library": ["QINGREAD_STORAGE_SELFTEST", "QINGREAD_COVER_SELFTEST", "QINGREAD_AI_MODEL_SELFTEST"],
+                   "reader": ["QINGREAD_SPEECH_SELFTEST", "QINGREAD_READER_SELFTEST"]}.get(screen, [])
+        if markers:
+            output = stdout.read_text() if stdout.exists() else ""
+            if not all(marker in output for marker in markers):
+                raise SystemExit(f"Missing diagnostics for {screen}; inspect {stdout} and {stderr}")
+            print("Verified " + ", ".join(markers))
         destination = directory / f"{screen}.png"
         run("xcrun", "simctl", "io", udid, "screenshot", str(destination))
         print(f"Captured {device['name']} / {screen}: {destination}")

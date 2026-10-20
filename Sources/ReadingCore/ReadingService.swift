@@ -75,6 +75,13 @@ public actor ReadingService {
         }
     }
 
+    public func coverURL(for book: Book) async throws -> URL? {
+        let source = try source(for: book)
+        guard source.kind == .html, let config = source.html else { return book.coverURL }
+        let (data, response) = try await fetcher.data(at: book.url)
+        return try HTMLParsing.coverURL(HTMLParsing.decode(data, encoding: config.encoding), baseURL: response.url ?? book.url)
+    }
+
     public func content(for chapter: Chapter, in book: Book) async throws -> ChapterContent {
         let source = try source(for: book)
         switch source.kind {

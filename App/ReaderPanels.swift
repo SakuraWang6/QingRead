@@ -23,8 +23,8 @@ struct ReaderTopBar: View {
 struct ReaderBottomBar: View {
     let chapterTitle: String
     let chapterIndex: Int
-    let chapterCount: Int
-    let fraction: Double
+    let chapters: [Chapter]
+    let bookFraction: Double
     let isLoading: Bool
     let isNight: Bool
     let theme: ReadingTheme
@@ -34,20 +34,25 @@ struct ReaderBottomBar: View {
     let onSettings: () -> Void
     let onAudio: () -> Void
     let onNight: () -> Void
+    let onSeek: (Double) -> Void
+
+    private var chapterCount: Int { chapters.count }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 17) {
             HStack(spacing: 16) {
                 Button("上一章", action: onPrevious).disabled(chapterIndex <= 0 || isLoading)
                     .accessibilityIdentifier("reader.previousChapter")
                 VStack(spacing: 5) {
                     Text(chapterTitle).font(.system(size: 12)).lineLimit(1)
-                    Text("第 \(chapterIndex + 1) / \(max(1, chapterCount)) 章 · \(Int(fraction * 100))%")
+                    Text("第 \(chapterIndex + 1) / \(max(1, chapterCount)) 章")
                         .font(.system(size: 10)).opacity(0.5).monospacedDigit()
                 }.frame(maxWidth: .infinity)
                 Button("下一章", action: onNext).disabled(chapterIndex >= chapterCount - 1 || isLoading)
                     .accessibilityIdentifier("reader.nextChapter")
             }.font(.system(size: 13))
+            ReaderBookProgressControl(chapters: chapters, progress: bookFraction, theme: theme, onSeek: onSeek)
+                .disabled(chapters.isEmpty)
             HStack {
                 tool("目录", symbol: "list.bullet", id: "reader.catalog", action: onCatalog)
                     .disabled(chapterCount == 0)
@@ -68,6 +73,55 @@ struct ReaderBottomBar: View {
                 Text(title).font(.system(size: 12))
             }.frame(maxWidth: .infinity).padding(.vertical, 4)
         }.accessibilityIdentifier(id)
+    }
+}
+
+private struct ReaderBookProgressControl: View {
+    let chapters: [Chapter]
+    let progress: Double
+    let theme: ReadingTheme
+    let onSeek: (Double) -> Void
+    @State private var draft = 0.0
+    @State private var isDragging = false
+
+    private var displayedProgress: Double { isDragging ? draft : progress }
+    private var destination: ReaderBookProgress.Destination? {
+        ReaderBookProgress.destination(for: displayedProgress, chapterCount: chapters.count)
+    }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(isDragging ? previewTitle : "整书进度 · 基于章节估算")
+                    .lineLimit(1).accessibilityIdentifier("reader.bookProgress.description")
+                Spacer(minLength: 12)
+                Text(ReaderBookProgress.label(for: displayedProgress)).monospacedDigit()
+                    .accessibilityIdentifier("reader.bookProgress.value")
+            }.font(.system(size: 11)).foregroundStyle(theme.foreground.opacity(0.6))
+            Slider(value: Binding(get: { displayedProgress }, set: { draft = $0 }), in: 0...1) { editing in
+                if editing {
+                    isDragging = true
+                } else {
+                    onSeek(draft)
+                    isDragging = false
+                }
+            }
+            .tint(Palette.cinnabar)
+            .accessibilityLabel("整书进度，基于章节估算")
+            .accessibilityValue(ReaderBookProgress.label(for: displayedProgress))
+            .accessibilityIdentifier("reader.bookProgress.slider")
+            .accessibilityAdjustableAction { direction in
+                let step = direction == .increment ? 0.01 : -0.01
+                onSeek(min(1, max(0, progress + step)))
+            }
+        }
+        .onAppear { draft = progress }
+        .onChange(of: progress) { value in if !isDragging { draft = value } }
+    }
+
+    private var previewTitle: String {
+        guard let destination, chapters.indices.contains(destination.chapterIndex) else { return "整书进度 · 基于章节估算" }
+        return "第 \(destination.chapterIndex + 1) 章 · \(chapters[destination.chapterIndex].title)"
     }
 }
 
@@ -173,98 +227,264 @@ struct ReaderSettingsPanel: View {
     }
 }
 
-struct ReaderCatalogPanel: View {
+struct ReaderCatalogDrawer: View {
+    let book: Book
     let chapters: [Chapter]
     let currentID: String?
     let onSelect: (Int) -> Void
+    let onClose: () -> Void
     @EnvironmentObject private var store: AppStore
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     private var filtered: [Chapter] { query.isEmpty ? chapters : chapters.filter { $0.title.localizedCaseInsensitiveContains(query) } }
+    private var theme: ReadingTheme { store.settings.activeTheme }
 
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                List(filtered) { chapter in
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("目录").font(.system(size: 23, weight: .semibold))
+                        Text("共 \(chapters.count) 章").font(.system(size: 11)).opacity(0.5)
+                    }
+                    Spacer()
                     Button {
-                        if let index = chapters.firstIndex(where: { $0.id == chapter.id }) { onSelect(index) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text(chapter.title).font(.system(size: 15)).lineSpacing(5)
-                            Spacer(minLength: 8)
-                            if chapter.id == currentID { Image(systemName: "speaker.wave.1.fill").font(.system(size: 12)).foregroundStyle(Palette.cinnabar) }
-                        }.foregroundStyle(chapter.id == currentID ? Palette.cinnabar : store.settings.activeTheme.foreground)
-                            .padding(.vertical, 8)
+                        query = ""
+                        locateCurrent(using: proxy)
+                    } label: { Image(systemName: "location").frame(width: 40, height: 44) }
+                        .accessibilityLabel("定位当前章").accessibilityIdentifier("reader.catalog.locateCurrent")
+                    Button(action: onClose) { Image(systemName: "xmark").frame(width: 32, height: 44) }
+                        .accessibilityLabel("关闭目录").accessibilityIdentifier("reader.catalog.close")
+                }
+                .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 14)
+                HStack(spacing: 9) {
+                    Image(systemName: "magnifyingglass").opacity(0.45)
+                    TextField("查找章节", text: $query).font(.system(size: 14))
+                        .accessibilityIdentifier("reader.catalog.search")
+                    if !query.isEmpty {
+                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill").opacity(0.4) }
+                            .accessibilityLabel("清除章节搜索")
                     }
-                    .id(chapter.id).listRowBackground(store.settings.activeTheme.background)
-                    .accessibilityIdentifier(chapter.id == currentID ? "reader.catalog.current" : "reader.catalog.chapter.\(chapter.index)")
                 }
-                .listStyle(.plain).scrollContentBackground(.hidden)
-                .onAppear {
-                    if let currentID { DispatchQueue.main.async { proxy.scrollTo(currentID, anchor: .center) } }
-                }
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("当前章") { query = ""; if let currentID { withAnimation { proxy.scrollTo(currentID, anchor: .center) } } }
-                            .accessibilityIdentifier("reader.catalog.locateCurrent")
+                .padding(12).background(theme.foreground.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 18).padding(.bottom, 14)
+                Divider().opacity(0.3)
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filtered) { chapter in
+                            chapterRow(chapter).id(chapter.id)
+                        }
+                        if filtered.isEmpty {
+                            Text("没有找到这一章").font(.system(size: 13)).opacity(0.5).padding(.top, 32)
+                        }
                     }
-                    ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
-                }
+                }.scrollDismissesKeyboard(.interactively)
             }
-            .searchable(text: $query, prompt: "查找章节")
-            .background(store.settings.activeTheme.background)
-            .navigationTitle("目录 · \(chapters.count)章").navigationBarTitleDisplayMode(.inline)
+            .onAppear { locateCurrent(using: proxy, animated: false) }
+            .onChange(of: currentID) { _ in if query.isEmpty { locateCurrent(using: proxy, animated: false) } }
         }
-        .preferredColorScheme(store.settings.isNightMode ? .dark : .light)
+        .foregroundStyle(theme.foreground).background(theme.background.ignoresSafeArea())
+        .tint(Palette.cinnabar)
+        .accessibilityAction(.escape, onClose)
+        .simultaneousGesture(DragGesture(minimumDistance: 35).onEnded { value in
+            if value.translation.width < -70 && abs(value.translation.width) > abs(value.translation.height) * 1.4 { onClose() }
+        })
+    }
+
+    private func chapterRow(_ chapter: Chapter) -> some View {
+        let progress = store.chapterProgress(for: chapter, in: book)
+        let cacheState = store.cacheState(for: chapter, in: book)
+        let isCurrent = chapter.id == currentID
+        return Button {
+            if let index = chapters.firstIndex(where: { $0.id == chapter.id }) { onSelect(index) }
+        } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .firstTextBaseline, spacing: 9) {
+                    Text(chapter.title).font(.system(size: 14, weight: isCurrent ? .medium : .regular))
+                        .lineSpacing(4).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                    if isCurrent { Image(systemName: "book.pages").font(.system(size: 12)) }
+                }
+                HStack(spacing: 7) {
+                    Text(progress.map { "已读 \(Int(min(1, max(0, $0)) * 100))%" } ?? "未读")
+                        .monospacedDigit().accessibilityIdentifier("reader.catalog.progress.\(chapter.index)")
+                    Spacer()
+                    cacheLabel(cacheState).accessibilityIdentifier("reader.catalog.cache.\(chapter.index)")
+                }.font(.system(size: 10)).foregroundStyle(theme.foreground.opacity(0.5))
+            }
+            .foregroundStyle(isCurrent ? Palette.cinnabar : theme.foreground)
+            .padding(.horizontal, 22).padding(.vertical, 16)
+            .background(isCurrent ? Palette.cinnabar.opacity(0.065) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { Divider().opacity(0.2).padding(.horizontal, 22) }
+        .accessibilityIdentifier(isCurrent ? "reader.catalog.current" : "reader.catalog.chapter.\(chapter.index)")
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
+    }
+
+    @ViewBuilder private func cacheLabel(_ state: ChapterCacheState) -> some View {
+        switch state {
+        case .cached:
+            Label("已缓存", systemImage: "checkmark.circle")
+        case .loading:
+            HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("缓存中") }
+        case .uncached:
+            Label("未缓存", systemImage: "arrow.down.circle")
+        }
+    }
+
+    private func locateCurrent(using proxy: ScrollViewProxy, animated: Bool = true) {
+        guard let currentID else { return }
+        DispatchQueue.main.async {
+            if animated { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(currentID, anchor: .center) } }
+            else { proxy.scrollTo(currentID, anchor: .center) }
+        }
     }
 }
 
 struct ReaderAudioPanel: View {
     @ObservedObject var speech: ReaderSpeechController
+    @ObservedObject private var modelManager = AIModelManager.shared
     let chapterTitle: String
     let chapterIndex: Int
     let chapterCount: Int
     @EnvironmentObject private var store: AppStore
     private var isPlaying: Bool { speech.state == .playing }
     var body: some View {
-        VStack(spacing: 23) {
-            HStack {
-                Image(systemName: "headphones").font(.system(size: 21))
-                Text("听书").font(.system(size: 21, weight: .semibold))
-                Spacer()
-                Button("停止") { speech.stop() }.font(.system(size: 13)).accessibilityIdentifier("reader.audio.stop")
+        ScrollView {
+            VStack(spacing: 23) {
+                HStack {
+                    Image(systemName: "headphones").font(.system(size: 21))
+                    Text("听书").font(.system(size: 21, weight: .semibold))
+                    Spacer()
+                    Button("停止") { speech.stop() }.font(.system(size: 13)).accessibilityIdentifier("reader.audio.stop")
+                }
+                VStack(spacing: 7) {
+                    Text(chapterTitle).font(.system(size: 16, weight: .medium)).lineLimit(1)
+                    Text(speech.state == .waiting ? "正在准备朗读…" : "第 \(speech.paragraphIndex + 1) / \(max(1, speech.paragraphCount)) 段 · \(store.settings.speechEngine == .system ? "系统中文语音" : "Melo 离线 AI")")
+                        .font(.system(size: 12)).opacity(0.55)
+                }
+                HStack(spacing: 0) {
+                    audioButton("上一章", symbol: "backward.end", id: "reader.audio.previousChapter") { speech.requestChapter(-1) }.disabled(chapterIndex <= 0)
+                    audioButton("上一段", symbol: "gobackward", id: "reader.audio.previousParagraph") { speech.moveParagraph(-1) }
+                    Button { speech.toggle() } label: {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill").font(.system(size: 25))
+                            .frame(width: 62, height: 62).foregroundStyle(store.settings.activeTheme.background)
+                            .background(store.settings.activeTheme.foreground, in: Circle())
+                    }.accessibilityLabel(isPlaying ? "暂停听书" : "开始或继续听书").accessibilityIdentifier("reader.audio.playPause")
+                        .disabled(speech.state == .waiting)
+                    audioButton("下一段", symbol: "goforward", id: "reader.audio.nextParagraph") { speech.moveParagraph(1) }
+                    audioButton("下一章", symbol: "forward.end", id: "reader.audio.nextChapter") { speech.requestChapter(1) }.disabled(chapterIndex >= chapterCount - 1)
+                }
+                HStack(spacing: 15) {
+                    Text("语速").font(.system(size: 13))
+                    Slider(value: Binding(get: { store.settings.speechRate }, set: { value in
+                        var updated = store.settings; updated.speechRate = value; store.updateSettings(updated)
+                    }), in: 0.6...1.8, step: 0.1).accessibilityIdentifier("reader.audio.rate")
+                    Text(String(format: "%.1f×", store.settings.speechRate)).font(.system(size: 12)).monospacedDigit().frame(width: 36)
+                }
+                engineSettings
+                if store.settings.speechEngine == .system { systemVoicePicker }
+                Text(speech.message ?? "锁屏后可继续收听，播完本章自动续章。退出阅读器后停止。")
+                    .font(.system(size: 11)).lineSpacing(4).opacity(0.55).multilineTextAlignment(.center)
             }
-            VStack(spacing: 7) {
-                Text(chapterTitle).font(.system(size: 16, weight: .medium)).lineLimit(1)
-                Text(speech.state == .waiting ? "正在打开下一章…" : "第 \(speech.paragraphIndex + 1) / \(max(1, speech.paragraphCount)) 段 · 系统中文语音")
-                    .font(.system(size: 12)).opacity(0.55)
-            }
-            HStack(spacing: 0) {
-                audioButton("上一章", symbol: "backward.end", id: "reader.audio.previousChapter") { speech.requestChapter(-1) }.disabled(chapterIndex <= 0)
-                audioButton("上一段", symbol: "gobackward", id: "reader.audio.previousParagraph") { speech.moveParagraph(-1) }
-                Button { speech.toggle() } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill").font(.system(size: 25))
-                        .frame(width: 62, height: 62).foregroundStyle(store.settings.activeTheme.background)
-                        .background(store.settings.activeTheme.foreground, in: Circle())
-                }.accessibilityLabel(isPlaying ? "暂停听书" : "开始或继续听书").accessibilityIdentifier("reader.audio.playPause")
-                    .disabled(speech.state == .waiting)
-                audioButton("下一段", symbol: "goforward", id: "reader.audio.nextParagraph") { speech.moveParagraph(1) }
-                audioButton("下一章", symbol: "forward.end", id: "reader.audio.nextChapter") { speech.requestChapter(1) }.disabled(chapterIndex >= chapterCount - 1)
-            }
-            HStack(spacing: 15) {
-                Text("语速").font(.system(size: 13))
-                Slider(value: Binding(get: { store.settings.speechRate }, set: { value in
-                    var updated = store.settings; updated.speechRate = value; store.updateSettings(updated)
-                }), in: 0.6...1.8, step: 0.1).accessibilityIdentifier("reader.audio.rate")
-                Text(String(format: "%.1f×", store.settings.speechRate)).font(.system(size: 12)).monospacedDigit().frame(width: 36)
-            }
-            Text(speech.message ?? "锁屏后可继续收听，播完本章自动续章。退出阅读器后停止。")
-                .font(.system(size: 11)).lineSpacing(4).opacity(0.55).multilineTextAlignment(.center)
+            .foregroundStyle(store.settings.activeTheme.foreground).padding(24)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .foregroundStyle(store.settings.activeTheme.foreground).padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(store.settings.activeTheme.background)
         .tint(Palette.cinnabar)
+        .onAppear { speech.refreshVoices() }
+    }
+
+    private var systemVoicePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("音色").font(.system(size: 13))
+                Spacer()
+                Picker("中文系统音色", selection: Binding(get: { store.settings.speechVoiceIdentifier }, set: { value in
+                    var updated = store.settings; updated.speechVoiceIdentifier = value; store.updateSettings(updated)
+                })) {
+                    Text("自动 · 优先增强音色").tag("")
+                    ForEach(speech.availableVoices) { voice in
+                        Text("\(voice.name) · \(voice.qualityLabel)").tag(voice.id)
+                    }
+                }.pickerStyle(.menu).labelsHidden().font(.system(size: 13)).lineLimit(1)
+                    .accessibilityIdentifier("reader.audio.voice")
+            }
+            if store.settings.speechVoiceIdentifier.isEmpty, let voice = speech.automaticVoice {
+                Text("自动选择：\(voice.name) · \(voice.qualityLabel)")
+                    .font(.system(size: 10)).opacity(0.5)
+            }
+        }
+    }
+
+    private var engineSettings: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 10) {
+                engineButton("系统语音", engine: .system, enabled: true)
+                engineButton("离线 AI · Melo", engine: .melo, enabled: aiModelReady)
+            }
+            switch modelManager.state {
+            case .missing:
+                downloadButton
+            case .downloading(let progress):
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("正在下载声库 · \(Int(min(1, max(0, progress)) * 100))%")
+                        Spacer()
+                        Button("取消") { modelManager.cancelDownload() }.accessibilityIdentifier("reader.audio.ai.cancel")
+                    }.font(.system(size: 11))
+                    ProgressView(value: min(1, max(0, progress))).tint(Palette.cinnabar)
+                }
+            case .ready:
+                HStack {
+                    Text("Melo 声库已就绪 · 单一中文音色").font(.system(size: 11)).opacity(0.6)
+                    Spacer(minLength: 8)
+                    Button("删除声库") {
+                        speech.stop()
+                        selectEngine(.system)
+                        modelManager.remove()
+                    }.font(.system(size: 11)).accessibilityIdentifier("reader.audio.ai.remove")
+                }
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message).font(.system(size: 11)).opacity(0.6).lineLimit(3)
+                    downloadButton
+                }
+            }
+            if !aiModelReady {
+                Text("声库约 61 MB，下载后在本机离线运行，提供一种中文音色。")
+                    .font(.system(size: 10)).opacity(0.5)
+            }
+        }
+    }
+
+    private var aiModelReady: Bool {
+        if case .ready = modelManager.state { return true }
+        return false
+    }
+    private var downloadButton: some View {
+        Button { modelManager.download() } label: {
+            Label("下载 AI 声库 · 约 61 MB", systemImage: "arrow.down.circle")
+                .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+        }.accessibilityIdentifier("reader.audio.ai.download")
+    }
+    private func engineButton(_ title: String, engine: SpeechEngine, enabled: Bool) -> some View {
+        Button { selectEngine(engine) } label: {
+            Text(title).font(.system(size: 12, weight: .medium))
+                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                .background(store.settings.speechEngine == engine ? Palette.cinnabar.opacity(0.12) : store.settings.activeTheme.foreground.opacity(0.04),
+                            in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(store.settings.speechEngine == engine ? Palette.cinnabar.opacity(0.6) : Color.clear, lineWidth: 1))
+        }
+        .disabled(!enabled)
+        .accessibilityAddTraits(store.settings.speechEngine == engine ? .isSelected : [])
+        .accessibilityIdentifier(engine == .system ? "reader.audio.engine.system" : "reader.audio.engine.melo")
+    }
+    private func selectEngine(_ engine: SpeechEngine) {
+        guard engine == .system || aiModelReady else { return }
+        var updated = store.settings
+        updated.speechEngine = engine
+        store.updateSettings(updated)
     }
     private func audioButton(_ label: String, symbol: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {

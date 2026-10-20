@@ -18,6 +18,8 @@ struct ShelfEntry: Codable, Identifiable {
     let addedAt: Date
 }
 
+enum ChapterCacheState { case uncached, loading, cached }
+
 private struct SavedSources: Codable {
     var imported: [SourceDefinition] = []
     var disabledIDs: Set<String> = []
@@ -37,11 +39,24 @@ final class AppStore: ObservableObject {
     private let cacheRoot: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private var chapterProgresses: [String: [String: Double]] = [:]
+    private struct ContentRequest {
+        let id: UUID
+        let bookID: String
+        let task: Task<ChapterContent, Error>
+    }
+    private var contentRequests: [String: ContentRequest] = [:]
+    private var prefetchTask: Task<Void, Never>?
+    private var prefetchBookID: String?
+    private let contentClient: any HTTPClient
+    private var cacheGeneration = UUID()
+    private var bookCacheGenerations: [String: UUID] = [:]
 
-    init() {
+    init(storageRoot: URL? = nil, client: any HTTPClient = URLSessionHTTPClient()) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        root = base.appendingPathComponent("QingRead", isDirectory: true)
+        root = storageRoot ?? base.appendingPathComponent("QingRead", isDirectory: true)
         cacheRoot = root.appendingPathComponent("ChapterCache", isDirectory: true)
+        contentClient = client
         encoder.outputFormatting = [.sortedKeys]
         do {
             try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
@@ -52,6 +67,13 @@ final class AppStore: ObservableObject {
                 rebuildSources()
             }
             settings = try read(ReaderSettings.self, name: "reader-settings.json") ?? ReaderSettings()
+            chapterProgresses = try read([String: [String: Double]].self, name: "chapter-progress.json") ?? [:]
+            // A legacy position proves only that specific chapter was visited.
+            for entry in shelf {
+                if let position = entry.position, chapterProgresses[entry.id]?[position.chapterID] == nil {
+                    chapterProgresses[entry.id, default: [:]][position.chapterID] = min(1, max(0, position.chapterFraction))
+                }
+            }
             settings.fontSize = min(34, max(16, settings.fontSize))
             settings.lineSpacing = min(22, max(4, settings.lineSpacing))
         } catch {
@@ -77,8 +99,13 @@ final class AppStore: ObservableObject {
     }
 
     func remove(_ book: Book) {
+        bookCacheGenerations[book.id] = UUID()
+        cancelPrefetch(for: book)
+        cancelContentRequests(for: book.id)
         shelf.removeAll { $0.id == book.id }
         persist(shelf, name: "library.json")
+        chapterProgresses.removeValue(forKey: book.id)
+        persist(chapterProgresses, name: "chapter-progress.json")
         do {
             let directory = bookCacheDirectory(book)
             if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
@@ -96,6 +123,17 @@ final class AppStore: ObservableObject {
             shelf.append(ShelfEntry(book: book, position: position, addedAt: Date()))
         }
         persist(shelf, name: "library.json")
+        let furthest = max(chapterProgresses[book.id]?[chapter.id] ?? 0, position.chapterFraction)
+        chapterProgresses[book.id, default: [:]][chapter.id] = furthest
+        persist(chapterProgresses, name: "chapter-progress.json")
+    }
+
+    func chapterProgress(for chapter: Chapter, in book: Book) -> Double? { chapterProgresses[book.id]?[chapter.id] }
+
+    func markChapterCompleted(_ chapter: Chapter, in book: Book) {
+        chapterProgresses[book.id, default: [:]][chapter.id] = 1
+        persist(chapterProgresses, name: "chapter-progress.json")
+        cacheRevision += 1
     }
 
     func updateSettings(_ updated: ReaderSettings) {
@@ -144,8 +182,11 @@ final class AppStore: ObservableObject {
         if book.id == LocalSample.book.id { return LocalSample.chapters }
         let cache = bookCacheDirectory(book).appendingPathComponent("catalog.json")
         if !refresh, let chapters = try? decoder.decode([Chapter].self, from: Data(contentsOf: cache)), !chapters.isEmpty { return chapters }
-        let chapters = try await ReadingService(sources: sources).chapters(for: book)
+        let generation = cacheGeneration
+        let bookGeneration = bookCacheGenerations[book.id]
+        let chapters = try await ReadingService(sources: sources, client: contentClient).chapters(for: book)
         try Task.checkCancellation()
+        guard cacheGeneration == generation, bookCacheGenerations[book.id] == bookGeneration else { return chapters }
         do { try writeCache(chapters, to: cache) }
         catch { storageMessage = "目录已获取，但离线保存失败：\(error.localizedDescription)" }
         return chapters
@@ -155,13 +196,72 @@ final class AppStore: ObservableObject {
         if book.id == LocalSample.book.id { return LocalSample.content }
         let cache = contentURL(chapter: chapter, book: book)
         if let content = try? decoder.decode(ChapterContent.self, from: Data(contentsOf: cache)), !content.paragraphs.isEmpty { return content }
-        let content = try await ReadingService(sources: sources).content(for: chapter, in: book)
+        let key = cache.path
+        if let existing = contentRequests[key] {
+            let result = try await existing.task.value
+            try Task.checkCancellation()
+            return result
+        }
+        let id = UUID()
+        let service = ReadingService(sources: sources, client: contentClient)
+        let task = Task { @MainActor [weak self] () throws -> ChapterContent in
+            defer {
+                if self?.contentRequests[key]?.id == id {
+                    self?.contentRequests.removeValue(forKey: key)
+                    self?.cacheRevision += 1
+                }
+            }
+            let content = try await service.content(for: chapter, in: book)
+            try Task.checkCancellation()
+            guard let self else { throw CancellationError() }
+            do {
+                try self.writeCache(content, to: cache)
+                self.cacheRevision += 1
+            } catch { self.storageMessage = "正文已获取，但离线保存失败：\(error.localizedDescription)" }
+            return content
+        }
+        contentRequests[key] = ContentRequest(id: id, bookID: book.id, task: task)
+        cacheRevision += 1
+        let content = try await task.value
         try Task.checkCancellation()
-        do {
-            try writeCache(content, to: cache)
-            cacheRevision += 1
-        } catch { storageMessage = "正文已获取，但离线保存失败：\(error.localizedDescription)" }
         return content
+    }
+
+    func cacheState(for chapter: Chapter, in book: Book) -> ChapterCacheState {
+        if hasCachedContent(for: chapter, in: book) { return .cached }
+        return contentRequests[contentURL(chapter: chapter, book: book).path] == nil ? .uncached : .loading
+    }
+
+    /// A small sequential look-ahead, never a whole-book crawl. Foreground loads
+    /// share requests with this queue instead of downloading a chapter twice.
+    func prefetchChapters(after index: Int, chapters: [Chapter], in book: Book, count: Int = 10) {
+        prefetchTask?.cancel()
+        prefetchBookID = book.id
+        guard book.id != LocalSample.book.id, chapters.indices.contains(index), enabledSourceIDs.contains(book.sourceID) else { return }
+        let upcoming = Array(chapters.dropFirst(index + 1).prefix(min(10, max(0, count))))
+        prefetchTask = Task { @MainActor [weak self] in
+            for chapter in upcoming {
+                guard !Task.isCancelled, let self, self.enabledSourceIDs.contains(book.sourceID) else { return }
+                if self.hasCachedContent(for: chapter, in: book) { continue }
+                do { _ = try await self.content(for: chapter, in: book) }
+                catch is CancellationError { return }
+                catch { return } // An unavailable source must not cause repeated background traffic.
+            }
+        }
+    }
+
+    func cancelPrefetch(for book: Book) {
+        guard prefetchBookID == book.id else { return }
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        prefetchBookID = nil
+    }
+
+    private func cancelContentRequests(for bookID: String? = nil) {
+        for (key, request) in contentRequests where bookID == nil || request.bookID == bookID {
+            request.task.cancel()
+            contentRequests.removeValue(forKey: key)
+        }
     }
 
     func cachedCount(for book: Book) -> Int {
@@ -176,6 +276,10 @@ final class AppStore: ObservableObject {
     }
 
     func clearCache() {
+        cacheGeneration = UUID()
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        cancelContentRequests()
         do {
             if FileManager.default.fileExists(atPath: cacheRoot.path) { try FileManager.default.removeItem(at: cacheRoot) }
             try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)

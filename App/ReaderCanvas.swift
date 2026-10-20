@@ -243,7 +243,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     private func report(settled: Bool) {
         guard let document else { return }
         anchor = currentUTF16()
-        let atEnd = settings.turnMode == .scroll ? vertical.contentOffset.y >= max(0, vertical.contentSize.height - vertical.bounds.height) - 2 : pageIndex == pageRanges.count - 1
+        // Arriving at the last page does not prove that page has been read.
+        // Chapter completion is recorded only when moving past its boundary.
+        let atEnd = settings.turnMode == .scroll && vertical.contentOffset.y >= max(0, vertical.contentSize.height - vertical.bounds.height) - 2
         let fraction = atEnd ? 1 : Double(anchor) / Double(max(1, document.text.length))
         let offset = anchor
         let currentPage = settings.turnMode == .scroll ? 0 : pageIndex + 1

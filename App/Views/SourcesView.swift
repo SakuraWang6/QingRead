@@ -8,6 +8,7 @@ struct SourcesView: View {
     @State private var showTextImport = false
     @State private var showFormat = false
     @State private var showClearConfirmation = false
+    @State private var showLicenses = false
     @State private var removingSource: SourceDefinition?
     @State private var importMessage: String?
     @State private var importFailed = false
@@ -72,6 +73,8 @@ struct SourcesView: View {
                         Button("清理") { showClearConfirmation = true }.font(.system(size: 13)).foregroundStyle(Palette.cinnabar).padding(.leading, 8)
                     }
                 }
+                Button("开源许可") { showLicenses = true }
+                    .font(.system(size: 12)).foregroundStyle(Palette.secondary)
             }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 24)
         }
         .background(Palette.paper)
@@ -92,6 +95,7 @@ struct SourcesView: View {
             SourceTextImportView { data in try importData(data) }
         }
         .sheet(isPresented: $showFormat) { SourceFormatView() }
+        .sheet(isPresented: $showLicenses) { ThirdPartyNoticesView() }
         .confirmationDialog("清理所有已缓存的网络章节？", isPresented: $showClearConfirmation, titleVisibility: .visible) {
             Button("清理缓存", role: .destructive) { store.clearCache() }
             Button("取消", role: .cancel) { }
@@ -109,6 +113,22 @@ struct SourcesView: View {
         let count = try store.importSources(data: data)
         importFailed = false
         importMessage = "已导入 \(count) 个书源并启用。同 ID 的导入书源已更新。"
+    }
+}
+
+private struct ThirdPartyNoticesView: View {
+    @Environment(\.dismiss) private var dismiss
+    private var notices: String {
+        guard let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return "许可声明未随构建打包，请查看仓库中的 App/Resources/ThirdPartyNotices.txt。" }
+        return text
+    }
+    var body: some View {
+        NavigationStack {
+            ScrollView { Text(notices).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(20) }
+                .navigationTitle("开源许可").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
     }
 }
 

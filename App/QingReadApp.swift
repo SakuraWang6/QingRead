@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin
 
 @main
 struct QingReadApp: App {
@@ -28,6 +29,10 @@ private struct RootView: View {
                 guard !previewConfigured else { return }
                 previewConfigured = true
                 let arguments = ProcessInfo.processInfo.arguments
+                if arguments.contains(where: { $0.hasSuffix("self-test") }) { setbuf(stdout, nil) }
+                if arguments.contains("--storage-self-test") { await StoreDiagnostics.run() }
+                if arguments.contains("--cover-self-test") { await CoverDiagnostics.run() }
+                if arguments.contains("--ai-self-test") { await AIVoiceDiagnostics.run(downloadModel: arguments.contains("--download-ai-model")) }
                 guard let flag = arguments.firstIndex(of: "--qingread-preview"),
                       arguments.indices.contains(flag + 1) else { return }
                 switch arguments[flag + 1] {

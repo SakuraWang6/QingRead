@@ -21,6 +21,7 @@ def main():
         raise SystemExit("No App Swift sources found")
     assets = "App/Assets.xcassets"
     resources = [assets] if (ROOT / assets).exists() else []
+    resources += sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "App/Resources").rglob("*") if path.is_file())
     files = sources + resources + ["Config/App.xcconfig"]
     objects = []
 
@@ -39,7 +40,10 @@ def main():
     add("resource-phase", f"isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({', '.join(uid('build:' + p) for p in resources)}); runOnlyForDeploymentPostprocessing = 0;")
     add("core-product", f"isa = XCSwiftPackageProductDependency; package = {uid('local-package')}; productName = ReadingCore;")
     add("core-build", f"isa = PBXBuildFile; productRef = {uid('core-product')};")
-    add("framework-phase", f"isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({uid('core-build')}); runOnlyForDeploymentPostprocessing = 0;")
+    add("speech-package", 'isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/k2-fsa/sherpa-onnx"; requirement = { kind = revision; revision = 11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf; };')
+    add("speech-product", f'isa = XCSwiftPackageProductDependency; package = {uid("speech-package")}; productName = "sherpa-onnx";')
+    add("speech-build", f"isa = PBXBuildFile; productRef = {uid('speech-product')};")
+    add("framework-phase", f"isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({uid('core-build')}, {uid('speech-build')}); runOnlyForDeploymentPostprocessing = 0;")
     add("local-package", 'isa = XCLocalSwiftPackageReference; relativePath = .;')
     for owner in ["project", "app"]:
         for mode in ["Debug", "Release"]:
@@ -54,8 +58,8 @@ def main():
             base = f"baseConfigurationReference = {uid('file:Config/App.xcconfig')};" if owner == "app" else ""
             add(owner + ":" + mode, f"isa = XCBuildConfiguration; {base} buildSettings = {{ {settings} }}; name = {mode};")
         add(owner + "-configs", f"isa = XCConfigurationList; buildConfigurations = ({uid(owner + ':Debug')}, {uid(owner + ':Release')}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;")
-    add("app-target", f"isa = PBXNativeTarget; buildConfigurationList = {uid('app-configs')}; buildPhases = ({uid('source-phase')}, {uid('framework-phase')}, {uid('resource-phase')}); buildRules = (); dependencies = (); name = QingRead; packageProductDependencies = ({uid('core-product')}); productName = QingRead; productReference = {uid('product')}; productType = \"com.apple.product-type.application\";")
-    add("project", f"isa = PBXProject; attributes = {{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600; TargetAttributes = {{ {uid('app-target')} = {{ CreatedOnToolsVersion = 16.0; }}; }}; }}; buildConfigurationList = {uid('project-configs')}; compatibilityVersion = \"Xcode 14.0\"; developmentRegion = zh-Hans; hasScannedForEncodings = 0; knownRegions = (en, \"zh-Hans\", Base); mainGroup = {uid('root-group')}; packageReferences = ({uid('local-package')}); productRefGroup = {uid('products-group')}; projectDirPath = \"\"; projectRoot = \"\"; targets = ({uid('app-target')});")
+    add("app-target", f"isa = PBXNativeTarget; buildConfigurationList = {uid('app-configs')}; buildPhases = ({uid('source-phase')}, {uid('framework-phase')}, {uid('resource-phase')}); buildRules = (); dependencies = (); name = QingRead; packageProductDependencies = ({uid('core-product')}, {uid('speech-product')}); productName = QingRead; productReference = {uid('product')}; productType = \"com.apple.product-type.application\";")
+    add("project", f"isa = PBXProject; attributes = {{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600; TargetAttributes = {{ {uid('app-target')} = {{ CreatedOnToolsVersion = 16.0; }}; }}; }}; buildConfigurationList = {uid('project-configs')}; compatibilityVersion = \"Xcode 14.0\"; developmentRegion = zh-Hans; hasScannedForEncodings = 0; knownRegions = (en, \"zh-Hans\", Base); mainGroup = {uid('root-group')}; packageReferences = ({uid('local-package')}, {uid('speech-package')}); productRefGroup = {uid('products-group')}; projectDirPath = \"\"; projectRoot = \"\"; targets = ({uid('app-target')});")
     project = ROOT / "QingRead.xcodeproj"
     project.mkdir(exist_ok=True)
     (project / "project.pbxproj").write_text("// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 56;\n\tobjects = {\n" + "\n".join(objects) + f"\n\t}};\n\trootObject = {uid('project')};\n}}\n")
