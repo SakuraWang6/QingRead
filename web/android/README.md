@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.6.0 / versionCode 3**，加入账号同步与 Android KeyStore 加密登录保存。本机无 Android SDK，尚未在模拟器或真机运行。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.7.0 / versionCode 4**，加入账号同步与 Android KeyStore 加密登录保存。本机无 Android SDK，尚未在模拟器或真机运行。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 
@@ -24,7 +24,7 @@ cd android
 
 页面原点固定为 `https://localhost`，表示 APK 内页面，与远程服务器不同。在「设置 → 服务器连接」填写自己部署的 HTTPS 地址，再在「账号与同步」注册或登录。手动构建可通过 `VITE_API_BASE` 指定自己的默认服务，公开源码没有预设服务器。后端允许 Capacitor 的 `https://localhost` Origin，App 不开放明文 HTTP。
 
-同一服务器、同一账号同步书架和当前阅读位置。勾选记住登录时，令牌经 Android KeyStore 加密保存；密码不保存。未登录书架需要主动合并，账号切换使用独立本地存储。整本文件与正文缓存不上传，另一设备需要重新下载或导入同一份文件，见 [同步说明](../../docs/cloud-sync.md)。
+同一服务器、同一账号同步书架和当前阅读位置。勾选记住登录时，令牌经 Android KeyStore 加密保存；密码不保存。未登录书架需要主动合并，账号切换使用独立本地存储。整本原文件按账号自动上传，另一设备点击书籍会下载原文件后继续读；网站章节缓存不上传，见 [同步说明](../../docs/cloud-sync.md)。
 
 原生壳不注册 PWA ServiceWorker，页面与 PDF 资源随 APK 打包，已导入文件和章节缓存可离线阅读。部分海外大文件下载可能受服务器网络限制。
 

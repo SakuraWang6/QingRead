@@ -7,6 +7,8 @@ import type { ShelfEntry } from '../src/shared/types.js';
 import { anchorFormat, newestPosition, type CloudUser, type CloudSession, type CloudRecord, type CloudSnapshot } from '../src/shared/sync.js';
 import { parseMutations } from './cloud-schema.js';
 import { ServiceError } from './network.js';
+import type { StoredFile } from './files.js';
+import type { Book } from '../src/shared/types.js';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 const sessionLife = 30 * 24 * 60 * 60_000;
@@ -37,8 +39,14 @@ export class CloudDatabase {
       CREATE TABLE IF NOT EXISTS shelf(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, book_id TEXT NOT NULL, entry TEXT, revision INTEGER NOT NULL, changed_at TEXT NOT NULL, membership_at TEXT NOT NULL, PRIMARY KEY(user_id,book_id));
       CREATE INDEX IF NOT EXISTS shelf_changes ON shelf(user_id,revision);
       CREATE TABLE IF NOT EXISTS receipts(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, operation_id TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(user_id,operation_id));
-      CREATE INDEX IF NOT EXISTS receipt_age ON receipts(user_id,created);`);
+      CREATE INDEX IF NOT EXISTS receipt_age ON receipts(user_id,created);
+      CREATE TABLE IF NOT EXISTS cloud_files(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,hash TEXT NOT NULL,bytes INTEGER NOT NULL,format TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,hash));`);
   }
+  fileBooks(user:CloudUser):Book[]{return (this.db.prepare('SELECT entry FROM shelf WHERE user_id=? AND entry IS NOT NULL').all(user.id) as {entry:string}[]).map(row=>(JSON.parse(row.entry) as ShelfEntry).book);}
+  fileRows(user:CloudUser):StoredFile[]{return this.db.prepare('SELECT hash,bytes,format,updated_at AS updatedAt FROM cloud_files WHERE user_id=?').all(user.id) as unknown as StoredFile[];}
+  fileUsage(user?:CloudUser){return Number((user?this.db.prepare('SELECT coalesce(sum(bytes),0) AS n FROM cloud_files WHERE user_id=?').get(user.id):this.db.prepare('SELECT coalesce(sum(bytes),0) AS n FROM cloud_files').get())?.n??0);}
+  saveFile(user:CloudUser,file:StoredFile){this.db.prepare('INSERT INTO cloud_files VALUES(?,?,?,?,?) ON CONFLICT(user_id,hash) DO UPDATE SET bytes=excluded.bytes,format=excluded.format,updated_at=excluded.updated_at').run(user.id,file.hash,file.bytes,file.format,file.updatedAt);}
+  forgetFile(user:CloudUser,hash:string){this.db.prepare('DELETE FROM cloud_files WHERE user_id=? AND hash=?').run(user.id,hash);}
   close() { this.db.close(); }
   private session(user: CloudUser): CloudSession {
     const token = randomBytes(32).toString('base64url'), now = Date.now();

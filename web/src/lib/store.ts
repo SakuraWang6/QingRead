@@ -77,7 +77,7 @@ export class BrowserLibrary {
       const raw:unknown=await db.get('meta','state');
       const saved=record(raw)?raw:undefined;
       const shelf:ShelfEntry[]=[];let isolated=0;
-      if(raw===undefined&&!this.cloudEnabled)shelf.push({book:sampleBook,addedAt:new Date().toISOString()});
+      if(raw===undefined){if(!this.cloudEnabled)shelf.push({book:sampleBook,addedAt:new Date().toISOString()});}
       else if(Array.isArray(saved?.shelf))for(const entry of saved.shelf){try{shelf.push(shelfEntry(entry));}catch{isolated++;}}
       else isolated++;
       if(isolated){

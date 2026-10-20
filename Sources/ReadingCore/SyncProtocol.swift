@@ -70,3 +70,17 @@ public enum CloudJSON {
         return decoder
     }
 }
+
+public struct CloudFile: Codable, Sendable {
+    public let bookID: String
+    public let hash: String
+    public let bytes: Int
+    public let format: BookFileFormat
+    public let updatedAt: Date
+}
+public struct CloudFileSnapshot: Codable, Sendable {
+    public let files: [CloudFile]
+    public let usedBytes: Int
+    public let limitBytes: Int
+    public let maxFileBytes: Int
+}

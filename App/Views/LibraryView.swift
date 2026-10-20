@@ -80,7 +80,7 @@ struct LibraryView: View {
                 if store.shelf.isEmpty { isManaging = false }
             }
             Button("取消", role: .cancel) { removingBook = nil }
-        } message: { Text("该书的阅读进度与离线缓存也会移除。") }
+        } message: { Text("阅读进度、离线缓存和云端文件也会删除。") }
     }
 
     private func shelfCell(_ entry: ShelfEntry) -> some View {

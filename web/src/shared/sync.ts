@@ -26,3 +26,6 @@ export function newestPosition(a?: ReadingPosition, b?: ReadingPosition): Readin
   if (!b) return a;
   return Date.parse(b.updatedAt) >= Date.parse(a.updatedAt) ? b : a;
 }
+
+export interface CloudFile { bookID:string; hash:string; bytes:number; format:'epub'|'pdf'|'txt'; updatedAt:string }
+export interface CloudFileSnapshot { files:CloudFile[];usedBytes:number;limitBytes:number;maxFileBytes:number }

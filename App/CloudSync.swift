@@ -38,6 +38,10 @@ final class NativeCloudSync: ObservableObject {
     @Published private(set) var message=""
     @Published private(set) var lastSync: Date?
     @Published private(set) var needsLogin=false
+    @Published private(set) var files: [CloudFile] = []
+    @Published private(set) var fileBusy = false
+    @Published private(set) var fileMessage = ""
+    @Published private(set) var usedBytes = 0
     @Published var address: String
     private weak var store: AppStore?
     private var session: CloudSession?
@@ -48,6 +52,8 @@ final class NativeCloudSync: ObservableObject {
     private var syncing=false
     private var debounce: Task<Void,Never>?
     private var polling: Task<Void,Never>?
+    private var fileTask: Task<Void,Never>?
+    private var downloads: [String:Task<Book,Error>] = [:]
     private let http=URLSession(configuration:.ephemeral,delegate:CloudRedirectGuard(),delegateQueue:nil)
 
     init(store: AppStore) {
@@ -77,7 +83,7 @@ final class NativeCloudSync: ObservableObject {
         await sync()
     }
     private func activate(_ session: CloudSession,address: String) throws {
-        generation=UUID()
+        generation=UUID();fileTask?.cancel();fileTask=nil;downloads.values.forEach { $0.cancel() };downloads=[:];files=[];fileBusy=false;fileMessage="";usedBytes=0
         try store?.selectCloudProfile(address+"|"+session.user.id)
         local=(try store?.loadCloudState()) ?? NativeCloudLocalState()
         // Reconcile the complete shelf on startup; pending operations are sent
@@ -158,11 +164,70 @@ final class NativeCloudSync: ObservableObject {
                 local.cursor=snapshot.cursor;try store.saveCloudState(local);lastSync=Date()
                 if !snapshot.hasMore && local.pending.isEmpty { break }
             }
+            if current==generation { syncFilesNow() }
         } catch { if current==generation { message="\(error.localizedDescription) 本地进度已保留。" } }
     }
+    private func fileRequest(_ path: String) throws -> URLRequest {
+        let endpoint=try normalized(address)
+        guard endpoint==sessionAddress,let token=session?.token,let url=URL(string:endpoint+path) else { throw AppError.message("请先登录。") }
+        var request=URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:600)
+        request.setValue("Bearer "+token,forHTTPHeaderField:"Authorization")
+        return request
+    }
+    private func checkFileResponse(_ response:URLResponse) throws {
+        guard let http=response as? HTTPURLResponse else { throw AppError.message("文件响应无效。") }
+        guard http.statusCode==200 else { throw AppError.message(http.statusCode==404 ? "云端文件尚未上传。":http.statusCode==413 ? "云文件空间或单本大小超限。":http.statusCode==429 ? "文件同步正忙，请稍后重试。":"文件同步失败（\(http.statusCode)）。") }
+    }
+    private func fileList(_ current:UUID) async throws -> CloudFileSnapshot {
+        let snapshot:CloudFileSnapshot=try await request("/files")
+        if current==generation { files=snapshot.files;usedBytes=snapshot.usedBytes }
+        return snapshot
+    }
+    func syncFilesNow() {
+        guard session != nil,!needsLogin,fileTask==nil else { return }
+        let current=generation
+        fileTask=Task { @MainActor [weak self] in
+            guard let self,let store=self.store else { return }
+            self.fileBusy=true;self.fileMessage=""
+            defer { if current==self.generation { self.fileBusy=false;self.fileTask=nil } }
+            do {
+                var snapshot=try await self.fileList(current)
+                for entry in store.shelf {
+                    try Task.checkCancellation();guard current==self.generation else { return }
+                    let book=entry.book
+                    guard let hash=book.fileHash,book.publicationFormat != nil,!snapshot.files.contains(where:{$0.hash==hash}),let url=store.publicationURL(for:book) else { continue }
+                    let bytes=try url.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
+                    guard bytes<=snapshot.maxFileBytes else { throw AppError.message("文件超过云端单本上限。") }
+                    var query=URLComponents();query.queryItems=[URLQueryItem(name:"bookID",value:book.id),URLQueryItem(name:"bytes",value:String(bytes))]
+                    var upload=try self.fileRequest("/files/"+hash+"?"+(query.percentEncodedQuery ?? ""));upload.httpMethod="POST";upload.setValue("application/octet-stream",forHTTPHeaderField:"Content-Type")
+                    self.fileMessage="正在上传 "+book.title
+                    let (_,response)=try await self.http.upload(for:upload,fromFile:url);try self.checkFileResponse(response)
+                    guard current==self.generation else { return };snapshot=try await self.fileList(current)
+                }
+                if current==self.generation { self.fileMessage="" }
+            } catch { if current==self.generation && !Task.isCancelled { self.fileMessage=error.localizedDescription } }
+        }
+    }
+    func downloadPublication(_ book:Book) async throws -> Book {
+        if let pending=downloads[book.id] { return try await pending.value }
+        let current=generation
+        let task=Task { @MainActor () throws -> Book in
+            guard let hash=book.fileHash,let format=book.publicationFormat,let store else { throw AppError.message("云端文件尚未同步。") }
+            let request=try fileRequest("/files/"+hash)
+            let (temporary,response)=try await http.download(for:request)
+            defer { try? FileManager.default.removeItem(at:temporary) }
+            try checkFileResponse(response);try Task.checkCancellation()
+            guard current==generation else { throw CancellationError() }
+            return try await store.importPublication(at:temporary,format:format,metadata:book)
+        }
+        downloads[book.id]=task
+        defer { if current==generation { downloads.removeValue(forKey:book.id) } }
+        return try await task.value
+    }
+    func cancelDownload(_ book:Book) { downloads[book.id]?.cancel() }
     func mergeGuest() async throws { guard user != nil else { return };try store?.mergeGuestLibrary();await sync() }
     func logout() async {
-        generation=UUID();debounce?.cancel()
+        generation=UUID();debounce?.cancel();fileTask?.cancel();fileTask=nil;downloads.values.forEach { $0.cancel() };downloads=[:];files=[];fileBusy=false;fileMessage="";usedBytes=0
         struct Result:Decodable { let ok:Bool }
         let _:Result?=try? await request("/auth/logout",body:Data("{}".utf8))
         CloudKeychain.clear();session=nil;user=nil;local=NativeCloudLocalState();needsLogin=false;message="";lastSync=nil
@@ -187,7 +252,6 @@ struct CloudAccountView: View {
                     if let date=cloud.lastSync { Text("上次同步 \(date.formatted(date:.omitted,time:.shortened))").font(.footnote) }
                     Button(cloud.needsLogin ? "重新登录":"立即同步") { if cloud.needsLogin { username=user.username;relogin=true } else { Task { await cloud.sync() } } }.disabled(cloud.busy)
                     Button("合并本机未登录书架") { Task { do { try await cloud.mergeGuest() } catch { self.error=error.localizedDescription } } }.disabled(cloud.busy)
-                    Text("电子书原文件不上传。在另一端导入同一文件后可以接着读。").font(.footnote)
                     Button("退出账号，返回本机书架",role:.destructive) { Task { await cloud.logout() } }.disabled(cloud.busy)
                 }
             } else {
@@ -206,7 +270,14 @@ struct CloudAccountView: View {
                         }
                     }.disabled(cloud.busy)
                     Button(register ? "已有账号，去登录":"没有账号，创建一个") { register.toggle();error="" }
-                    Text("你和朋友分别注册自己的账号；密码不存明文，登录会话保存在本机钥匙串。").font(.footnote)
+
+                }
+            }
+            if cloud.user != nil {
+                Section("云文件") {
+                    Text("\(cloud.files.count) 本 · \(ByteCountFormatter.string(fromByteCount:Int64(cloud.usedBytes),countStyle:.file))")
+                    Button(cloud.fileBusy ? "文件同步中…":"同步文件") { cloud.syncFilesNow() }.disabled(cloud.fileBusy)
+                    if !cloud.fileMessage.isEmpty { Text(cloud.fileMessage).font(.footnote) }
                 }
             }
             if cloud.busy { ProgressView("正在连接…") }

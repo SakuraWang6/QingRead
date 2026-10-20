@@ -6,9 +6,9 @@
 
 SwiftUI / React / Capacitor / 本地优先 / 可选账号同步 / 无广告 SDK / 无会员与内购。
 
-## 当前功能（0.6）
+## 当前功能（0.7）
 
-- 用户名与密码自助注册；iPhone、Web 和 Android 使用同一账号同步书架与阅读位置，各账号数据分别保存。未登录仍可本地使用，已有书架需主动合并。
+- 用户名与密码自助注册；iPhone、Web 和 Android 使用同一账号同步书架、阅读位置和已导入的 EPUB/PDF/TXT 原文件，各账号数据分别保存。未登录仍可本地使用，已有书架需主动合并。
 - 多来源搜索，来源失败分别显示；可以启用、停用和导入书源。
 - 三列封面书架，点击直接继续阅读，长按查看详情或管理。
 - 推荐与六类书库，实时读取来源站书目，可打开目录、收藏和阅读。
@@ -119,7 +119,7 @@ Z-Library 当前未接入在线搜书或章节阅读；它属于整本电子书�
 
 移动端 Web 位于 [`web/`](web/README.md)，包含三列书架、多源搜书、分类推荐、离线缓存、EPUB / PDF / TXT 导入、沉浸阅读设置与系统听书。运行 `cd web && npm ci && npm run dev` 后打开 `http://127.0.0.1:5173`。
 
-Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键、系统安全区和 Android KeyStore 加密登录保存。当前版本 0.6.0 / versionCode 3，尚未在安卓真机运行；离线 AI 语音尚未移植。公开 CI 构建普通调试包，个人固定签名只在私有环境保管，见 [Android 说明](web/android/README.md)。
+Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键、系统安全区和 Android KeyStore 加密登录保存。当前版本 0.7.0 / versionCode 4，尚未在安卓真机运行；离线 AI 语音尚未移植。公开 CI 构建普通调试包，个人固定签名只在私有环境保管，见 [Android 说明](web/android/README.md)。
 
 服务端使用 Node.js 24 与 SQLite，提供可选账号同步。按 [部署说明](web/deploy/README.md) 自建服务器；项目没有默认的公共共享服务器，也不提供邮箱验证或密码找回。iPhone 的同步地址可在「设置 → 账号与同步」填写，Web 与 Android 在「设置 → 服务器连接」配置。详细范围、文件匹配、冲突处理和备份见 [云同步](docs/cloud-sync.md)。
 

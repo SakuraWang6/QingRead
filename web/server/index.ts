@@ -1,5 +1,6 @@
 import { createApp } from './app.js';
 import { CloudDatabase } from './cloud.js';
+import { CloudFiles } from './files.js';
 import { join } from 'node:path';
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 8787);
@@ -8,7 +9,11 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.QINGREAD_A
 }
 process.umask(0o077);
 const cloud = new CloudDatabase(join(process.env.QINGREAD_DATA_DIR ?? '.data', 'accounts.sqlite'), Number(process.env.QINGREAD_MAX_USERS) || 100);
-const app = await createApp({ cloud });
+const files=new CloudFiles(cloud,join(process.env.QINGREAD_DATA_DIR??'.data','files'),{
+ userLimit:(Number(process.env.QINGREAD_FILE_USER_GB)||2)*1024**3,
+ globalLimit:(Number(process.env.QINGREAD_FILE_TOTAL_GB)||10)*1024**3,
+});
+const app = await createApp({ cloud, files });
 const address = await app.listen({ host, port });
 console.log(`清读书源服务：${address}`);
 const stop = async () => { await app.close(); process.exit(0); };

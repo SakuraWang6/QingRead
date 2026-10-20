@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { fetchBuffer, fetchStream, MAX_DOWNLOAD, ServiceError, validateSourceURL } from './network.js';
 import { sources, categories, sourceFor, search, chapters, content, recommendations, category, coverFor, downloadURL, userError } from './reading.js';
 import { registerCloudRoutes, type CloudDatabase } from './cloud.js';
+import { registerFileRoutes, type CloudFiles } from './files.js';
+import { CoverCache } from './cover-cache.js';
+import { join } from 'node:path';
 
 // Fastify decodes static route segments (e.g. /%61pi/sources). Use the
 // matched route as the authority, so encoded paths cannot bypass auth/quotas.
@@ -19,8 +22,8 @@ function tokenMatches(value: unknown, expected: string): boolean {
   if (typeof value !== 'string') return false;
   const a = Buffer.from(value), b = Buffer.from(expected); return a.length === b.length && timingSafeEqual(a, b);
 }
-export async function createApp(options: { token?: string; origins?: string[]; serveWeb?: boolean; webRoot?: string; cloud?: CloudDatabase } = {}) {
-  const app = Fastify({ logger: false, bodyLimit: 64 * 1024, requestTimeout: 60_000, connectionTimeout: 65_000, trustProxy: false });
+export async function createApp(options: { token?: string; origins?: string[]; serveWeb?: boolean; webRoot?: string; cloud?: CloudDatabase; files?: CloudFiles } = {}) {
+  const app = Fastify({ logger: false, bodyLimit: 64 * 1024, requestTimeout: 660_000, connectionTimeout: 65_000, trustProxy: false });
   // PWA installation fetches hundreds of static assets; only API traffic consumes quota.
   await app.register(rateLimit, { max: 180, timeWindow: '1 minute', allowList: request => !isAPIRequest(request) });
   const token = options.token ?? process.env.QINGREAD_ACCESS_TOKEN ?? '';
@@ -33,7 +36,7 @@ export async function createApp(options: { token?: string; origins?: string[]; s
     if (isAPIRequest(request) && !allowed) return reply.code(403).send({ message: '这个网页来源未被服务器允许。' });
     if (origin && allowed) reply.header('Access-Control-Allow-Origin', origin).header('Vary', 'Origin');
     if (request.method === 'OPTIONS') return reply.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS').header('Access-Control-Allow-Headers', 'Content-Type,X-QingRead-Token,Authorization').header('Access-Control-Max-Age', '600').code(204).send();
-    const cloudRoute = request.routeOptions.url?.startsWith('/api/auth/') || request.routeOptions.url === '/api/sync';
+    const cloudRoute = request.routeOptions.url?.startsWith('/api/auth/') || request.routeOptions.url === '/api/sync' || request.routeOptions.url?.startsWith('/api/files');
     if (cloudRoute) reply.header('Cache-Control', 'no-store');
     if (isAPIRequest(request) && !cloudRoute && request.routeOptions.url !== '/api/health' && token && !tokenMatches(request.headers['x-qingread-token'], token)) {
       // Images cannot carry custom headers: authenticated covers use the fetch endpoint via api.cover().
@@ -47,8 +50,9 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   });
   const objectSchema = { type: 'object', required: ['book'], properties: { book: { type: 'object' }, chapter: { type: 'object' } }, additionalProperties: false } as const;
   const searchSchema = { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 100 }, sourceIDs: { type: 'array', maxItems: 10, uniqueItems: true, items: { type: 'string', maxLength: 80 } } }, additionalProperties: false } as const;
-  app.get('/api/health', async () => ({ ok: true, version: '0.6.0', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud) }));
+  app.get('/api/health', async () => ({ ok: true, version: '0.7.0', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud), filesEnabled: Boolean(options.files) }));
   if (options.cloud) registerCloudRoutes(app, options.cloud);
+  if (options.cloud && options.files) registerFileRoutes(app,options.cloud,options.files);
   app.get('/api/sources', async () => sources);
   app.post<{ Body: { query: string; sourceIDs?: string[] } }>('/api/search', { schema: { body: searchSchema } }, async request => {
     if (request.body.sourceIDs?.some(id => !sources.some(s => s.id === id))) throw new ServiceError('请求包含未登记书源。', 400);
@@ -66,15 +70,14 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   app.get('/api/recommendations', () => recommendations());
   app.get('/api/categories', async () => categories);
   app.get<{ Params: { id: string } }>('/api/categories/:id', request => category(request.params.id));
-  const coverCache = new Map<string, { bytes: Buffer; type: string; expires: number }>();
-  let coverBytes = 0;
+  const coverCache = new CoverCache(process.env.QINGREAD_DATA_DIR?join(process.env.QINGREAD_DATA_DIR,'covers'):undefined);
   app.get<{ Querystring: { sourceID: string; bookURL: string; url?: string } }>('/api/cover', { schema: { querystring: { type: 'object', required: ['sourceID', 'bookURL'], properties: { sourceID: { type: 'string', maxLength: 80 }, bookURL: { type: 'string', maxLength: 3000 }, url: { type: 'string', maxLength: 3000 } }, additionalProperties: false } } }, async (request, reply) => {
     const source = sourceFor(request.query.sourceID), bookURL = request.query.bookURL;
     validateSourceURL(bookURL, source.id);
     if (request.query.url) validateSourceURL(request.query.url, source.id);
-    const key = `${source.id}|${bookURL}`;
-    let cover = coverCache.get(key);
-    if (!cover || cover.expires < Date.now()) {
+    const key = `${source.id}|${bookURL}|${request.query.url??''}`;
+    const started=performance.now();
+    const {image:cover,cache}=await coverCache.get(key,async()=>{
       const url = await coverFor({ sourceID: source.id, url: bookURL, title: '', coverURL: request.query.url });
       if (!url) throw new ServiceError('这本书暂时没有可用封面。', 404);
       const result = await fetchBuffer(url, source, { referer: bookURL, maxBytes: 5 * 1024 * 1024 });
@@ -82,10 +85,9 @@ export async function createApp(options: { token?: string; origins?: string[]; s
       const bytes = result.data;
       const type = bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) ? 'image/jpeg' : bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'image/png' : bytes.subarray(0, 6).toString().startsWith('GIF8') ? 'image/gif' : bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP' ? 'image/webp' : '';
       if (!type) throw new ServiceError('来源封面不是支持的图片格式。', 404);
-      if (cover) { coverBytes -= cover.bytes.length; coverCache.delete(key); }
-      while (coverBytes + bytes.length > 40 * 1024 * 1024 || coverCache.size >= 150) { const oldest = coverCache.keys().next().value; if (!oldest) break; coverBytes -= coverCache.get(oldest)!.bytes.length; coverCache.delete(oldest); }
-      cover = { bytes, type, expires: Date.now() + 6 * 3_600_000 }; coverCache.set(key, cover); coverBytes += bytes.length;
-    }
+      return {bytes,type};
+    });
+    reply.header('X-QingRead-Cover-Cache',cache).header('Server-Timing',`cover;dur=${(performance.now()-started).toFixed(1)}`);
     reply.type(cover.type).header('Cache-Control', token ? 'private, max-age=86400' : 'public, max-age=86400'); return cover.bytes;
   });
   app.post<{ Body: { book: unknown } }>('/api/cover-metadata', { schema: { body: objectSchema } }, async request => ({ url: await coverFor(request.body.book) ?? null }));

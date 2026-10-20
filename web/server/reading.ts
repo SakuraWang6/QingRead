@@ -226,8 +226,8 @@ export async function category(id: string): Promise<Book[]> {
 }
 export async function coverFor(value: unknown): Promise<string | undefined> {
   const { book, source } = validatedBook(value);
+  if (book.coverURL) { const valid = resolve(book.coverURL, book.url, source); if (valid) return valid; }
   return cached(`cover|${book.id}`, 60 * 60_000, async () => {
-    if (book.coverURL) { const valid = resolve(book.coverURL, book.url, source); if (valid) return valid; }
     const result = await page(book.url, source), $ = cheerio.load(result.html);
     for (const selector of ['meta[property="og:image"]', 'meta[name="og:image"]', 'meta[property="og:novel:image"]', 'meta[name="twitter:image"]']) {
       const url = resolve($(selector).attr('content'), result.url, source); if (url) return url;

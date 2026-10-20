@@ -8,7 +8,10 @@ struct BookReadingView: View {
     var initialChapterID: String? = nil
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    @State private var cloudLoading=false
+    @State private var cloudError:String?
     var body: some View {
+      Group {
         if book.publicationFormat != nil, store.publicationURL(for: book) == nil {
             NavigationStack {
                 FileBookDetailView(book: book)
@@ -17,6 +20,14 @@ struct BookReadingView: View {
         } else if store.importedBooks[book.id]?.format == .pdf, let url = store.publicationURL(for: book) {
             PDFBookReader(book: book, url: url)
         } else { ReaderView(book: book, initialChapterID: initialChapterID) }
+      }
+      .overlay { if cloudLoading { ProgressView("下载中…").padding(24).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)) } }
+      .task(id:book.id) {
+          guard book.publicationFormat != nil,book.fileHash != nil,store.publicationURL(for:book)==nil,store.cloud.user != nil else { return }
+          cloudLoading=true;defer { cloudLoading=false }
+          do { _ = try await store.cloud.downloadPublication(book) } catch { if !Task.isCancelled { cloudError=error.localizedDescription } }
+      }
+      .alert("下载未完成",isPresented:Binding(get:{cloudError != nil},set:{if !$0 { cloudError=nil }})) { Button("好") { cloudError=nil } } message:{Text(cloudError ?? "")}
     }
 }
 
@@ -44,7 +55,7 @@ struct FileBookDetailView: View {
                     Text("已下载，可离线阅读").font(.caption).foregroundStyle(Palette.secondary)
                 } else {
                     PublicationImportButton(expectedBook: book) { _ in showReader = true }
-                    Text("导入同一份电子书后会匹配云端书架和进度；文件本身不会上传。").font(.caption).foregroundStyle(Palette.secondary)
+                    CloudFileDownloadButton(book:book,cloud:store.cloud) { showReader=true }
                     if book.sourceID != "local-file" {
                     Button {
                         if isDownloading { task?.cancel(); return }
@@ -69,8 +80,25 @@ struct FileBookDetailView: View {
             }.padding(22)
         }
         .background(Palette.paper).navigationTitle("书籍").navigationBarTitleDisplayMode(.inline)
-        .onDisappear { task?.cancel() }
+        .onDisappear { task?.cancel();store.cloud.cancelDownload(book) }
         .fullScreenCover(isPresented: $showReader) { BookReadingView(book: book) }
+    }
+}
+
+private struct CloudFileDownloadButton: View {
+    let book:Book
+    @ObservedObject var cloud:NativeCloudSync
+    var onRead:()->Void
+    @State private var loading=false
+    @State private var error:String?
+    var body: some View {
+        if cloud.files.contains(where:{$0.bookID==book.id}) {
+            Button(loading ? "下载中…":"从云端下载") {
+                loading=true;error=nil
+                Task { do { _=try await cloud.downloadPublication(book);onRead() } catch { self.error=error.localizedDescription };loading=false }
+            }.buttonStyle(PrimaryButtonStyle()).disabled(loading)
+            if let error { InlineNotice(message:error,isError:true) }
+        }
     }
 }
 

@@ -9,7 +9,7 @@ describe('offline account storage',()=>{
   it('separates accounts and persists a coalesced outbox across reopening',async()=>{
     const name='cloud-test-'+crypto.randomUUID(),a=new BrowserLibrary(name,true),b=fresh();await a.initialized;await b.initialized;
     await a.add(sampleBook);await a.savePosition(sampleBook,sampleChapter,.4,40);await a.savePosition(sampleBook,sampleChapter,.7,70);
-    expect(b.getSnapshot().shelf).toEqual([]);
+    expect(b.getSnapshot().shelf).toEqual([]);expect(b.getSnapshot().storageError).toBeUndefined();
     const reopened=new BrowserLibrary(name,true);await reopened.initialized;
     const pending=await reopened.syncRequest();expect(pending.mutations).toHaveLength(1);expect(pending.mutations[0].action).toBe('add');expect(pending.mutations[0].entry?.position?.chapterFraction).toBe(.7);
   });
