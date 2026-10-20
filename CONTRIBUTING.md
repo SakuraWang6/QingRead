@@ -1,7 +1,7 @@
-# Contributing
+# Feedback and contributions
 
-Use Node.js 24 for `web/`, run `npm ci`, `npm test`, and `npm run build`. Swift core tests use `swift test` or `bash scripts/verify-core.sh`; the iOS UI needs full Xcode. Do not enable live source tests by default; they depend on external sites.
+Bug reports and feature requests are welcome. Do not include passwords, tokens, signing identities or private user data in an issue.
 
-Keep source URLs and content attribution intact. Do not add credentials, downloaded copyrighted books, signing identities or user data. New sync changes should preserve the shared Swift/TypeScript fixture and account-isolation tests. Describe observable behavior and validation in pull requests.
+The current QingRead offering uses Polyform Strict License 1.0.0, which does not grant permission to modify, make derivative works or redistribute. Obtain separate written permission from the relevant copyright holder before making or submitting code changes. Publishing this repository does not give general commercial permission. Platform viewing/forking rights and previously granted MIT rights are unaffected; see docs/licensing.md.
 
-Android public CI produces debug validation APKs. For upgradeable private distribution, maintain your own persistent signing identity outside this repository.
+Authorized maintainers use Node.js 24, `npm ci`, `npm test` and `npm run build` in web/. Swift core checks use `swift test` or `bash scripts/verify-core.sh`. Public CI uses ephemeral debug signing; personal fixed signing keys must stay outside public CI.

@@ -18,7 +18,7 @@ ENV NODE_ENV=production \
     NODE_OPTIONS=--max-old-space-size=192
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
-COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node package.json package-lock.json LICENSE ./
 COPY --chown=node:node server ./server
 COPY --chown=node:node src/shared ./src/shared
 COPY --from=build --chown=node:node /app/dist ./dist
