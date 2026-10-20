@@ -33,6 +33,8 @@ private struct RootView: View {
                 switch arguments[flag + 1] {
                 case "search": selectedTab = 1
                 case "sources": selectedTab = 2
+                case "recommendations": selectedTab = 3
+                case "categories": selectedTab = 4
                 case "reader": showPreviewReader = true
                 default: break
                 }
@@ -48,6 +50,12 @@ private struct RootView: View {
             NavigationStack { LibraryView() }
                 .tabItem { Label("书架", systemImage: "books.vertical") }
                 .tag(0)
+            NavigationStack { RecommendationsView() }
+                .tabItem { Label("推荐", systemImage: "sparkles") }
+                .tag(3)
+            NavigationStack { CategoriesView() }
+                .tabItem { Label("分类", systemImage: "square.grid.2x2") }
+                .tag(4)
             NavigationStack { SearchView() }
                 .tabItem { Label("搜书", systemImage: "magnifyingglass") }
                 .tag(1)

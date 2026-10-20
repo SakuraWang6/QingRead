@@ -14,33 +14,25 @@ struct SourcesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                PageHeading(eyebrow: "YOUR SOURCES", title: "书从哪里来。", subtitle: "搜索已启用的来源，把选择留给你。")
+            VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     Text("已启用 \(store.enabledSourceIDs.count) / \(store.sources.count)")
-                        .font(.caption.monospacedDigit()).foregroundStyle(Palette.secondary)
+                        .font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.secondary)
                     Spacer()
                     Menu {
                         Button { showFilePicker = true } label: { Label("从 JSON 文件导入", systemImage: "doc") }
                         Button { showTextImport = true } label: { Label("粘贴 JSON 规则", systemImage: "doc.on.clipboard") }
                     } label: {
-                        Label("导入书源", systemImage: "plus").font(.subheadline).foregroundStyle(Palette.cinnabar)
+                        Label("导入", systemImage: "plus").font(.system(size: 14)).foregroundStyle(Palette.cinnabar)
                     }
                 }
 
                 VStack(spacing: 0) {
                     ForEach(store.sources) { source in
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 9) {
                             Toggle(isOn: Binding(get: { !store.disabledSourceIDs.contains(source.id) }, set: { store.setEnabled($0, source: source) })) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(source.name).font(.bookTitle(22)).foregroundStyle(Palette.ink)
-                                    Text(store.isBuiltIn(source) ? "内置书源" : "导入的书源")
-                                        .font(.caption).foregroundStyle(Palette.cinnabar)
-                                }
-                            }.tint(Palette.ink)
-                            if !source.summary.isEmpty {
-                                Text(source.summary).font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(4)
-                            }
+                                Text(source.name).font(.system(size: 16, weight: .medium)).foregroundStyle(Palette.ink)
+                            }.tint(Palette.cinnabar)
                             HStack {
                                 Link(destination: source.homeURL) {
                                     Label(source.homeURL.host ?? source.homeURL.absoluteString, systemImage: "arrow.up.right")
@@ -53,7 +45,7 @@ struct SourcesView: View {
                                     }.accessibilityLabel("删除书源 \(source.name)")
                                 }
                             }
-                        }.padding(18)
+                        }.padding(16)
                         if source.id != store.sources.last?.id { Divider().padding(.horizontal, 18) }
                     }
                 }
@@ -63,33 +55,24 @@ struct SourcesView: View {
                 if let importMessage { InlineNotice(message: importMessage, isError: importFailed) }
                 if let storageMessage = store.storageMessage { InlineNotice(message: storageMessage, isError: true) }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("关于书源").font(.bookTitle(22)).foregroundStyle(Palette.ink)
-                    Text("内置来源提供古典与公版作品。要搜索其他小说，可导入对应网站的规则；网站是否可达、内容是否齐全，取决于该来源。")
-                        .font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(5)
-                    Text("支持清读 JSON 规则，包括 MediaWiki 与网页 CSS 选择器。其他 App 的 JavaScript 书源格式暂不能直接导入。")
-                        .font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(5)
-                    Button("查看规则格式") { showFormat = true }.font(.subheadline)
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack {
+                        Text("书源规则").font(.system(size: 15, weight: .medium)).foregroundStyle(Palette.ink)
+                        Spacer()
+                        Button("查看格式") { showFormat = true }.font(.system(size: 13))
+                    }
                 }
                 Divider().overlay(Palette.rule)
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("本地储存").font(.bookTitle(22)).foregroundStyle(Palette.ink)
+                    Text("本地储存").font(.system(size: 15, weight: .medium)).foregroundStyle(Palette.ink)
                     HStack {
-                        Text("章节缓存").font(.subheadline).foregroundStyle(Palette.secondary)
+                        Text("章节缓存").font(.system(size: 14)).foregroundStyle(Palette.secondary)
                         Spacer()
-                        Text(store.cacheSizeDescription).font(.subheadline.monospacedDigit()).foregroundStyle(Palette.ink)
+                        Text(store.cacheSizeDescription).font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.secondary)
+                        Button("清理") { showClearConfirmation = true }.font(.system(size: 13)).foregroundStyle(Palette.cinnabar).padding(.leading, 8)
                     }
-                    Button(role: .destructive) { showClearConfirmation = true } label: {
-                        Label("清理章节缓存", systemImage: "trash").font(.subheadline)
-                    }
-                    Text("书架、阅读位置和导入的书源会保留。离线阅读前，需要重新缓存网络章节。")
-                        .font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(4)
                 }
-                HStack(spacing: 9) {
-                    Image(systemName: "leaf")
-                    Text("清读 0.1 · 本机保存 · 无广告")
-                }.font(.caption).foregroundStyle(Palette.secondary).padding(.vertical, 18)
-            }.padding(.horizontal, 22).padding(.bottom, 24)
+            }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 24)
         }
         .background(Palette.paper)
         .navigationTitle("书源").navigationBarTitleDisplayMode(.inline)

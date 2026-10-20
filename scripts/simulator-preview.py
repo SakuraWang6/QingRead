@@ -15,7 +15,7 @@ def run(*args, timeout=180):
 def main():
     inventory = json.loads(run("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
     choices = [device for runtime, devices in inventory.items() if "iOS" in runtime
-               for device in devices if device["name"].startswith("iPhone")]
+               for device in devices if "iPhone" in device["name"]]
     if not choices:
         raise SystemExit("No iPhone simulator runtime is installed")
     device = next((item for item in choices if item["state"] == "Booted"), choices[0])
@@ -29,7 +29,7 @@ def main():
     run("xcrun", "simctl", "install", udid, str(app))
     directory = ROOT / ".build/previews"
     directory.mkdir(parents=True, exist_ok=True)
-    for index, screen in enumerate(["library", "search", "sources", "reader"]):
+    for index, screen in enumerate(["library", "search", "sources", "reader", "recommendations", "categories"]):
         if index:
             run("xcrun", "simctl", "terminate", udid, "app.qingread.personal")
         arguments = [] if screen == "library" else ["--qingread-preview", screen]

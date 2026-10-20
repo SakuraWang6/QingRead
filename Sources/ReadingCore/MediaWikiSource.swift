@@ -6,8 +6,15 @@ struct MediaWikiSource: Sendable {
     let fetcher: PageFetcher
 
     func search(query: String) async throws -> [Book] {
+        let term = Self.searchTerm(query)
+        let normalizedTerm = Self.normalizedTitle(term)
+        guard !normalizedTerm.isEmpty else { return [] }
+        // CirrusSearch's dedicated srwhat=title mode is disabled on Wikisource.
+        // intitle is supported, and traditional spelling reaches literary titles
+        // that a simplified query can otherwise miss (for example 桃花源記).
+        let traditionalTerm = term.applyingTransform(StringTransform("Simplified-Traditional"), reverse: false) ?? term
         let url = try SourceURL.api(source, parameters: [
-            "action": "query", "list": "search", "srsearch": query,
+            "action": "query", "list": "search", "srsearch": "intitle:\"\(traditionalTerm)\"",
             "srnamespace": "0", "srlimit": "20", "srprop": "snippet"
         ])
         let (data, _) = try await fetcher.data(at: url)
@@ -15,11 +22,39 @@ struct MediaWikiSource: Sendable {
         if let error = response.error { throw ReadingError.remote(error.info) }
         guard let results = response.query?.search else { throw ReadingError.invalidResponse }
         var seen = Set<String>()
-        return try results.filter { seen.insert($0.title).inserted }.map { result in
+        let relevant = results.enumerated().filter { _, result in
+            let title = Self.normalizedTitle(result.title)
+            return title.contains(normalizedTerm) && Self.isWorkTitle(result.title) && seen.insert(title).inserted
+        }.sorted { lhs, rhs in
+            let left = Self.normalizedTitle(lhs.element.title)
+            let right = Self.normalizedTitle(rhs.element.title)
+            let leftRank = left == normalizedTerm ? 0 : left.hasPrefix(normalizedTerm) ? 1 : 2
+            let rightRank = right == normalizedTerm ? 0 : right.hasPrefix(normalizedTerm) ? 1 : 2
+            if leftRank != rightRank { return leftRank < rightRank }
+            if left.count != right.count { return left.count < right.count }
+            return lhs.offset < rhs.offset
+        }
+        return try relevant.map { _, result in
             Book(title: result.title, summary: try HTMLParsing.plainText(result.snippet ?? ""),
                  sourceID: source.id, sourceName: source.name,
                  url: try SourceURL.wiki(title: result.title, source: source))
         }
+    }
+
+    private static func searchTerm(_ value: String) -> String {
+        value.filter { !"《》〈〉「」『』\"\\".contains($0) }.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizedTitle(_ value: String) -> String {
+        (value.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false) ?? value)
+            .lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    private static func isWorkTitle(_ title: String) -> Bool {
+        guard !title.contains("/"), !title.contains(":") else { return false }
+        let normalized = normalizedTitle(title)
+        let nonWorks = ["消歧义", "判决书", "裁定书", "调解书", "起诉书", "人民法院", "人民检察院", "中华人民共和国法律", "行政处罚决定"]
+        return !nonWorks.contains(where: normalized.contains)
     }
 
     func chapters(for book: Book) async throws -> [Chapter] {

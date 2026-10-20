@@ -150,7 +150,7 @@ import FoundationNetworking
             let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
             let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
             if values["action"] == "query" {
-                #expect(values["srsearch"] == "西遊記 & test")
+                #expect(values["srsearch"] == "intitle:\"西遊記\"")
                 return response(request, html: #"{"query":{"search":[{"title":"西遊記","snippet":"<span>西遊記</span> 简介"}]}}"#)
             }
             if values["page"] == "西遊記" {
@@ -166,7 +166,7 @@ import FoundationNetworking
             return try jsonResponse(request, object: ["parse": ["title": "西遊記/第001回", "text": "<div class='mw-parser-output'><div id='headerContainer'>上一回</div><p>正文一。</p><p>正文二。</p><div class='noprint'>导航</div></div>"]])
         }
         let service = ReadingService(sources: [source], client: client)
-        let result = await service.search(query: "西遊記 & test")
+        let result = await service.search(query: "《西游记》")
         let book = try #require(result.books.first)
         #expect(book.summary == "西遊記 简介")
         let chapters = try await service.chapters(for: book)

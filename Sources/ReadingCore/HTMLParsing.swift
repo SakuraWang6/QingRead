@@ -1,10 +1,34 @@
 import Foundation
+import CoreFoundation
 import SwiftSoup
 
 enum HTMLParsing {
     static func decode(_ data: Data, encoding: HTMLSourceConfiguration.Encoding) throws -> String {
+        // A site's search page and chapters may use different encodings. Prefer the
+        // page's own declaration, while keeping the configured encoding as fallback.
+        if let declared = declaredEncoding(in: data), let string = String(data: data, encoding: declared) {
+            return string
+        }
         guard let string = String(data: data, encoding: encoding.stringEncoding) else { throw ReadingError.decodingFailed }
         return string
+    }
+
+    private static func declaredEncoding(in data: Data) -> String.Encoding? {
+        let head = String(decoding: data.prefix(8_192), as: UTF8.self)
+        let pattern = #"<meta\b[^>]*\bcharset\s*=\s*["']?\s*([a-zA-Z0-9._-]+)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let match = expression.firstMatch(in: head, range: NSRange(head.startIndex..., in: head)),
+              let range = Range(match.range(at: 1), in: head) else { return nil }
+        switch head[range].lowercased() {
+        case "utf-8", "utf8": return .utf8
+        case "gbk", "gb2312", "gb18030":
+            return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        case "big5", "big-5", "cn-big5", "big5-hkscs":
+            // Real Big5 pages also contain extended characters such as circled
+            // digits. HKSCS includes these without losing ordinary Big5 text.
+            return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.big5_HKSCS_1999.rawValue)))
+        default: return nil
+        }
     }
 
     static func search(_ html: String, baseURL: URL, source: SourceDefinition, config: HTMLSourceConfiguration) throws -> [Book] {

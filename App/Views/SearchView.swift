@@ -13,86 +13,93 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var requestID = UUID()
     @State private var wasCancelled = false
+    @State private var scope: SearchScope = .all
+    @State private var showFailures = false
     @FocusState private var searchFocused: Bool
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                PageHeading(eyebrow: "FIND A STORY", title: "想读什么？", subtitle: "书名、作者，一次搜索已启用的书源。")
-                HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
-                    TextField("输入书名或作者", text: $query)
-                        .submitLabel(.search).focused($searchFocused)
-                        .autocorrectionDisabled().textInputAutocapitalization(.never)
-                        .onSubmit(startSearch)
-                        .accessibilityLabel("书名或作者")
-                    if !query.isEmpty {
-                        Button { query = ""; searchFocused = true } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.secondary) }
-                            .accessibilityLabel("清空搜索文字")
-                    }
-                    Button(action: startSearch) {
-                        Image(systemName: "arrow.right").font(.system(size: 15, weight: .medium))
-                            .frame(width: 33, height: 33).foregroundStyle(Palette.surface)
-                            .background(Palette.ink, in: Circle())
-                    }
-                    .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.enabledSourceIDs.isEmpty)
-                    .accessibilityLabel("开始搜索")
-                }
-                .padding(13).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.rule, lineWidth: 0.5))
+    private enum SearchScope: String, CaseIterable, Identifiable {
+        case all = "全部", title = "书名", author = "作者"
+        var id: String { rawValue }
+    }
 
-                if store.enabledSourceIDs.isEmpty {
-                    InlineNotice(message: "尚未启用书源。请到「书源」开启至少一个来源后搜索。", isError: true)
-                }
-                if isSearching {
-                    HStack(spacing: 12) {
-                        ProgressView().tint(Palette.cinnabar)
-                        Text("正在搜索「\(lastQuery)」…").font(.subheadline).foregroundStyle(Palette.secondary)
-                        Spacer()
-                        Button("取消") { searchTask?.cancel(); isSearching = false; wasCancelled = true }
-                            .font(.subheadline)
-                    }.padding(.vertical, 20)
-                }
-                if hasSearched && (!isSearching || !books.isEmpty || !failures.isEmpty) {
-                    HStack {
-                        Text("「\(lastQuery)」的搜索结果").font(.bookTitle(20)).foregroundStyle(Palette.ink)
-                        Spacer()
-                        Text("\(books.count) 本").font(.caption).foregroundStyle(Palette.secondary)
-                    }.padding(.top, 8)
-                    if books.isEmpty && !isSearching {
-                        QuietEmptyState(symbol: "text.magnifyingglass", title: wasCancelled ? "搜索已取消" : (failures.isEmpty ? "暂时没有找到" : "这次没有搜到可读内容"), message: wasCancelled ? "可以换个关键词再试一次。" : (failures.isEmpty ? "试试更短的书名、作者名，\n或在「书源」导入其他来源。" : "下方列出了书源的实际错误。\n可以稍后重试，或更换书源。"))
-                    } else {
+    private var visibleBooks: [Book] {
+        guard scope != .all else { return books }
+        let term = lastQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return books.filter {
+            let field = scope == .title ? $0.title : $0.author
+            return field.localizedStandardContains(term)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if store.enabledSourceIDs.isEmpty {
+                        InlineNotice(message: "请先到「书源」启用至少一个来源。", isError: true)
+                    }
+                    if hasSearched {
+                        Picker("搜索范围", selection: $scope) {
+                            ForEach(SearchScope.allCases) { item in Text(item.rawValue).tag(item) }
+                        }.pickerStyle(.segmented).padding(.top, 4)
+
+                        HStack(spacing: 8) {
+                            Text("搜索结果").font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.ink)
+                            Text("\(visibleBooks.count)").font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                            Spacer()
+                            if isSearching {
+                                ProgressView().scaleEffect(0.7).tint(Palette.cinnabar)
+                                Text("搜索中").font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                            }
+                        }.padding(.top, 6)
+
+                        if visibleBooks.isEmpty && !isSearching {
+                            QuietEmptyState(symbol: "magnifyingglass",
+                                            title: wasCancelled ? "搜索已取消" : "未找到相关书籍",
+                                            message: wasCancelled ? "输入书名或作者重新搜索。" : (scope == .all ? "试试其他书名或作者，也可以更换书源。" : "当前筛选没有结果，可切换「全部」查看。"))
+                        }
                         LazyVStack(spacing: 0) {
-                            ForEach(books) { book in
+                            ForEach(visibleBooks) { book in
                                 NavigationLink { BookDetailView(book: book) } label: { BookRow(book: book) }
                                     .buttonStyle(.plain)
                                 Divider().overlay(Palette.rule)
                             }
                         }
-                    }
-                    ForEach(failures) { failure in
-                        InlineNotice(message: "\(failure.sourceName)：\(failure.message)", isError: true)
-                    }
-                    if !failures.isEmpty && !isSearching {
-                        Button("重试搜索", action: startSearch).font(.subheadline)
-                    }
-                } else if !hasSearched {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("从一本想读的书开始").font(.bookTitle(21)).foregroundStyle(Palette.ink)
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 94), alignment: .leading)], alignment: .leading, spacing: 10) {
-                            ForEach(["超神机械师", "这游戏也太真实了", "西游记"], id: \.self) { title in
-                                Button { query = title; startSearch() } label: {
-                                    Text(title).font(.subheadline).foregroundStyle(Palette.ink)
-                                        .padding(.horizontal, 13).padding(.vertical, 10)
-                                        .overlay(Capsule().stroke(Palette.rule, lineWidth: 1))
-                                }.disabled(store.enabledSourceIDs.isEmpty)
-                            }
+                        if !failures.isEmpty {
+                            DisclosureGroup(isExpanded: $showFailures) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    ForEach(failures) { failure in
+                                        Text("\(failure.sourceName)：\(failure.message)")
+                                            .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                    if !isSearching { Button("重新搜索", action: startSearch).font(.system(size: 13)) }
+                                }.padding(.top, 10)
+                            } label: {
+                                Label("\(failures.count) 个书源暂不可用", systemImage: "exclamationmark.circle")
+                                    .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                            }.tint(Palette.secondary).padding(.top, 8)
                         }
-                        Text("搜索已启用的小说与经典文库来源。同一本书的不同来源会分别列出，也可以到「书源」管理。")
-                            .font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(5)
-                    }.padding(.top, 12)
-                }
-            }.padding(.horizontal, 22).padding(.bottom, 30)
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("快捷搜索").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.ink)
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)], alignment: .leading, spacing: 10) {
+                                ForEach(["超神机械师", "这游戏也太真实了", "西游记"], id: \.self) { title in
+                                    Button { query = title; startSearch() } label: {
+                                        Text(title).font(.system(size: 13)).foregroundStyle(Palette.ink)
+                                            .lineLimit(1)
+                                            .padding(.horizontal, 12).padding(.vertical, 9)
+                                            .background(Palette.rule.opacity(0.45), in: Capsule())
+                                    }.buttonStyle(.plain).disabled(store.enabledSourceIDs.isEmpty)
+                                }
+                            }
+                        }.padding(.top, 18)
+                    }
+                }.padding(.horizontal, 18).padding(.bottom, 24)
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
         .background(Palette.paper)
         .navigationTitle("搜书").navigationBarTitleDisplayMode(.inline)
@@ -100,6 +107,39 @@ struct SearchView: View {
             if let initialQuery, !hasSearched { query = initialQuery; startSearch() }
         }
         .onDisappear { searchTask?.cancel(); isSearching = false }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 13) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(Palette.secondary)
+                TextField("书名 / 作者", text: $query)
+                    .font(.system(size: 15)).submitLabel(.search).focused($searchFocused)
+                    .autocorrectionDisabled().textInputAutocapitalization(.never)
+                    .onSubmit(startSearch)
+                    .accessibilityLabel("书名或作者")
+                if !query.isEmpty {
+                    Button { query = ""; searchFocused = true } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(Palette.secondary.opacity(0.7))
+                    }.accessibilityLabel("清空搜索文字")
+                }
+            }
+            .padding(.horizontal, 13).padding(.vertical, 11)
+            .background(Palette.rule.opacity(0.45), in: Capsule())
+            Button {
+                if isSearching { cancelSearch() } else { startSearch() }
+            } label: {
+                Text(isSearching ? "取消" : "搜索").font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.cinnabar).frame(minWidth: 34)
+            }
+            .disabled(!isSearching && (query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.enabledSourceIDs.isEmpty))
+        }.padding(.horizontal, 18).padding(.vertical, 10)
+    }
+
+    private func cancelSearch() {
+        searchTask?.cancel()
+        isSearching = false
+        wasCancelled = true
     }
 
     private func startSearch() {
@@ -115,6 +155,8 @@ struct SearchView: View {
         isSearching = true
         hasSearched = true
         wasCancelled = false
+        showFailures = false
+        scope = .all
         searchTask = Task {
             let response = await store.search(term) { response in
                 guard requestID == currentID, isSearching else { return }
@@ -125,6 +167,7 @@ struct SearchView: View {
             books = response.books
             failures = response.failures
             isSearching = false
+            showFailures = books.isEmpty && !failures.isEmpty
         }
     }
 }

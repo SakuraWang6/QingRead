@@ -18,30 +18,6 @@ struct ShelfEntry: Codable, Identifiable {
     let addedAt: Date
 }
 
-enum ReadingTheme: String, Codable, CaseIterable, Identifiable {
-    case paper, dusk, night
-    var id: String { rawValue }
-    var name: String {
-        switch self { case .paper: return "纸白"; case .dusk: return "茶色"; case .night: return "夜读" }
-    }
-    var background: Color {
-        switch self {
-        case .paper: return Palette.paper
-        case .dusk: return Color(red: 0.89, green: 0.85, blue: 0.75)
-        case .night: return Color(red: 0.10, green: 0.12, blue: 0.12)
-        }
-    }
-    var foreground: Color {
-        self == .night ? Color(red: 0.77, green: 0.77, blue: 0.70) : Palette.ink
-    }
-}
-
-struct ReaderSettings: Codable, Equatable {
-    var fontSize: Double = 21
-    var lineSpacing: Double = 11
-    var theme: ReadingTheme = .paper
-}
-
 private struct SavedSources: Codable {
     var imported: [SourceDefinition] = []
     var disabledIDs: Set<String> = []

@@ -16,24 +16,25 @@ struct BookDetailView: View {
     @State private var isCaching = false
     @State private var cachedProgress = 0
     @State private var cacheMessage: String?
+    @State private var showsFullSummary = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top, spacing: 18) {
                     BookSpine(book: book)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(book.title).font(.bookTitle(30)).foregroundStyle(Palette.ink)
-                        Text(book.author.isEmpty ? "作者未标注" : book.author).font(.subheadline).foregroundStyle(Palette.secondary)
-                        Text(book.sourceName).font(.caption).foregroundStyle(Palette.cinnabar)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(book.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.ink)
+                        Text(book.author.isEmpty ? "作者未标注" : book.author).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                        Text(book.sourceName).font(.system(size: 12)).foregroundStyle(Palette.secondary)
                         if book.url.scheme == "https" || book.url.scheme == "http" {
                             Link(destination: book.url) {
-                                Label("查看来源网页", systemImage: "arrow.up.right").font(.caption)
+                                Label("原网页", systemImage: "arrow.up.right").font(.system(size: 12))
                             }.tint(Palette.secondary)
                         }
                     }
                     Spacer(minLength: 0)
-                }.padding(.top, 22)
+                }.padding(.top, 16)
 
                 HStack(spacing: 12) {
                     Button {
@@ -52,21 +53,30 @@ struct BookDetailView: View {
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.rule, lineWidth: 0.5))
                     }.accessibilityLabel(store.isSaved(book) ? "从书架移除并删除该书缓存" : "加入书架")
                 }
-                Button { showOtherSources = true } label: {
-                    Label("按书名找其他来源", systemImage: "arrow.triangle.swap")
-                        .font(.subheadline).foregroundStyle(Palette.cinnabar)
+                HStack {
+                    Text("当前书源：\(book.sourceName)").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Button { showOtherSources = true } label: {
+                        Label("换源", systemImage: "arrow.triangle.swap")
+                            .font(.system(size: 13)).foregroundStyle(Palette.cinnabar)
+                    }
                 }
 
                 if !book.summary.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("关于这本书").font(.bookTitle(21)).foregroundStyle(Palette.ink)
-                        Text(book.summary).font(.subheadline).foregroundStyle(Palette.secondary).lineSpacing(7).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("简介").font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
+                        Text(book.summary).font(.system(size: 14)).foregroundStyle(Palette.secondary).lineSpacing(5)
+                            .lineLimit(showsFullSummary ? nil : 4).textSelection(.enabled)
+                        if book.summary.count > 100 {
+                            Button(showsFullSummary ? "收起" : "展开") { showsFullSummary.toggle() }
+                                .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                        }
                     }
                 }
                 Divider().overlay(Palette.rule)
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("目录").font(.bookTitle(23)).foregroundStyle(Palette.ink)
+                        Text("目录").font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
                         Spacer()
                         if !chapters.isEmpty { Text("\(chapters.count) 章").font(.caption).foregroundStyle(Palette.secondary) }
                     }
@@ -95,7 +105,7 @@ struct BookDetailView: View {
                     Divider().overlay(Palette.rule)
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
-                            Text("留在本机，随时读").font(.bookTitle(21)).foregroundStyle(Palette.ink)
+                            Text("离线缓存").font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
                             Spacer()
                             Text("\(store.cachedCount(for: book)) / \(chapters.count) 章")
                                 .font(.caption.monospacedDigit()).foregroundStyle(Palette.secondary)
@@ -104,8 +114,8 @@ struct BookDetailView: View {
                             Text("本地示例已随应用保存，离线也可以阅读。")
                                 .font(.footnote).foregroundStyle(Palette.secondary)
                         } else {
-                            Text("已读章节自动缓存。缓存全书会逐章下载；离开此页会停止下载，已完成的章节会保留。")
-                                .font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(4)
+                            Text("阅读时自动缓存。下载中离开此页会停止，已完成的章节会保留。")
+                                .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(4)
                             Button {
                                 if isCaching { cacheTask?.cancel() } else { cacheAllChapters() }
                             } label: {
@@ -117,7 +127,7 @@ struct BookDetailView: View {
                         if let cacheMessage { InlineNotice(message: cacheMessage) }
                     }
                 }
-            }.padding(.horizontal, 24).padding(.bottom, 35)
+            }.padding(.horizontal, 20).padding(.bottom, 28)
         }
         .background(Palette.paper)
         .navigationTitle("书籍").navigationBarTitleDisplayMode(.inline)
@@ -146,9 +156,11 @@ struct BookDetailView: View {
                         catalogSelection = chapter.id
                         showCatalog = false
                     } label: {
-                        Text(chapter.title).foregroundStyle(Palette.ink).padding(.vertical, 6)
+                        Text(chapter.title).font(.system(size: 14)).foregroundStyle(Palette.ink).padding(.vertical, 6)
                     }
+                    .listRowBackground(Palette.paper)
                 }
+                .listStyle(.plain).scrollContentBackground(.hidden).background(Palette.paper)
                 .navigationTitle("全部目录").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showCatalog = false } } }
             }
@@ -164,7 +176,7 @@ struct BookDetailView: View {
                 Text(chapter.title).lineLimit(2)
                 Spacer()
                 Image(systemName: "chevron.right").font(.caption)
-            }.font(.subheadline).foregroundStyle(Palette.ink).padding(.vertical, 7)
+            }.font(.system(size: 14)).foregroundStyle(Palette.ink).padding(.vertical, 7)
         }
     }
 

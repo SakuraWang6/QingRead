@@ -10,6 +10,10 @@ import Glibc
 struct ReadingProbe {
     static func main() async {
         var arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments == ["--discovery"] {
+            await verifyDiscovery()
+            return
+        }
         var selectedSourceID: String?
         if let flag = arguments.firstIndex(of: "--source") {
             guard arguments.indices.contains(flag + 1) else {
@@ -46,6 +50,29 @@ struct ReadingProbe {
             if content.paragraphs.isEmpty { exit(3) }
         } catch {
             print("读取失败：\(error.localizedDescription)")
+            exit(4)
+        }
+    }
+
+    private static func verifyDiscovery() async {
+        do {
+            let discovery = DiscoveryService()
+            let page = try await discovery.recommendations()
+            for section in page.sections { print("推荐：\(section.title)，\(section.books.count) 本") }
+            for category in DiscoveryCategory.all {
+                let books = try await discovery.category(category)
+                print("分类：\(category.title)，\(books.count) 本")
+                guard !books.isEmpty else { exit(2) }
+            }
+            guard let book = page.sections.first?.books.first else { exit(2) }
+            let service = ReadingService()
+            let chapters = try await service.chapters(for: book)
+            guard let chapter = chapters.first else { exit(2) }
+            let content = try await service.content(for: chapter, in: book)
+            print("推荐直读：\(book.title)，\(chapters.count) 章，首章 \(content.paragraphs.count) 段")
+            guard !content.paragraphs.isEmpty else { exit(3) }
+        } catch {
+            print("发现页验证失败：\(error.localizedDescription)")
             exit(4)
         }
     }
