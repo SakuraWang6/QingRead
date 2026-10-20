@@ -11,6 +11,8 @@
 - 修复首次 PWA 预缓存触发接口限流、URL 编码路径绕过鉴权、缺失 worker 返回 HTML、坏备份持久化白屏等验收发现。
 - Docker 镜像验证：非 root、只读文件系统、API 访问码、静态 PWA / PDF 资源及真实搜书；未修改远端服务器。
 
-Android 工程已生成与同步，CI 使用固定个人测试签名构建。APK 编译结果以 GitHub Actions 为准；没有安卓真机，尚未验证设备运行、WebView 听书、文件导出与锁屏后台音频。Web 使用系统语音，未移植 iOS 的离线 AI 引擎。
+Android 工程已生成与同步，CI 使用固定个人测试签名构建。[首次 APK 构建与 Lint 成功](https://github.com/SakuraWang6/QingRead/actions/runs/39438734922)，官方 apksigner 验证 v2 签名有效，本地再次通过 ZIP CRC 检查。没有安卓真机，尚未验证设备运行、WebView 听书、文件导出与锁屏后台音频。Web 使用系统语音，未移植 iOS 的离线 AI 引擎。
 
 PWA 更新提示按 [Vite PWA 官方 React 指南](https://vite-pwa-org.netlify.app/frameworks/react) 接入，由读者选择更新时机。
+
+首次交付 APK SHA256：`c802abbb070b7478954c3eb2eac0b826cd20ca83c41c07e4769c1b97881f1fe3`。

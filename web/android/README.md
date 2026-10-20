@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。原生工程已生成并同步；本机没有 Android SDK，尚未在模拟器或真机运行。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。原生工程已生成并同步；[首次 CI 构建、Lint 和 APK 签名验证已通过](https://github.com/SakuraWang6/QingRead/actions/runs/39438734922)。本机没有 Android SDK，尚未在模拟器或真机运行。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 

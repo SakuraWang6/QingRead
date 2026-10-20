@@ -28,3 +28,6 @@ web/android/**/*.jks
 web/android/**/*.keystore
 web/*.tsbuildinfo
 web/public/pdfjs/
+
+# Local signing backup (never commit)
+.private/
