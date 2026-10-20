@@ -290,11 +290,11 @@ private struct ReaderTextView: UIViewRepresentable {
         titleParagraph.lineSpacing = 6
         let bodyParagraph = NSMutableParagraphStyle()
         bodyParagraph.lineSpacing = settings.lineSpacing
-        bodyParagraph.paragraphSpacing = settings.fontSize * 0.75
+        bodyParagraph.paragraphSpacing = settings.fontSize * 0.5
         bodyParagraph.firstLineHeadIndent = settings.fontSize * 2
         bodyParagraph.lineBreakMode = .byWordWrapping
-        let result = NSMutableAttributedString(string: content.chapter.title + "\n\n", attributes: [.font: titleFont, .foregroundColor: color, .paragraphStyle: titleParagraph])
-        result.append(NSAttributedString(string: content.paragraphs.joined(separator: "\n\n"), attributes: [.font: bodyFont, .foregroundColor: color, .paragraphStyle: bodyParagraph]))
+        let result = NSMutableAttributedString(string: content.chapter.title + "\n", attributes: [.font: titleFont, .foregroundColor: color, .paragraphStyle: titleParagraph])
+        result.append(NSAttributedString(string: content.paragraphs.joined(separator: "\n"), attributes: [.font: bodyFont, .foregroundColor: color, .paragraphStyle: bodyParagraph]))
         return result
     }
 

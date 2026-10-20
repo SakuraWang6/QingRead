@@ -10,3 +10,5 @@ xcuserdata/
 *.xcarchive
 local.xcconfig
 /work/
+__pycache__/
+*.pyc
