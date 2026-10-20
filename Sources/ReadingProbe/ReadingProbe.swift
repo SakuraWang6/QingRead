@@ -42,6 +42,23 @@ struct ReadingProbe {
             exit(1)
         }
         do {
+            if let format = first.publicationFormat {
+                let url = try await service.downloadURL(for: first)
+                let (temporary, response) = try await URLSession.shared.download(from: url)
+                defer { try? FileManager.default.removeItem(at: temporary) }
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { exit(4) }
+                let size = try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                if format == .epub {
+                    let imported = try PublicationImporter.read(temporary, format: format)
+                    print("整本 EPUB：\(imported.title)，\(imported.chapters.count) 节，\(size) bytes")
+                } else {
+                    let signature = try FileHandle(forReadingFrom: temporary)
+                    defer { try? signature.close() }
+                    guard let header = try signature.read(upToCount: 5), String(data: header, encoding: .ascii) == "%PDF-" else { exit(4) }
+                    print("整本 PDF：\(size) bytes，文件头已验证")
+                }
+                return
+            }
             let chapters = try await service.chapters(for: first)
             print("目录：\(chapters.count) 章")
             guard let chapter = chapters.first else { exit(2) }

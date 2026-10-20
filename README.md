@@ -4,23 +4,26 @@
 
 SwiftUI / iOS 16+ / 本地优先 / 无账号 / 无广告 SDK / 无会员与内购。
 
-## 当前功能（0.3）
+## 当前功能（0.4）
 
 - 多来源搜索，来源失败分别显示；可以启用、停用和导入书源。
 - 三列封面书架，点击直接继续阅读，长按查看详情或管理。
 - 推荐与六类书库，实时读取来源站书目，可打开目录、收藏和阅读。
 - 点击正文中央呼出菜单；左右滑动、覆盖翻页、上下滚动三种模式。
-- 五种背景、独立夜间模式、字号、行距、页边距、字体、粗体及亮度设置。
+- 五种背景、独立夜间模式、字号、行距、独立段距、页边距、字体、粗体及亮度设置。
 - 右下角显示整书百分比；中央菜单可拖动进度条跳转（按章节与章内文字位置估算）。
 - 左侧目录抽屉，逐章显示实际已读进度及缓存状态，支持搜索与定位当前章。
 - 阅读时自动预缓存后 10 章，共享正在加载的章节；退出取消后续队列。
 - 系统中文音色选择，优先已安装的增强音色；调整语速从当前词附近继续，暂停时不误播放。
+- 可选 Kokoro 多音色离线 AI：约 179 MB，三种中文男声、三种中文女声，在「设置 → 听书与离线音色」下载、切换、试听和删除。保留系统语音和 Melo。
+- 跨段落缓冲后三句，开始播放前预备下一句；生成的音频在本地缓存（上限 128 MB）。首次仍有准备时间，高倍速与较慢设备仍可能等待。
 - 可选 Melo 离线 AI 听书：在 App 内主动下载约 61 MB 声库，之后在手机本地合成，无 API key、无额外 App；单一中文音色。语速直接调整播放器，保持当前声音位置。
 - 封面内存与磁盘缓存、480 像素缩略图、图片防盗链来源头；搜索未提供封面时尝试书籍详情页，来源仍缺图时保留书名封面。
 - 按章节缓存正文，已缓存章节可离线打开；清除缓存保留书架与进度。从屏幕左右边缘向内滑动退出阅读。
+- Gutenberg、Standard Ebooks 文学整本 EPUB，OpenStax 开放教材整本 PDF，直接在搜书页搜索、下载到书架。支持「文件」导入及从其他 App 打开 EPUB / PDF / TXT；去重并保存阅读位置。EPUB 是文字阅读，PDF 保留图表原版面，PDF 暂不接听书。
 - 内置《桃花源记》离线样例，便于在网络不可用时体验阅读器。
 
-内置 7 个来源（5 个网络小说站点与 2 个经典文本来源）；已针对《超神机械师》《这游戏也太真实了》核实站内搜索、目录和首章。各新增来源的实测记录见[书源说明](docs/sources.md)。站点可用性与内容质量仍需持续验证，**不承诺全网覆盖或每一章均已核对**。通用网站来源通过声明式 CSS 规则扩展，本地样例不插入联网搜索结果。推荐与分类当前来自笔趣阁，停用该来源后不会继续请求。
+内置 10 个来源（5 个网络小说站点、2 个经典文本来源、3 个整本书库）；已针对《超神机械师》《这游戏也太真实了》核实站内搜索、目录和首章。各新增来源的实测记录见[书源说明](docs/sources.md)。站点可用性与内容质量仍需持续验证，**不承诺全网覆盖或每一章均已核对**。通用网站来源通过声明式 CSS 规则扩展，本地样例不插入联网搜索结果。推荐与分类当前来自笔趣阁，停用该来源后不会继续请求。
 
 ## 开发和运行
 
@@ -72,7 +75,7 @@ xcodebuild build -project QingRead.xcodeproj -scheme QingRead \
   -derivedDataPath .build/xcode ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
 ```
 
-Debug 构建支持 `--qingread-preview search|sources|reader|recommendations|categories`；`reader` 打开真实的本地公版样例。可追加 `--reader-mode slide|cover|scroll`、`--reader-controls`、`--reader-settings`、`--reader-catalog`、`--reader-audio`、`--reader-night`、`--reader-listen`、`--reader-ai`。`--reader-self-test` 验证排版和语音状态；`--storage-self-test`、`--cover-self-test` 验证隔离存储与图片缓存；`--ai-self-test` 验证声库校验及已有模型的真实合成，显式附加 `--download-ai-model` 才会为诊断下载声库。Release 不包含这些入口。`scripts/simulator-preview.py` 运行确定性诊断并保存九张真实界面截图。
+Debug 构建支持 `--qingread-preview search|sources|reader|recommendations|categories`；`reader` 打开真实的本地公版样例。可追加 `--reader-mode slide|cover|scroll`、`--reader-controls`、`--reader-settings`、`--reader-catalog`、`--reader-audio`、`--reader-night`、`--reader-listen`、`--reader-ai`。`--reader-self-test` 验证排版和语音状态；`--storage-self-test`、`--cover-self-test` 验证隔离存储与图片缓存；`--kokoro-self-test` 验证 Kokoro 男、女声合成与跨段播放；`--ai-self-test` 验证声库校验及已有模型的真实合成，显式附加 `--download-ai-model` 才会为诊断下载声库。Release 不包含这些入口。`scripts/simulator-preview.py` 运行确定性诊断并保存九张真实界面截图。
 
 ## 仓库结构
 

@@ -18,7 +18,11 @@ struct BookDetailView: View {
     @State private var cacheMessage: String?
     @State private var showsFullSummary = false
 
-    var body: some View {
+    @ViewBuilder var body: some View {
+        if book.publicationFormat != nil { FileBookDetailView(book: book) }
+        else { webBookBody }
+    }
+    private var webBookBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top, spacing: 18) {

@@ -49,3 +49,21 @@ SOFTWARE.
 ## Local sample
 
 `App/` contains the classical text 《桃花源记》 by 陶渊明 as an offline reading sample. It is explicitly labelled a local sample and never inserted into network search results.
+
+
+## ZIPFoundation
+
+- Project: https://github.com/weichsel/ZIPFoundation/tree/0.9.20
+- License: MIT; full text bundled in `App/Resources/ThirdPartyNotices.txt`.
+- Usage: bounded in-memory EPUB entry reading.
+
+## Offline speech and Kokoro
+
+- Official runtime: https://github.com/k2-fsa/sherpa-onnx
+- Kokoro model: https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/tree/155831f1b4ba23b1f5c058be6a61df90cefb2a37
+- Model LICENSE: Apache-2.0, downloaded with the model and also bundled in the app notices.
+- Runtime and eSpeak dependency versions, licenses, source links and actual linked archive inventory: `docs/offline-voice.md` and `App/Resources/ThirdPartyNotices.txt`.
+
+## Whole-book sources
+
+Search and file downloads are fetched from Project Gutenberg, Standard Ebooks, and OpenStax. Original book URLs and source names are retained. No downloaded book files or covers are committed; each edition retains its source terms and notices.

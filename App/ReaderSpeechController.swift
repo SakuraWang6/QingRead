@@ -102,14 +102,14 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
     }
 
     func updateSettings(_ value: ReaderSettings) {
-        let engineChanged = settings.speechEngine != value.speechEngine
+        let engineChanged = settings.speechEngine != value.speechEngine || (value.speechEngine == .kokoro && settings.kokoroVoiceID != value.kokoroVoiceID)
         let speechChanged = settings.speechRate != value.speechRate || settings.speechVoiceIdentifier != value.speechVoiceIdentifier || engineChanged
         settings = value
         guard speechChanged else { return }
         if engineChanged {
             offlineSpeech?.stop()
             offlineSpeech = nil
-        } else if value.speechEngine == .melo {
+        } else if value.speechEngine != .system {
             // Time stretch the existing player; never regenerate the current
             // sentence when a rate slider changes.
             offlineSpeech?.setRate(value.speechRate)
@@ -187,7 +187,7 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
         }
         guard state == .playing else { return }
         continuationRequested = false
-        if settings.speechEngine == .melo {
+        if settings.speechEngine != .system {
             offlineSpeech?.pause()
             state = .paused
             if let anchor = currentUTF16Anchor { onParagraph?(anchor) }
@@ -213,7 +213,7 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
             trace("resume while waiting")
             return
         }
-        if settings.speechEngine == .melo, let offlineSpeech {
+        if settings.speechEngine != .system, let offlineSpeech {
             state = .playing
             if offlineSpeech.resume() {
                 if state == .playing { updateNowPlaying() }
@@ -272,7 +272,7 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
         guard let document, document.content.paragraphs.indices.contains(paragraphIndex) else { return }
         stopUtterance()
         if cursor == nil { setParagraph(paragraphIndex) }
-        if settings.speechEngine == .melo {
+        if settings.speechEngine != .system {
             speakOfflineParagraph(document)
             return
         }
@@ -312,31 +312,39 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
     }
 
     private func speakOfflineParagraph(_ document: ReaderDocument) {
-        guard let directory = AIModelManager.shared.readyDirectory else {
+        guard let directory = AIModelManager.manager(for: settings.speechEngine).readyDirectory else {
             stop()
             message = "请先在听书面板下载离线声库，或选择系统语音。"
             return
         }
-        if offlineSpeech?.modelDirectory != directory {
+        let sid = settings.speechEngine == .kokoro ? settings.kokoroVoiceID : 0
+        if offlineSpeech?.modelDirectory != directory || offlineSpeech?.speakerID != sid {
             offlineSpeech?.stop()
-            offlineSpeech = OfflineSpeechEngine(modelDirectory: directory)
+            offlineSpeech = OfflineSpeechEngine(modelDirectory: directory, engine: settings.speechEngine, speakerID: sid)
         }
         guard let engine = offlineSpeech else { return }
         let token = UUID()
         offlinePlayback = token
-        let index = paragraphIndex
-        let text = document.content.paragraphs[index]
+        let base = document.paragraphRanges.first?.location ?? 0
+        let text = document.content.paragraphs.joined(separator: "\n")
+        let offset = max(0, (currentUTF16Anchor ?? base) - base)
         state = .playing
-        message = nil
-        onParagraph?(document.paragraphRanges[index].location + (cursor?.utf16Offset ?? 0))
+        message = "正在准备离线语音…"
+        onParagraph?(base + offset)
         updateNowPlaying()
-        engine.play(text: text, offset: cursor?.utf16Offset ?? 0, rate: settings.speechRate,
+        engine.play(text: text, offset: offset, rate: settings.speechRate,
                     onPosition: { [weak self] offset in
-            guard let self, self.offlinePlayback == token, self.paragraphIndex == index else { return }
-            self.cursor = ReaderSpeechCursor(text: text, utf16Offset: offset)
+            guard let self, self.offlinePlayback == token else { return }
+            self.message = nil
+            let oldParagraph = self.paragraphIndex
+            self.align(toUTF16: base + offset)
+            if self.paragraphIndex != oldParagraph { self.onParagraph?(base + offset) }
         }, onFinish: { [weak self] in
             guard let self, self.offlinePlayback == token, self.state == .playing else { return }
-            self.finishParagraph()
+            self.setParagraph(max(0, self.paragraphCount - 1))
+            if let last = document.content.paragraphs.last { self.cursor = ReaderSpeechCursor(text: last, utf16Offset: (last as NSString).length) }
+            self.onChapterCompleted?()
+            self.requestChapter(1)
         }, onError: { [weak self] error in
             guard let self, self.offlinePlayback == token else { return }
             self.stop()

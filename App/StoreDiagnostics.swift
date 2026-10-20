@@ -1,6 +1,8 @@
 #if DEBUG
 import Foundation
 import ReadingCore
+import PDFKit
+import UIKit
 
 /// Exercises migration, independent chapter progress, coalesced network reads,
 /// bounded prefetch and clearing during a request in a throw-away local store.
@@ -54,6 +56,30 @@ import ReadingCore
             let legacy = AppStore(storageRoot: directory, client: client)
             assert(legacy.chapterProgress(for: chapters[8], in: book) == 0.1)
             assert(legacy.chapterProgress(for: chapters[7], in: book) == nil)
+            let textURL = directory.appendingPathComponent("导入测试.txt")
+            try Data("第一章 开始\n正文甲。\n第二章 继续\n正文乙。".utf8).write(to: textURL)
+            let imported = try await store.importPublication(at: textURL)
+            let localChapters = try await store.chapters(for: imported)
+            assert(localChapters.count == 2 && store.cachedCount(for: imported) == 2)
+            let duplicate = try await store.importPublication(at: textURL)
+            assert(duplicate.id == imported.id && store.shelf.filter { $0.id == imported.id }.count == 1)
+            let localContent = try await store.content(for: localChapters[1], in: imported)
+            assert(localContent.paragraphs == ["正文乙。"])
+            store.clearCache()
+            let offline = AppStore(storageRoot: directory, client: client)
+            let reopenedChapters = try await offline.chapters(for: imported)
+            assert(reopenedChapters == localChapters && offline.publicationURL(for: imported) != nil)
+            let pdfURL = directory.appendingPathComponent("图表测试.pdf")
+            try UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 300, height: 400)).writePDF(to: pdfURL) { context in
+                context.beginPage(); ("PDF original layout" as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: nil)
+                context.beginPage()
+            }
+            let pdf = try await store.importPublication(at: pdfURL)
+            assert(store.importedBooks[pdf.id]?.format == .pdf && store.cachedCount(for: pdf) == 2)
+            assert(store.importedCover(for: pdf) != nil && store.publicationURL(for: pdf) != nil)
+            store.remove(imported)
+            assert(store.importedBooks[imported.id] == nil && store.publicationURL(for: imported) == nil)
+            print("QINGREAD_IMPORT_SELFTEST txt=passed pdf=passed dedup=passed offlineReopen=passed cachePreservation=passed removal=passed")
             print("QINGREAD_STORAGE_SELFTEST progress=passed legacy=passed coalescing=passed prefetch10=passed clearInflight=passed catalogGeneration=passed")
         } catch { assertionFailure("Storage diagnostics failed: \(error)") }
     }

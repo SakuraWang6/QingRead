@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import CryptoKit
 import ReadingCore
+import PDFKit
 
 struct ReadingPosition: Codable, Hashable {
     var chapterID: String
@@ -32,6 +33,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var disabledSourceIDs: Set<String> = []
     @Published private(set) var settings = ReaderSettings()
     @Published private(set) var cacheRevision = 0
+    @Published private(set) var importedBooks: [String: ImportedBookRecord] = [:]
     @Published var storageMessage: String?
 
     private var importedSources: [SourceDefinition] = []
@@ -61,6 +63,11 @@ final class AppStore: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
             shelf = try read([ShelfEntry].self, name: "library.json") ?? []
+            importedBooks = try read([String: ImportedBookRecord].self, name: "imported-books.json") ?? [:]
+            let library = root.appendingPathComponent("ImportedBooks", isDirectory: true)
+            for url in (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? [] where url.lastPathComponent.hasPrefix(".import-") {
+                try? FileManager.default.removeItem(at: url)
+            }
             if let saved = try read(SavedSources.self, name: "sources.json") {
                 importedSources = saved.imported
                 disabledSourceIDs = saved.disabledIDs
@@ -106,6 +113,10 @@ final class AppStore: ObservableObject {
         persist(shelf, name: "library.json")
         chapterProgresses.removeValue(forKey: book.id)
         persist(chapterProgresses, name: "chapter-progress.json")
+        if importedBooks.removeValue(forKey: book.id) != nil {
+            try? FileManager.default.removeItem(at: importedDirectory(book))
+            persist(importedBooks, name: "imported-books.json")
+        }
         do {
             let directory = bookCacheDirectory(book)
             if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
@@ -180,6 +191,9 @@ final class AppStore: ObservableObject {
 
     func chapters(for book: Book, refresh: Bool = false) async throws -> [Chapter] {
         if book.id == LocalSample.book.id { return LocalSample.chapters }
+        if importedBooks[book.id] != nil {
+            return try decoder.decode([Chapter].self, from: Data(contentsOf: importedDirectory(book).appendingPathComponent("catalog.json")))
+        }
         let cache = bookCacheDirectory(book).appendingPathComponent("catalog.json")
         if !refresh, let chapters = try? decoder.decode([Chapter].self, from: Data(contentsOf: cache)), !chapters.isEmpty { return chapters }
         let generation = cacheGeneration
@@ -194,6 +208,9 @@ final class AppStore: ObservableObject {
 
     func content(for chapter: Chapter, in book: Book) async throws -> ChapterContent {
         if book.id == LocalSample.book.id { return LocalSample.content }
+        if importedBooks[book.id] != nil {
+            return try decoder.decode(ChapterContent.self, from: Data(contentsOf: importedDirectory(book).appendingPathComponent("chapter-\(chapter.index).json")))
+        }
         let cache = contentURL(chapter: chapter, book: book)
         if let content = try? decoder.decode(ChapterContent.self, from: Data(contentsOf: cache)), !content.paragraphs.isEmpty { return content }
         let key = cache.path
@@ -265,12 +282,14 @@ final class AppStore: ObservableObject {
     }
 
     func cachedCount(for book: Book) -> Int {
+        if let record = importedBooks[book.id] { return record.chapterCount }
         if book.id == LocalSample.book.id { return LocalSample.chapters.count }
         let urls = (try? FileManager.default.contentsOfDirectory(at: bookCacheDirectory(book), includingPropertiesForKeys: nil)) ?? []
         return urls.filter { $0.lastPathComponent.hasPrefix("chapter-") && $0.pathExtension == "json" }.count
     }
 
     func hasCachedContent(for chapter: Chapter, in book: Book) -> Bool {
+        if importedBooks[book.id] != nil { return FileManager.default.fileExists(atPath: importedDirectory(book).appendingPathComponent("chapter-\(chapter.index).json").path) }
         if book.id == LocalSample.book.id { return true }
         return FileManager.default.fileExists(atPath: contentURL(chapter: chapter, book: book).path)
     }
@@ -316,6 +335,112 @@ final class AppStore: ObservableObject {
     private func bookCacheDirectory(_ book: Book) -> URL { cacheRoot.appendingPathComponent(stableKey(book.id), isDirectory: true) }
     private func contentURL(chapter: Chapter, book: Book) -> URL { bookCacheDirectory(book).appendingPathComponent("chapter-\(stableKey(chapter.id)).json") }
     private func stableKey(_ string: String) -> String { SHA256.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined() }
+}
+
+struct ImportedBookRecord: Codable {
+    let format: BookFileFormat
+    let chapterCount: Int
+}
+
+extension AppStore {
+    private func importedDirectory(_ book: Book) -> URL { root.appendingPathComponent("ImportedBooks/\(stableKey(book.id))", isDirectory: true) }
+    func publicationURL(for book: Book) -> URL? {
+        guard let record = importedBooks[book.id] else { return nil }
+        let url = importedDirectory(book).appendingPathComponent("original.\(record.format.rawValue)")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+    func importedCover(for book: Book) -> URL? {
+        let url = importedDirectory(book).appendingPathComponent("cover.jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func importPublication(at url: URL, format: BookFileFormat? = nil, metadata: Book? = nil) async throws -> Book {
+        let format = format ?? BookFileFormat(rawValue: url.pathExtension.lowercased())
+        guard let format else { throw AppError.message("请选择 EPUB、PDF 或 TXT 文件。") }
+        let library = root.appendingPathComponent("ImportedBooks", isDirectory: true)
+        let stage = library.appendingPathComponent(".import-" + UUID().uuidString, isDirectory: true)
+        let prepared = try await Task.detached(priority: .userInitiated) { () throws -> (Book, ImportedBookRecord) in
+            do {
+                try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size > 0, size <= 250 * 1024 * 1024 else { throw AppError.message("文件为空或超过 250 MB。") }
+                let original = stage.appendingPathComponent("original.\(format.rawValue)")
+                try FileManager.default.copyItem(at: url, to: original)
+                let handle = try FileHandle(forReadingFrom: original)
+                defer { try? handle.close() }
+                var hash = SHA256()
+                while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty { hash.update(data: data) }
+                let identity = hash.finalize().map { String(format: "%02x", $0) }.joined()
+                let publication: ImportedPublication?
+                let pageCount: Int
+                var title = url.deletingPathExtension().lastPathComponent
+                var author = ""
+                var cover: Data?
+                if format == .pdf {
+                    guard let pdf = PDFDocument(url: original), !pdf.isLocked, pdf.pageCount > 0 else { throw AppError.message("无法打开此 PDF，文件可能损坏或需要密码。") }
+                    pageCount = pdf.pageCount
+                    title = pdf.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String ?? title
+                    author = pdf.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String ?? ""
+                    cover = pdf.page(at: 0)?.thumbnail(of: CGSize(width: 320, height: 460), for: .mediaBox).jpegData(compressionQuality: 0.82)
+                    publication = nil
+                } else {
+                    let result = try PublicationImporter.read(original, format: format)
+                    publication = result; pageCount = result.chapters.count
+                    title = result.title == "original" ? title : result.title; author = result.author; cover = result.cover
+                }
+                let book = metadata ?? Book(id: "file|" + identity, title: title, author: author, summary: "", sourceID: "local-file", sourceName: "本地文件", url: URL(string: "qingread-import://" + identity)!, publicationFormat: format)
+                let encoder = JSONEncoder()
+                let chapters = (0..<pageCount).map { index in
+                    Chapter(id: book.id + "|\(index)", title: publication?.chapters[index].title ?? "第 \(index + 1) 页", url: URL(string: "qingread-import://\(identity)/\(index)")!, index: index)
+                }
+                try encoder.encode(chapters).write(to: stage.appendingPathComponent("catalog.json"), options: .atomic)
+                if let publication {
+                    for (index, chapter) in chapters.enumerated() {
+                        try encoder.encode(ChapterContent(chapter: chapter, paragraphs: publication.chapters[index].paragraphs))
+                            .write(to: stage.appendingPathComponent("chapter-\(index).json"), options: .atomic)
+                    }
+                }
+                if let cover, let image = UIImage(data: cover), let data = image.jpegData(compressionQuality: 0.82) { try data.write(to: stage.appendingPathComponent("cover.jpg")) }
+                return (book, ImportedBookRecord(format: format, chapterCount: pageCount))
+            } catch { try? FileManager.default.removeItem(at: stage); throw error }
+        }.value
+        defer { try? FileManager.default.removeItem(at: stage) }
+        try Task.checkCancellation()
+        let book = prepared.0
+        if publicationURL(for: book) != nil { return shelf.first(where: { $0.id == book.id })?.book ?? book }
+        let destination = importedDirectory(book)
+        if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+        try FileManager.default.moveItem(at: stage, to: destination)
+        importedBooks[book.id] = prepared.1
+        persist(importedBooks, name: "imported-books.json")
+        add(book)
+        cacheRevision += 1
+        return book
+    }
+
+    func downloadPublication(_ book: Book, onProgress: @escaping @MainActor (Double) -> Void) async throws -> Book {
+        let url = try await ReadingService(sources: sources).downloadURL(for: book)
+        var request = URLRequest(url: url)
+        request.setValue(book.url.absoluteString, forHTTPHeaderField: "Referer")
+        let delegate = BookFileProgress(update: onProgress)
+        let (temporary, response) = try await URLSession.shared.download(for: request, delegate: delegate)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AppError.message("整本文件下载失败。") }
+        let owned = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (book.publicationFormat?.rawValue ?? "epub"))
+        try FileManager.default.moveItem(at: temporary, to: owned)
+        defer { try? FileManager.default.removeItem(at: owned) }
+        return try await importPublication(at: owned, format: book.publicationFormat, metadata: book)
+    }
+}
+
+private final class BookFileProgress: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    let update: @MainActor (Double) -> Void
+    init(update: @escaping @MainActor (Double) -> Void) { self.update = update }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) { }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        if totalBytesWritten > 250 * 1024 * 1024 { downloadTask.cancel(); return }
+        let value = totalBytesExpectedToWrite > 0 ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0
+        Task { @MainActor in update(min(1, max(0, value))) }
+    }
 }
 
 enum AppError: LocalizedError {

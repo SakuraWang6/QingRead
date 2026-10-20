@@ -58,14 +58,15 @@ enum ReaderFont: String, Codable, CaseIterable, Identifiable {
 }
 
 enum SpeechEngine: String, Codable, CaseIterable, Identifiable {
-    case system, melo
+    case system, melo, kokoro
     var id: String { rawValue }
-    var name: String { self == .system ? "系统语音" : "离线 AI" }
+    var name: String { switch self { case .system: return "系统语音"; case .melo: return "Melo"; case .kokoro: return "Kokoro" } }
 }
 
 struct ReaderSettings: Codable, Equatable {
     var fontSize: Double = 21
     var lineSpacing: Double = 9
+    var paragraphSpacing: Double = 6
     var theme: ReadingTheme = .paper
     var isNightMode = false
     var turnMode: ReaderTurnMode = .slide
@@ -78,13 +79,14 @@ struct ReaderSettings: Codable, Equatable {
     /// Empty means the best available on-device Chinese voice.
     var speechVoiceIdentifier: String = ""
     var speechEngine: SpeechEngine = .system
+    var kokoroVoiceID: Int = 46
 
     var activeTheme: ReadingTheme { isNightMode ? .night : theme }
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case fontSize, lineSpacing, theme, isNightMode, turnMode, font, isBold
-        case horizontalMargin, followsSystemBrightness, brightness, speechRate, speechVoiceIdentifier, speechEngine
+        case fontSize, lineSpacing, paragraphSpacing, theme, isNightMode, turnMode, font, isBold
+        case horizontalMargin, followsSystemBrightness, brightness, speechRate, speechVoiceIdentifier, speechEngine, kokoroVoiceID
     }
 
     init(from decoder: Decoder) throws {
@@ -94,6 +96,7 @@ struct ReaderSettings: Codable, Equatable {
         isNightMode = (try? values.decode(Bool.self, forKey: .isNightMode)) ?? (oldTheme == .night)
         fontSize = Self.bounded((try? values.decode(Double.self, forKey: .fontSize)) ?? 21, in: 16...34, fallback: 21)
         lineSpacing = Self.bounded((try? values.decode(Double.self, forKey: .lineSpacing)) ?? 9, in: 4...22, fallback: 9)
+        paragraphSpacing = Self.bounded((try? values.decode(Double.self, forKey: .paragraphSpacing)) ?? 6, in: 0...28, fallback: 6)
         turnMode = (try? values.decode(ReaderTurnMode.self, forKey: .turnMode)) ?? .slide
         font = (try? values.decode(ReaderFont.self, forKey: .font)) ?? .song
         isBold = (try? values.decode(Bool.self, forKey: .isBold)) ?? false
@@ -103,6 +106,8 @@ struct ReaderSettings: Codable, Equatable {
         speechRate = Self.bounded((try? values.decode(Double.self, forKey: .speechRate)) ?? 1, in: 0.6...1.8, fallback: 1)
         speechVoiceIdentifier = (try? values.decode(String.self, forKey: .speechVoiceIdentifier)) ?? ""
         speechEngine = (try? values.decode(SpeechEngine.self, forKey: .speechEngine)) ?? .system
+        let voice = (try? values.decode(Int.self, forKey: .kokoroVoiceID)) ?? 46
+        kokoroVoiceID = (3...102).contains(voice) ? voice : 46
     }
 
     private static func bounded(_ value: Double, in range: ClosedRange<Double>, fallback: Double) -> Double {
@@ -124,7 +129,7 @@ struct ReaderDocument {
         titleStyle.lineSpacing = 5
         let bodyStyle = NSMutableParagraphStyle()
         bodyStyle.lineSpacing = settings.lineSpacing
-        bodyStyle.paragraphSpacing = settings.fontSize * 0.55
+        bodyStyle.paragraphSpacing = settings.paragraphSpacing
         bodyStyle.firstLineHeadIndent = settings.fontSize * 2
         bodyStyle.lineBreakMode = .byWordWrapping
         let result = NSMutableAttributedString(string: content.chapter.title + "\n", attributes: [

@@ -172,6 +172,7 @@ struct ReaderSettingsPanel: View {
                 VStack(spacing: 20) {
                     valueSlider("字号", value: binding(\.fontSize), in: 16...34, id: "reader.settings.fontSize")
                     valueSlider("行距", value: binding(\.lineSpacing), in: 4...22, id: "reader.settings.lineSpacing")
+                    valueSlider("段距", value: binding(\.paragraphSpacing), in: 0...28, id: "reader.settings.paragraphSpacing")
                     valueSlider("页边距", value: binding(\.horizontalMargin), in: 16...40, id: "reader.settings.margin")
                 }
                 HStack {
@@ -343,7 +344,6 @@ struct ReaderCatalogDrawer: View {
 
 struct ReaderAudioPanel: View {
     @ObservedObject var speech: ReaderSpeechController
-    @ObservedObject private var modelManager = AIModelManager.shared
     let chapterTitle: String
     let chapterIndex: Int
     let chapterCount: Int
@@ -360,7 +360,7 @@ struct ReaderAudioPanel: View {
                 }
                 VStack(spacing: 7) {
                     Text(chapterTitle).font(.system(size: 16, weight: .medium)).lineLimit(1)
-                    Text(speech.state == .waiting ? "正在准备朗读…" : "第 \(speech.paragraphIndex + 1) / \(max(1, speech.paragraphCount)) 段 · \(store.settings.speechEngine == .system ? "系统中文语音" : "Melo 离线 AI")")
+                    Text(speech.state == .waiting ? "正在准备朗读…" : "第 \(speech.paragraphIndex + 1) / \(max(1, speech.paragraphCount)) 段 · \(store.settings.speechEngine == .system ? "系统中文语音" : store.settings.speechEngine.name + " 离线 AI")")
                         .font(.system(size: 12)).opacity(0.55)
                 }
                 HStack(spacing: 0) {
@@ -382,8 +382,7 @@ struct ReaderAudioPanel: View {
                     }), in: 0.6...1.8, step: 0.1).accessibilityIdentifier("reader.audio.rate")
                     Text(String(format: "%.1f×", store.settings.speechRate)).font(.system(size: 12)).monospacedDigit().frame(width: 36)
                 }
-                engineSettings
-                if store.settings.speechEngine == .system { systemVoicePicker }
+                VoicePreferencesView(activeSpeech: speech)
                 Text(speech.message ?? "锁屏后可继续收听，播完本章自动续章。退出阅读器后停止。")
                     .font(.system(size: 11)).lineSpacing(4).opacity(0.55).multilineTextAlignment(.center)
             }
@@ -395,97 +394,6 @@ struct ReaderAudioPanel: View {
         .onAppear { speech.refreshVoices() }
     }
 
-    private var systemVoicePicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("音色").font(.system(size: 13))
-                Spacer()
-                Picker("中文系统音色", selection: Binding(get: { store.settings.speechVoiceIdentifier }, set: { value in
-                    var updated = store.settings; updated.speechVoiceIdentifier = value; store.updateSettings(updated)
-                })) {
-                    Text("自动 · 优先增强音色").tag("")
-                    ForEach(speech.availableVoices) { voice in
-                        Text("\(voice.name) · \(voice.qualityLabel)").tag(voice.id)
-                    }
-                }.pickerStyle(.menu).labelsHidden().font(.system(size: 13)).lineLimit(1)
-                    .accessibilityIdentifier("reader.audio.voice")
-            }
-            if store.settings.speechVoiceIdentifier.isEmpty, let voice = speech.automaticVoice {
-                Text("自动选择：\(voice.name) · \(voice.qualityLabel)")
-                    .font(.system(size: 10)).opacity(0.5)
-            }
-        }
-    }
-
-    private var engineSettings: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack(spacing: 10) {
-                engineButton("系统语音", engine: .system, enabled: true)
-                engineButton("离线 AI · Melo", engine: .melo, enabled: aiModelReady)
-            }
-            switch modelManager.state {
-            case .missing:
-                downloadButton
-            case .downloading(let progress):
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("正在下载声库 · \(Int(min(1, max(0, progress)) * 100))%")
-                        Spacer()
-                        Button("取消") { modelManager.cancelDownload() }.accessibilityIdentifier("reader.audio.ai.cancel")
-                    }.font(.system(size: 11))
-                    ProgressView(value: min(1, max(0, progress))).tint(Palette.cinnabar)
-                }
-            case .ready:
-                HStack {
-                    Text("Melo 声库已就绪 · 单一中文音色").font(.system(size: 11)).opacity(0.6)
-                    Spacer(minLength: 8)
-                    Button("删除声库") {
-                        speech.stop()
-                        selectEngine(.system)
-                        modelManager.remove()
-                    }.font(.system(size: 11)).accessibilityIdentifier("reader.audio.ai.remove")
-                }
-            case .failed(let message):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(message).font(.system(size: 11)).opacity(0.6).lineLimit(3)
-                    downloadButton
-                }
-            }
-            if !aiModelReady {
-                Text("声库约 61 MB，下载后在本机离线运行，提供一种中文音色。")
-                    .font(.system(size: 10)).opacity(0.5)
-            }
-        }
-    }
-
-    private var aiModelReady: Bool {
-        if case .ready = modelManager.state { return true }
-        return false
-    }
-    private var downloadButton: some View {
-        Button { modelManager.download() } label: {
-            Label("下载 AI 声库 · 约 61 MB", systemImage: "arrow.down.circle")
-                .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
-        }.accessibilityIdentifier("reader.audio.ai.download")
-    }
-    private func engineButton(_ title: String, engine: SpeechEngine, enabled: Bool) -> some View {
-        Button { selectEngine(engine) } label: {
-            Text(title).font(.system(size: 12, weight: .medium))
-                .frame(maxWidth: .infinity).padding(.vertical, 12)
-                .background(store.settings.speechEngine == engine ? Palette.cinnabar.opacity(0.12) : store.settings.activeTheme.foreground.opacity(0.04),
-                            in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(store.settings.speechEngine == engine ? Palette.cinnabar.opacity(0.6) : Color.clear, lineWidth: 1))
-        }
-        .disabled(!enabled)
-        .accessibilityAddTraits(store.settings.speechEngine == engine ? .isSelected : [])
-        .accessibilityIdentifier(engine == .system ? "reader.audio.engine.system" : "reader.audio.engine.melo")
-    }
-    private func selectEngine(_ engine: SpeechEngine) {
-        guard engine == .system || aiModelReady else { return }
-        var updated = store.settings
-        updated.speechEngine = engine
-        store.updateSettings(updated)
-    }
     private func audioButton(_ label: String, symbol: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 7) {

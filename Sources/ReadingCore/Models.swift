@@ -1,5 +1,7 @@
 import Foundation
 
+public enum BookFileFormat: String, Codable, Sendable { case epub, pdf, txt }
+
 public struct Book: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -9,8 +11,10 @@ public struct Book: Codable, Hashable, Identifiable, Sendable {
     public let sourceID: String
     public let sourceName: String
     public let url: URL
+    public let publicationFormat: BookFileFormat?
+    public let fileDownloadURL: URL?
 
-    public init(id: String? = nil, title: String, author: String = "", summary: String = "", coverURL: URL? = nil, sourceID: String, sourceName: String, url: URL) {
+    public init(id: String? = nil, title: String, author: String = "", summary: String = "", coverURL: URL? = nil, sourceID: String, sourceName: String, url: URL, publicationFormat: BookFileFormat? = nil, fileDownloadURL: URL? = nil) {
         self.id = id ?? "\(sourceID)|\(url.absoluteString)"
         self.title = title
         self.author = author
@@ -19,6 +23,8 @@ public struct Book: Codable, Hashable, Identifiable, Sendable {
         self.sourceID = sourceID
         self.sourceName = sourceName
         self.url = url
+        self.publicationFormat = publicationFormat
+        self.fileDownloadURL = fileDownloadURL
     }
 }
 
@@ -70,7 +76,7 @@ public struct SearchResponse: Sendable {
 }
 
 public struct SourceDefinition: Codable, Hashable, Identifiable, Sendable {
-    public enum Kind: String, Codable, Sendable { case mediaWiki, html, staticCatalog }
+    public enum Kind: String, Codable, Sendable { case mediaWiki, html, staticCatalog, gutenberg, standardEbooks, openStax }
 
     public let id: String
     public let name: String
@@ -92,7 +98,7 @@ public struct SourceDefinition: Codable, Hashable, Identifiable, Sendable {
         self.catalogBooks = catalogBooks
     }
 
-    public static let builtIn: [SourceDefinition] = WebSourceCatalog.sources + [
+    public static let builtIn: [SourceDefinition] = WebSourceCatalog.sources + WholeBookSources.definitions + [
         SourceDefinition(
             id: "chinese-classics",
             name: "古典小说精选",

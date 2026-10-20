@@ -111,6 +111,7 @@ struct InlineNotice: View {
         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(.black.opacity(0.04), lineWidth: 0.5))
         .accessibilityHidden(true)
         .task(id: book) {
+            if let url = store.importedCover(for: book), let image = UIImage(contentsOfFile: url.path) { artwork = image; return }
             let loaded = await BookCoverCache.shared.image(for: book, sources: store.sources)
             guard !Task.isCancelled else { return }
             artwork = loaded

@@ -1,4 +1,4 @@
-# 离线 AI 朗读：Melo 中文声库
+# 离线 AI 朗读：Melo 与 Kokoro
 
 核对日期：2026-10-20。当前用途是个人自用的 iPhone 阅读器。
 
@@ -125,3 +125,16 @@ let sampleRate = Double(audio.sampleRate)
 上述组件版本来自固定 sherpa 源码的 `cmake/`、依赖项目的固定构建脚本与实际 archive 对象清单。Eigen 等头文件依赖也应结合构建源码记录；仅凭 archive 对象名不能确定每一段模板代码使用的头文件版本。上游 ONNX Runtime 完整第三方声明已一并保留，其中列出的所有组件并不等于它们都出现在本次 iOS 产物中。
 
 已收集的许可全文、版权声明及对应上游来源放在 `App/Resources/ThirdPartyNotices.txt`。这份说明记录工程事实和来源，不作最终的法律或分发合规结论。当前是个人自用开发；若未来向他人分发安装包，应以届时实际链接的库、构建方式和模型版本为准，复核相应许可证，保留要求的版权与许可声明，并准备适用许可证所要求的对应源码及构建信息。更换为自行裁剪的引擎时也应重新记录产物组成，不能沿用未经核对的依赖清单。
+
+
+## 0.4：Kokoro 中文男、女声
+
+官方引擎说明：[kokoro-multi-lang-v1_1](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)。选择官方维护者的 [INT8 转换声库](https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/tree/155831f1b4ba23b1f5c058be6a61df90cefb2a37)，固定 revision `155831f1b4ba23b1f5c058be6a61df90cefb2a37`。v1.1 的音色编号与 v1.0 不同：中文女声 3–57，男声 58–102；界面提供女声 3/16/46、男声 58/76/93，名称保留上游编号，不虚构真人声线名称。
+
+声库清单是 `App/Resources/KokoroManifest.json`：17 个文件共 178,683,881 bytes。包括 INT8 权重、voices.bin、中英文词典、tokens、数字/日期 FST、LICENSE，以及中文/英文所需的 eSpeak 数据。每项有大小与 SHA256，使用与 Melo 相同的分阶段校验下载；失败文件不进入可选状态。
+
+Kokoro 模型目录的 LICENSE 是 Apache-2.0，保留在下载目录。eSpeak 数据及引擎的许可仍应结合上文依赖说明，不能以模型许可替代。ZIPFoundation（MIT）负责 EPUB 读取，其许可也已加入应用的 ThirdPartyNotices.txt。
+
+两套离线引擎现在把整章按短句切分，在串行推理队列提前准备后三句，开始播放前等待下一句准备好，避免跨段重新启动播放队列。WAV 按引擎、音色、文字缓存到本地（最多 128 MB），更改语速只调整播放器，不让当前句重读。暂停、停止、切章和换音色均保留原有取消边界。
+
+2026-10-20 iPhone 17 模拟器（Mac CPU）实测：女声 46 冷载入短句 4.10 秒、男声 76 为 3.10 秒；随后约 9.70/9.08 秒的声音，热合成耗时 8.94/7.73 秒；相同音频缓存重读约 1 毫秒。模拟器数据不代表真机速度。以两段正文完成真实播放、语速调整不重置、暂停恢复和旧回调隔离等诊断。预缓冲降低句间等待，但首次仍需准备，高倍速或设备较慢时不能保证无等待。

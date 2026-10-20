@@ -10,6 +10,7 @@ import ReadingCore
             assert(old.theme == .paper && old.isNightMode && old.fontSize == 25 && old.lineSpacing == 13)
             let sparse = try JSONDecoder().decode(ReaderSettings.self, from: Data("{}".utf8))
             assert(sparse.turnMode == .slide && sparse.followsSystemBrightness)
+            assert(sparse.paragraphSpacing == 6 && sparse.kokoroVoiceID == 46)
             let roundTrip = try JSONDecoder().decode(ReaderSettings.self, from: JSONEncoder().encode(old))
             assert(roundTrip == old)
             ReaderSpeechController.runDiagnostics()
@@ -31,6 +32,8 @@ import ReadingCore
             var settings = ReaderSettings()
             let canvas = ReaderCanvas(frame: CGRect(x: 0, y: 0, width: 393, height: 690))
             let document = ReaderDocument(content: content, settings: settings)
+            let paragraphStyle = document.text.attribute(.paragraphStyle, at: document.paragraphRanges[0].location, effectiveRange: nil) as! NSParagraphStyle
+            assert(paragraphStyle.paragraphSpacing == 6 && paragraphStyle.lineSpacing == 9)
             let desiredAnchor = document.text.length / 3
             canvas.apply(content: content, settings: settings, initialOffset: desiredAnchor, seek: nil)
             canvas.layoutIfNeeded()

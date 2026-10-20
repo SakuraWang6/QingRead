@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import SherpaOnnx
 import UIKit
+import CryptoKit
 
 private final class SpeechGenerationCancellation: @unchecked Sendable {
     private let lock = NSLock()
@@ -29,10 +30,12 @@ private final class OfflineSpeechWorker: @unchecked Sendable {
         }
     }
     private let directory: URL
+    private let engineKind: SpeechEngine
+    private let speakerID: Int
     private let queue = DispatchQueue(label: "app.qingread.offline-speech", qos: .userInitiated)
     private var tts: SherpaOnnxOfflineTtsWrapper?
 
-    init(directory: URL) { self.directory = directory }
+    init(directory: URL, engine: SpeechEngine, speakerID: Int) { self.directory = directory; engineKind = engine; self.speakerID = speakerID }
 
     func clear() { queue.async { self.tts = nil } }
 
@@ -41,6 +44,15 @@ private final class OfflineSpeechWorker: @unchecked Sendable {
             queue.async {
                 do {
                     if cancellation.isCancelled { throw CancellationError() }
+                    let cache = Self.cacheRoot.appendingPathComponent(SHA256.hash(data: Data("v1.13.8|\(self.engineKind.rawValue)|\(self.speakerID)|\(text)".utf8)).map { String(format: "%02x", $0) }.joined() + ".wav")
+                    if let data = try? Data(contentsOf: cache), data.count > 44,
+                       String(data: data.prefix(4), encoding: .ascii) == "RIFF" {
+                        let sampleRate = data[24..<28].enumerated().reduce(0) { $0 | Int($1.element) << ($1.offset * 8) }
+                        if (8000...96000).contains(sampleRate) {
+                            continuation.resume(returning: Generated(wav: data, sampleRate: sampleRate, sampleCount: (data.count - 44) / 2))
+                            return
+                        }
+                    }
                     let engine = try self.loadModel()
                     if cancellation.isCancelled { throw CancellationError() }
                     let callback: TtsCallbackWithArg = { _, _, argument in
@@ -49,7 +61,7 @@ private final class OfflineSpeechWorker: @unchecked Sendable {
                         return token.isCancelled ? 0 : 1
                     }
                     let argument = Unmanaged.passUnretained(cancellation).toOpaque()
-                    let audio = engine.generateWithCallbackWithArg(text: text, callback: callback, arg: argument, sid: 0, speed: 1)
+                    let audio = engine.generateWithCallbackWithArg(text: text, callback: callback, arg: argument, sid: self.speakerID, speed: 1)
                     // The official 1.13.8 wrappers expose nullable C pointers as
                     // IUOs. Check before touching n/sampleRate/samples.
                     guard audio.audio != nil else { throw Failure.generation }
@@ -59,6 +71,9 @@ private final class OfflineSpeechWorker: @unchecked Sendable {
                     guard samples.count == Int(audio.n), samples.allSatisfy(\.isFinite) else { throw Failure.generation }
                     let wave = try ReaderSpeechPCM.wav(samples: samples, sampleRate: Int(audio.sampleRate))
                     if cancellation.isCancelled { throw CancellationError() }
+                    try? FileManager.default.createDirectory(at: Self.cacheRoot, withIntermediateDirectories: true)
+                    try? wave.write(to: cache, options: .atomic)
+                    Self.pruneCache()
                     continuation.resume(returning: Generated(wav: wave, sampleRate: Int(audio.sampleRate), sampleCount: samples.count))
                 } catch { continuation.resume(throwing: error) }
             }
@@ -67,33 +82,51 @@ private final class OfflineSpeechWorker: @unchecked Sendable {
 
     private func loadModel() throws -> SherpaOnnxOfflineTtsWrapper {
         if let tts { return tts }
-        let files = ["model.int8.onnx", "lexicon.txt", "tokens.txt", "date.fst", "number.fst", "LICENSE"]
+        let files = engineKind == .kokoro ? ["model.int8.onnx", "voices.bin", "tokens.txt", "date-zh.fst", "number-zh.fst", "lexicon-zh.txt", "espeak-ng-data/phontab", "espeak-ng-data/phondata"] : ["model.int8.onnx", "lexicon.txt", "tokens.txt", "date.fst", "number.fst", "LICENSE"]
         guard directory.isFileURL else { throw Failure.missingModel }
         let paths = files.map { directory.appendingPathComponent($0) }
         for path in paths {
             let values = try? path.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
             guard values?.isRegularFile == true, values?.isSymbolicLink != true, (values?.fileSize ?? 0) > 0 else { throw Failure.missingModel }
         }
-        let vits = sherpaOnnxOfflineTtsVitsModelConfig(model: paths[0].path, lexicon: paths[1].path, tokens: paths[2].path)
-        let model = sherpaOnnxOfflineTtsModelConfig(vits: vits, numThreads: 2, debug: 0, provider: "cpu")
+        var model = sherpaOnnxOfflineTtsModelConfig(numThreads: 2, provider: "cpu")
+        if engineKind == .kokoro {
+            let kokoro = sherpaOnnxOfflineTtsKokoroModelConfig(model: paths[0].path, voices: paths[1].path, tokens: paths[2].path,
+                dataDir: directory.appendingPathComponent("espeak-ng-data").path,
+                lexicon: paths[5].path + "," + directory.appendingPathComponent("lexicon-us-en.txt").path)
+            model = sherpaOnnxOfflineTtsModelConfig(kokoro: kokoro, numThreads: 2, debug: 0, provider: "cpu")
+        } else {
+            let vits = sherpaOnnxOfflineTtsVitsModelConfig(model: paths[0].path, lexicon: paths[1].path, tokens: paths[2].path)
+            model = sherpaOnnxOfflineTtsModelConfig(vits: vits, numThreads: 2, debug: 0, provider: "cpu")
+        }
         var config = sherpaOnnxOfflineTtsConfig(model: model, ruleFsts: paths[3].path + "," + paths[4].path, maxNumSentences: 1)
         let engine = SherpaOnnxOfflineTtsWrapper(config: &config)
         guard engine.tts != nil else { throw Failure.initialization }
         tts = engine
         return engine
     }
+
+    static var cacheRoot: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!.appendingPathComponent("QingReadAudio", isDirectory: true) }
+    private static func pruneCache() {
+        let files = ((try? FileManager.default.contentsOfDirectory(at: cacheRoot, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])) ?? []).compactMap { url -> (URL, Int, Date)? in
+            guard let v = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+            return (url, v.fileSize ?? 0, v.contentModificationDate ?? .distantPast)
+        }.sorted { $0.2 < $1.2 }
+        var size = files.reduce(0) { $0 + $1.1 }
+        for file in files where size > 128 * 1024 * 1024 { try? FileManager.default.removeItem(at: file.0); size -= file.1 }
+    }
 }
 
 @MainActor
 final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
     let modelDirectory: URL
+    let engineKind: SpeechEngine
+    let speakerID: Int
     private let worker: OfflineSpeechWorker
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var task: Task<Void, Never>?
-    private var prefetchTask: Task<Void, Never>?
-    private var prefetchIndex: Int?
-    private var prefetched: (index: Int, audio: OfflineSpeechWorker.Generated)?
+    private var pendingAudio: [Int: Task<OfflineSpeechWorker.Generated, Error>] = [:]
     private var backgroundTasks: [UUID: UIBackgroundTaskIdentifier] = [:]
     private var generation = UUID()
     private var cancellation: SpeechGenerationCancellation?
@@ -106,10 +139,16 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
     private var onPosition: ((Int) -> Void)?
     private var onFinish: (() -> Void)?
     private var onError: ((String) -> Void)?
+    #if DEBUG
+    private var diagnosticVolume: Float = 1
+    private var chunkWaits: [Double] = []
+    #endif
 
-    init(modelDirectory: URL) {
+    init(modelDirectory: URL, engine: SpeechEngine = .melo, speakerID: Int = 0) {
         self.modelDirectory = modelDirectory
-        worker = OfflineSpeechWorker(directory: modelDirectory)
+        engineKind = engine
+        self.speakerID = speakerID
+        worker = OfflineSpeechWorker(directory: modelDirectory, engine: engine, speakerID: speakerID)
         super.init()
     }
 
@@ -154,8 +193,7 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
         cancellation?.cancel()
         cancellation = nil
         task?.cancel(); task = nil
-        prefetchTask?.cancel(); prefetchTask = nil
-        prefetchIndex = nil; prefetched = nil
+        pendingAudio.values.forEach { $0.cancel() }; pendingAudio.removeAll()
         for identifier in backgroundTasks.values { UIApplication.shared.endBackgroundTask(identifier) }
         backgroundTasks.removeAll()
         timer?.invalidate(); timer = nil
@@ -182,18 +220,29 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
         }
         guard let cancellation else { return }
         let chunk = chunks[chunkIndex]
-        let pending = prefetchIndex == chunkIndex ? prefetchTask : nil
+        let pending = pendingAudio.removeValue(forKey: chunkIndex)
         task = Task { @MainActor [weak self] in
             do {
-                if let pending { await pending.value }
                 guard !Task.isCancelled, let self, self.generation == token else { return }
+                #if DEBUG
+                let waitingAt = Date()
+                #endif
                 let audio: OfflineSpeechWorker.Generated
-                if let ready = self.prefetched, ready.index == self.chunkIndex {
-                    audio = ready.audio
-                    self.prefetched = nil
-                } else { audio = try await self.generateAudio(chunk.text, cancellation: cancellation) }
+                if let pending { audio = try await pending.value }
+                else { audio = try await self.generateAudio(chunk.text, cancellation: cancellation) }
                 guard !Task.isCancelled, self.generation == token else { return }
+                // Prime one following sentence before starting. This avoids
+                // playing a cached first sentence while its successor is cold.
+                if self.chunkIndex == 0, self.chunks.count > 1, !self.isPaused {
+                    self.prefetchNextChunk()
+                    if let next = self.pendingAudio[1] { _ = try await next.value }
+                    guard !Task.isCancelled, self.generation == token else { return }
+                }
                 let player = try AVAudioPlayer(data: audio.wav, fileTypeHint: AVFileType.wav.rawValue)
+                #if DEBUG
+                self.chunkWaits.append(Date().timeIntervalSince(waitingAt))
+                player.volume = self.diagnosticVolume
+                #endif
                 player.enableRate = true
                 player.rate = self.rate
                 player.delegate = self
@@ -224,22 +273,15 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
         return try await worker.generate(text, cancellation: cancellation)
     }
 
-    /// Exactly one future sentence is generated while this sentence plays.
+    /// Bounded look-ahead spans paragraph boundaries; generated audio is reused.
     private func prefetchNextChunk() {
-        let next = chunkIndex + 1
-        guard !isPaused, chunks.indices.contains(next), prefetchTask == nil,
-              prefetched?.index != next, let cancellation else { return }
-        let token = generation
-        let text = chunks[next].text
-        prefetchIndex = next
-        prefetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let audio = try await self.generateAudio(text, cancellation: cancellation)
-                guard !Task.isCancelled, self.generation == token else { return }
-                self.prefetched = (next, audio)
-            } catch { /* The foreground sentence retries and reports an error. */ }
-            if self.generation == token { self.prefetchTask = nil; self.prefetchIndex = nil }
+        guard !isPaused, let cancellation else { return }
+        for next in (chunkIndex + 1)..<min(chunks.count, chunkIndex + 4) where pendingAudio[next] == nil {
+            let text = chunks[next].text
+            pendingAudio[next] = Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { throw CancellationError() }
+                return try await self.generateAudio(text, cancellation: cancellation)
+            }
         }
     }
 
@@ -298,8 +340,9 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
     #if DEBUG
     /// Requires an explicitly downloaded verified model. Generates a real public
     /// domain sentence, saves it for inspection, then briefly plays at volume 0.
-    static func runDiagnostics(modelDirectory: URL) async -> Bool {
-        let engine = OfflineSpeechEngine(modelDirectory: modelDirectory)
+    static func runDiagnostics(modelDirectory: URL, kind: SpeechEngine = .melo, voiceID: Int = 0) async -> Bool {
+        let engine = OfflineSpeechEngine(modelDirectory: modelDirectory, engine: kind, speakerID: voiceID)
+        engine.diagnosticVolume = 0
         let cancellation = SpeechGenerationCancellation()
         defer { cancellation.cancel(); engine.stop() }
         do {
@@ -307,10 +350,19 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
             let audio = try await engine.generateAudio("晋太元中，武陵人捕鱼为业。", cancellation: cancellation)
             let elapsed = Date().timeIntervalSince(started)
             guard audio.sampleRate > 0, audio.sampleCount > 0 else { return false }
+            let warmText = "初极狭，才通人。复行数十步，豁然开朗。土地平旷，屋舍俨然，有良田、美池、桑竹之属。"
+            let warmAt = Date()
+            let warmAudio = try await engine.generateAudio(warmText, cancellation: cancellation)
+            let warmSeconds = Date().timeIntervalSince(warmAt)
+            let cacheAt = Date()
+            let cached = try await engine.generateAudio(warmText, cancellation: cancellation)
+            let cacheSeconds = Date().timeIntervalSince(cacheAt)
+            guard cached.wav == warmAudio.wav else { return false }
+            print(String(format: "QINGREAD_AI_BENCHMARK engine=%@ voice=%d warmSeconds=%.3f audioSeconds=%.3f cacheSeconds=%.3f", kind.rawValue, voiceID, warmSeconds, Double(warmAudio.sampleCount) / Double(warmAudio.sampleRate), cacheSeconds))
             let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                 .appendingPathComponent("QingRead/Diagnostics", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let output = root.appendingPathComponent("melo-sample.wav")
+            let output = root.appendingPathComponent("\(kind.rawValue)-\(voiceID)-sample.wav")
             try audio.wav.write(to: output, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: output.path)
             let player = try AVAudioPlayer(data: audio.wav, fileTypeHint: AVFileType.wav.rawValue)
@@ -345,7 +397,18 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
                 _ = try await engine.worker.generate("此任务已取消。", cancellation: cancellation)
                 return false
             } catch is CancellationError { /* Expected before native generation. */ }
-            print(String(format: "QINGREAD_AI_SELFTEST synthesisSeconds=%.3f sampleRate=%d samples=%d finite=passed ratePosition=passed pauseResume=passed staleCallbacks=passed cancellation=passed wav=melo-sample.wav", elapsed, audio.sampleRate, audio.sampleCount))
+            let chapter = "晋太元中，武陵人捕鱼为业。\n缘溪行，忘路之远近。"
+            var completed = false
+            var failed = false
+            var positions: [Int] = []
+            engine.chunkWaits = []
+            engine.play(text: chapter, offset: 0, rate: 1.8, onPosition: { positions.append($0) }, onFinish: { completed = true }, onError: { _ in failed = true })
+            let deadline = Date().addingTimeInterval(35)
+            while !completed && !failed && Date() < deadline { try await Task.sleep(nanoseconds: 100_000_000) }
+            guard completed, !failed, positions.last == (chapter as NSString).length,
+                  zip(positions, positions.dropFirst()).allSatisfy({ $0 <= $1 }) else { return false }
+            print(String(format: "QINGREAD_AI_CONTINUITY engine=%@ voice=%d paragraphs=2 completed=passed maxFollowingWait=%.3f", kind.rawValue, voiceID, engine.chunkWaits.dropFirst().max() ?? 0))
+            print(String(format: "QINGREAD_AI_SELFTEST engine=%@ voice=%d synthesisSeconds=%.3f sampleRate=%d samples=%d finite=passed ratePosition=passed pauseResume=passed staleCallbacks=passed cancellation=passed", kind.rawValue, voiceID, elapsed, audio.sampleRate, audio.sampleCount))
             return true
         } catch {
             print("QINGREAD_AI_SELFTEST failed: \(error.localizedDescription)")
@@ -355,7 +418,7 @@ final class OfflineSpeechEngine: NSObject, AVAudioPlayerDelegate {
     #endif
 
     deinit {
-        timer?.invalidate(); cancellation?.cancel(); task?.cancel(); prefetchTask?.cancel()
+        timer?.invalidate(); cancellation?.cancel(); task?.cancel(); pendingAudio.values.forEach { $0.cancel() }
         player?.stop()
         worker.clear()
     }

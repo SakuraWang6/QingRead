@@ -67,6 +67,7 @@ public enum SourceImporter {
         }
         guard source.homeURL.isHTTP else { throw ReadingError.invalidSource("homeURL 需要 HTTP 或 HTTPS 网址。") }
         switch source.kind {
+        case .gutenberg, .standardEbooks, .openStax: break
         case .staticCatalog:
             guard !source.catalogBooks.isEmpty else { throw ReadingError.invalidSource("静态书源的 catalogBooks 不能为空。") }
             guard source.catalogBooks.allSatisfy({ !$0.title.isEmpty && $0.directoryURL.isHTTP && $0.directoryURL.absoluteString.hasSuffix("/") }) else {

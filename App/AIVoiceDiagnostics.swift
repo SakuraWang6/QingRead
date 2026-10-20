@@ -3,7 +3,7 @@ import Foundation
 import CryptoKit
 
 @MainActor enum AIVoiceDiagnostics {
-    static func run(downloadModel: Bool) async {
+    static func run(downloadModel: Bool, kind: SpeechEngine = .melo) async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("QingRead-model-test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         do {
@@ -30,7 +30,7 @@ import CryptoKit
             assert(AIModelManager(root: root, files: [file]).readyDirectory == nil)
             print("QINGREAD_AI_MODEL_SELFTEST checksum=passed incomplete=passed manifest=passed")
         } catch { assertionFailure("AI model integrity diagnostics failed: \(error)") }
-        let manager = AIModelManager.shared
+        let manager = AIModelManager.manager(for: kind)
         if downloadModel && manager.readyDirectory == nil {
             manager.download()
             while case .downloading = manager.state {
@@ -41,8 +41,10 @@ import CryptoKit
             print("QINGREAD_AI_SYNTHESIS_SELFTEST skipped=modelUnavailable state=\(manager.state)")
             return
         }
-        let passed = await OfflineSpeechEngine.runDiagnostics(modelDirectory: directory)
-        assert(passed, "Real offline AI synthesis must produce valid audio")
+        for voice in kind == .kokoro ? [46, 76] : [0] {
+            let passed = await OfflineSpeechEngine.runDiagnostics(modelDirectory: directory, kind: kind, voiceID: voice)
+            assert(passed, "Real offline AI synthesis must produce valid audio")
+        }
     }
 }
 #endif

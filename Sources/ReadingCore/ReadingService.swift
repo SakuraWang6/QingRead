@@ -23,6 +23,8 @@ public actor ReadingService {
                         try SourceImporter.validate(source)
                         let books: [Book]
                         switch source.kind {
+                        case .gutenberg, .standardEbooks, .openStax:
+                            books = try await WholeBookSources(source: source, fetcher: fetcher).search(query)
                         case .staticCatalog:
                             books = StaticCatalogSource(source: source, fetcher: fetcher).search(query: query)
                         case .mediaWiki:
@@ -60,6 +62,7 @@ public actor ReadingService {
     public func chapters(for book: Book) async throws -> [Chapter] {
         let source = try source(for: book)
         switch source.kind {
+        case .gutenberg, .standardEbooks, .openStax: throw ReadingError.remote("这本书以整本文件提供，请先下载到本机。")
         case .staticCatalog: return try await StaticCatalogSource(source: source, fetcher: fetcher).chapters(for: book)
         case .mediaWiki: return try await MediaWikiSource(source: source, fetcher: fetcher).chapters(for: book)
         case .html:
@@ -82,9 +85,15 @@ public actor ReadingService {
         return try HTMLParsing.coverURL(HTMLParsing.decode(data, encoding: config.encoding), baseURL: response.url ?? book.url)
     }
 
+    public func downloadURL(for book: Book) async throws -> URL {
+        if let url = book.fileDownloadURL, url.isHTTP { return url }
+        return try await WholeBookSources(source: source(for: book), fetcher: fetcher).downloadURL(for: book)
+    }
+
     public func content(for chapter: Chapter, in book: Book) async throws -> ChapterContent {
         let source = try source(for: book)
         switch source.kind {
+        case .gutenberg, .standardEbooks, .openStax: throw ReadingError.remote("请先下载并导入整本文件。")
         case .staticCatalog: return try await StaticCatalogSource(source: source, fetcher: fetcher).content(for: chapter)
         case .mediaWiki: return try await MediaWikiSource(source: source, fetcher: fetcher).content(for: chapter)
         case .html:

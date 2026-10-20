@@ -258,7 +258,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
 
     private func needsVisualUpdate(_ value: ReaderSettings) -> Bool {
-        settings.fontSize != value.fontSize || settings.lineSpacing != value.lineSpacing
+        settings.fontSize != value.fontSize || settings.lineSpacing != value.lineSpacing || settings.paragraphSpacing != value.paragraphSpacing
             || settings.theme != value.theme || settings.isNightMode != value.isNightMode
             || settings.turnMode != value.turnMode || settings.font != value.font
             || settings.isBold != value.isBold || settings.horizontalMargin != value.horizontalMargin

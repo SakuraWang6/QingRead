@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 import Combine
 
-struct AIModelFile: Sendable {
+struct AIModelFile: Codable, Sendable {
     let name: String
     let bytes: Int64
     let sha256: String
@@ -14,6 +14,9 @@ struct AIModelFile: Sendable {
 final class AIModelManager: ObservableObject {
     enum State: Equatable { case missing, downloading(progress: Double), ready, failed(String) }
     static let shared = AIModelManager()
+    static let kokoro = AIModelManager(engine: .kokoro)
+    static func manager(for engine: SpeechEngine) -> AIModelManager { engine == .kokoro ? kokoro : shared }
+    let engine: SpeechEngine
     @Published private(set) var state: State = .missing
 
     nonisolated static let files: [AIModelFile] = [
@@ -35,11 +38,12 @@ final class AIModelManager: ObservableObject {
     private var stagePrefix: String { ".\(root.lastPathComponent)-download-" }
     private var manifestStamp: String { files.map { "\($0.name):\($0.bytes):\($0.sha256)" }.joined(separator: "\n") }
 
-    init(root: URL? = nil, files: [AIModelFile] = AIModelManager.files, baseURL: URL? = nil, session: URLSession? = nil) {
+    init(engine: SpeechEngine = .melo, root: URL? = nil, files: [AIModelFile]? = nil, baseURL: URL? = nil, session: URLSession? = nil) {
+        self.engine = engine
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("QingRead/VoiceModels/Melo-int8", isDirectory: true)
-        self.files = files
-        self.baseURL = baseURL ?? URL(string: "https://huggingface.co/csukuangfj/vits-melo-tts-zh_en/resolve/\(Self.modelRevision)/")!
+            .appendingPathComponent(engine == .kokoro ? "QingRead/VoiceModels/Kokoro-int8-v1.1" : "QingRead/VoiceModels/Melo-int8", isDirectory: true)
+        self.files = files ?? (engine == .kokoro ? Self.kokoroFiles : Self.files)
+        self.baseURL = baseURL ?? URL(string: engine == .kokoro ? "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/resolve/155831f1b4ba23b1f5c058be6a61df90cefb2a37/" : "https://huggingface.co/csukuangfj/vits-melo-tts-zh_en/resolve/\(Self.modelRevision)/")!
         let configuration = URLSessionConfiguration.ephemeral
         configuration.allowsCellularAccess = false
         configuration.timeoutIntervalForRequest = 60
@@ -50,9 +54,16 @@ final class AIModelManager: ObservableObject {
     }
 
     var readyDirectory: URL? { state == .ready && isComplete ? root : nil }
+    var downloadSize: String { ByteCountFormatter.string(fromByteCount: files.reduce(0) { $0 + $1.bytes }, countStyle: .file) }
+    nonisolated private static var kokoroFiles: [AIModelFile] {
+        guard let url = Bundle.main.url(forResource: "KokoroManifest", withExtension: "json"),
+              let data = try? Data(contentsOf: url), let files = try? JSONDecoder().decode([AIModelFile].self, from: data) else { return [] }
+        return files
+    }
 
     func download() {
         if case .downloading = state { return }
+        guard !files.isEmpty else { state = .failed("当前安装包缺少声库清单，请更新清读。"); return }
         let token = UUID()
         generation = token
         state = .downloading(progress: 0)
@@ -84,10 +95,11 @@ final class AIModelManager: ObservableObject {
                         }
                     }
                     var request = URLRequest(url: self.baseURL.appendingPathComponent(file.name))
-                    request.setValue("QingRead/0.3", forHTTPHeaderField: "User-Agent")
+                    request.setValue("QingRead/0.4", forHTTPHeaderField: "User-Agent")
                     let (temporary, response) = try await self.session.download(for: request, delegate: progress)
                     guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw ModelError.unavailable }
                     let destination = stage.appendingPathComponent(file.name)
+                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try FileManager.default.moveItem(at: temporary, to: destination)
                     try await Task.detached(priority: .utility) { try Self.validate(destination, file: file) }.value
                     try Task.checkCancellation()
@@ -136,6 +148,7 @@ final class AIModelManager: ObservableObject {
     }
 
     private var isComplete: Bool {
+        guard !files.isEmpty else { return false }
         guard (try? String(contentsOf: root.appendingPathComponent("verified.txt"), encoding: .utf8)) == manifestStamp else { return false }
         return files.allSatisfy { file in
             let values = try? root.appendingPathComponent(file.name).resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])

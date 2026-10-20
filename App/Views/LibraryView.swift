@@ -58,6 +58,7 @@ struct LibraryView: View {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 NavigationLink { SearchView() } label: { Image(systemName: "magnifyingglass").foregroundStyle(Palette.ink) }
                     .accessibilityLabel("搜索小说")
+                PublicationImportButton(iconOnly: true) { readingBook = $0 }
                 Menu {
                     Button { readingBook = LocalSample.book } label: { Label("本地阅读示例", systemImage: "doc.text") }
                     if !store.shelf.isEmpty {
@@ -71,7 +72,7 @@ struct LibraryView: View {
         .navigationDestination(isPresented: Binding(get: { detailBook != nil }, set: { if !$0 { detailBook = nil } })) {
             if let detailBook { BookDetailView(book: detailBook) }
         }
-        .fullScreenCover(item: $readingBook) { book in ReaderView(book: book) }
+        .fullScreenCover(item: $readingBook) { book in BookReadingView(book: book) }
         .confirmationDialog("从书架移除这本书？", isPresented: Binding(get: { removingBook != nil }, set: { if !$0 { removingBook = nil } }), titleVisibility: .visible) {
             Button("移除书籍", role: .destructive) {
                 if let removingBook { store.remove(removingBook) }
