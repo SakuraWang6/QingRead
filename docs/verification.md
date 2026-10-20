@@ -19,13 +19,16 @@
 
 ## iOS 构建和界面
 
-本机未安装完整 Xcode/iOS SDK。GitHub Actions 已通过核心测试、无签名 iPhone 模拟器构建和安装启动。已实际检查书架、搜书、书源、阅读器四张模拟器截图，修复了标题截断、List白底和正文的重复段落空行；Debug 预览参数也已启用正确的编译条件。
+本机现已安装 Xcode 27.1，并在 iOS 27.0 的专用 iPhone 17 模拟器中完成无签名构建、安装和运行。通过实际界面验证《超神机械师》1493章目录与首章、《这游戏也太真实了》1106章目录与首章；两本书已加入书架，各缓存首章，重新启动应用后书架及阅读进度保留。首次安装后运行库曾重新挂载，重连 CoreSimulator 后恢复。此次还修复了书架中自定义箭头与系统 NavigationLink 箭头重复显示的问题。[本地书架截图](previews/local-library.png)来自此次运行。
 
-截图来自实际原生界面，见 [书架](previews/library.png)、[搜书](previews/search.png)、[书源](previews/sources.png)、[阅读器](previews/reader.png)。它们不是 HTML 设计稿或手绘效果图。最终代码 `d34f2d3` 的[完整 GitHub Actions 验证](https://github.com/SakuraWang6/QingRead/actions/runs/39386533440)已成功：13个测试通过、iPhone模拟器构建通过、安装启动与四页截图成功。模拟器截图在一次实际启动后保存，不能代替真机交互和长期阅读测试。
+GitHub Actions 此前已通过核心测试、无签名 iPhone 模拟器构建和安装启动。已实际检查书架、搜书、书源、阅读器四张模拟器截图，修复了标题截断、List白底和正文的重复段落空行；Debug 预览参数也已启用正确的编译条件。
+
+截图来自实际原生界面，见 [书架](previews/library.png)、[搜书](previews/search.png)、[书源](previews/sources.png)、[阅读器](previews/reader.png)。它们不是 HTML 设计稿或手绘效果图。首版代码 `d34f2d3` 的[完整 GitHub Actions 验证](https://github.com/SakuraWang6/QingRead/actions/runs/39386533440)已成功：13个测试通过、iPhone模拟器构建通过、安装启动与四页截图成功。模拟器截图在一次实际启动后保存，不能代替真机交互和长期阅读测试。
 
 ## 尚需验证
 
 - 真机文字位置恢复、后台切换、字号和行距调整、离线缓存、窄屏与辅助功能。
 - 更广泛的现代网文来源、章节完整性与连续查询稳定性；目前仅针对用户两本书验证了目录和首章。
+- 中文维基文库的全文搜索可能返回判决书等非小说文本，搜索结果相关性仍需改进。
 - 自定义网站的多页目录、登录与动态网页不是首版支持范围。
 - 模拟器构建不包含签名；安装到用户真机还需要在 Xcode 选择自己的 Apple Team。

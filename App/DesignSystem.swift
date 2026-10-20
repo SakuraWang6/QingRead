@@ -103,6 +103,7 @@ struct BookSpine: View {
 struct BookRow: View {
     let book: Book
     var annotation: String? = nil
+    var showsChevron = true
 
     var body: some View {
         HStack(alignment: .top, spacing: 17) {
@@ -115,8 +116,10 @@ struct BookRow: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(Palette.secondary)
-                .padding(.top, 8)
+            if showsChevron {
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Palette.secondary)
+                    .padding(.top, 8)
+            }
         }
         .padding(.vertical, 14)
         .contentShape(Rectangle())

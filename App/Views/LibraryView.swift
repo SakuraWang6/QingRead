@@ -35,7 +35,7 @@ struct LibraryView: View {
                     NavigationLink {
                         BookDetailView(book: entry.book)
                     } label: {
-                        BookRow(book: entry.book, annotation: progressLabel(entry))
+                        BookRow(book: entry.book, annotation: progressLabel(entry), showsChevron: false)
                     }
                     .listRowSeparator(.visible)
                     .listRowBackground(Palette.paper)

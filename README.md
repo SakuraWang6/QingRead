@@ -78,4 +78,6 @@ Debug 构建可带 `--qingread-preview search`、`sources` 或 `reader` 作为�
 
 实际 iPhone 模拟器截图：[书架](docs/previews/library.png) · [搜书](docs/previews/search.png) · [书源](docs/previews/sources.png) · [阅读器](docs/previews/reader.png)。阅读器截图使用随包提供的公版样例，不是虚构网络结果。
 
+本地 iPhone 17 已验证两本用户书单的搜索、目录、首章及重启后继续阅读，见[本地书架截图](docs/previews/local-library.png)。
+
 独立实现，参考竞品的产品行为，没有复制竞品客户端源码。代码采用 MIT 许可，HTML 解析依赖 SwiftSoup（MIT）。
