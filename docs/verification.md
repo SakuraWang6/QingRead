@@ -12,13 +12,16 @@
 - 真实网络 `reading-probe 桃花源記`：退出码 0，搜索 20 个结果，单章目录，正文 22 段。
 - 用户书单：笔趣阁·biequgei 使用实际 Swift URLSession 验证《超神机械师》1493条目录／首章102段，《这游戏也太真实了》1106条目录／首章98段。连续查询曾短暂为空，重试恢复；没有逐章抓取全书验证。
 - 新默认适配 `reading-probe --source woshuge 超神机械师`：退出码0，目录1463章，首章97段。
+- 新默认适配 `reading-probe --source biequgei 这游戏也太真实了`：退出码0，搜索精确结果1条、目录1106章、首章98段。
 - 独立静态复核后，已修复慢来源阻塞搜索、关闭目录误打开旧章、缓存写入失败阻止阅读及批量缓存误报成功问题。
 
 本机 CLT 的 Swift Testing 需要额外框架路径和 native build-system；验证脚本对这个环境做了适配。测试出现 native build-system 弃用和 Testing.framework 最低 macOS 版本的工具链警告，不影响本次通过结果。
 
 ## iOS 构建和界面
 
-本机未安装完整 Xcode/iOS SDK。GitHub Actions 已通过核心测试、无签名 iPhone 模拟器构建和安装启动。首批实际截图发现标题截断、List白底问题，已修正；截图用的 Debug 参数需要显式启用 DEBUG 编译条件，也已修正。最终来源与界面变更将重新进行模拟器验证。
+本机未安装完整 Xcode/iOS SDK。GitHub Actions 已通过核心测试、无签名 iPhone 模拟器构建和安装启动。已实际检查书架、搜书、书源、阅读器四张模拟器截图，修复了标题截断、List白底和正文的重复段落空行；Debug 预览参数也已启用正确的编译条件。
+
+截图来自实际原生界面，见 [书架](previews/library.png)、[搜书](previews/search.png)、[书源](previews/sources.png)、[阅读器](previews/reader.png)。它们不是 HTML 设计稿或手绘效果图。最终代码 `d34f2d3` 的[完整 GitHub Actions 验证](https://github.com/SakuraWang6/QingRead/actions/runs/39386533440)已成功：13个测试通过、iPhone模拟器构建通过、安装启动与四页截图成功。模拟器截图在一次实际启动后保存，不能代替真机交互和长期阅读测试。
 
 ## 尚需验证
 
