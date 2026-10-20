@@ -35,7 +35,7 @@ def main():
         arguments = [] if screen == "library" else ["--qingread-preview", screen]
         launch = run("xcrun", "simctl", "launch", udid, "app.qingread.personal", *arguments)
         print(launch.strip())
-        time.sleep(3)
+        time.sleep(6)
         destination = directory / f"{screen}.png"
         run("xcrun", "simctl", "io", udid, "screenshot", str(destination))
         print(f"Captured {device['name']} / {screen}: {destination}")

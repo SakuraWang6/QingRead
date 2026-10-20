@@ -78,9 +78,9 @@ struct SearchView: View {
                     }
                 } else if !hasSearched {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("从一部经典开始").font(.bookTitle(21)).foregroundStyle(Palette.ink)
+                        Text("从一本想读的书开始").font(.bookTitle(21)).foregroundStyle(Palette.ink)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 94), alignment: .leading)], alignment: .leading, spacing: 10) {
-                            ForEach(["西游记", "聊斋志异", "红楼梦"], id: \.self) { title in
+                            ForEach(["超神机械师", "这游戏也太真实了", "西游记"], id: \.self) { title in
                                 Button { query = title; startSearch() } label: {
                                     Text(title).font(.subheadline).foregroundStyle(Palette.ink)
                                         .padding(.horizontal, 13).padding(.vertical, 10)
@@ -88,7 +88,7 @@ struct SearchView: View {
                                 }.disabled(store.enabledSourceIDs.isEmpty)
                             }
                         }
-                        Text("内置古典小说精选与中文维基文库，适合阅读经典作品。也可以到「书源」导入其他来源。")
+                        Text("搜索已启用的小说与经典文库来源。同一本书的不同来源会分别列出，也可以到「书源」管理。")
                             .font(.footnote).foregroundStyle(Palette.secondary).lineSpacing(5)
                     }.padding(.top, 12)
                 }

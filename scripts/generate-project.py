@@ -46,6 +46,8 @@ def main():
             settings = "CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0;"
             if owner == "project":
                 settings += " SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0;"
+                if mode == "Debug":
+                    settings += " SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;"
                 settings += " SWIFT_OPTIMIZATION_LEVEL = \"-Onone\"; DEBUG_INFORMATION_FORMAT = dwarf;" if mode == "Debug" else " SWIFT_OPTIMIZATION_LEVEL = \"-O\"; DEBUG_INFORMATION_FORMAT = \"dwarf-with-dsym\";"
             else:
                 settings += " ENABLE_PREVIEWS = YES; LD_RUNPATH_SEARCH_PATHS = \"$(inherited) @executable_path/Frameworks\";"

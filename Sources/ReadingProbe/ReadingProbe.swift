@@ -9,9 +9,23 @@ import Glibc
 @main
 struct ReadingProbe {
     static func main() async {
-        let query = CommandLine.arguments.dropFirst().first ?? "桃花源記"
+        var arguments = Array(CommandLine.arguments.dropFirst())
+        var selectedSourceID: String?
+        if let flag = arguments.firstIndex(of: "--source") {
+            guard arguments.indices.contains(flag + 1) else {
+                print("用法：reading-probe [--source 来源ID] [书名]")
+                exit(64)
+            }
+            selectedSourceID = arguments[flag + 1]
+            arguments.removeSubrange(flag...(flag + 1))
+        }
+        if let selectedSourceID, !SourceDefinition.builtIn.contains(where: { $0.id == selectedSourceID }) {
+            print("未知来源：\(selectedSourceID)")
+            exit(64)
+        }
+        let query = arguments.first ?? "桃花源記"
         let service = ReadingService()
-        let result = await service.search(query: query)
+        let result = await service.search(query: query, enabledSourceIDs: selectedSourceID.map { Set([$0]) })
         print("搜索：\(query)，结果：\(result.books.count)")
         for failure in result.failures {
             print("来源失败：\(failure.sourceName)：\(failure.message)")
@@ -29,7 +43,6 @@ struct ReadingProbe {
             guard let chapter = chapters.first else { exit(2) }
             let content = try await service.content(for: chapter, in: first)
             print("首章：\(chapter.title)，\(content.paragraphs.count) 段")
-            print(content.paragraphs.prefix(2).joined(separator: "\n"))
             if content.paragraphs.isEmpty { exit(3) }
         } catch {
             print("读取失败：\(error.localizedDescription)")

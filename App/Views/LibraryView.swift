@@ -9,17 +9,18 @@ struct LibraryView: View {
         List {
             PageHeading(eyebrow: "QING READ · 私人书房", title: "把时间，留给好书。", subtitle: "没有广告，翻开就读。")
                 .listRowSeparator(.hidden)
+                .listRowBackground(Palette.paper)
             if let message = store.storageMessage {
-                InlineNotice(message: message, isError: true).listRowSeparator(.hidden)
+                InlineNotice(message: message, isError: true).listRowSeparator(.hidden).listRowBackground(Palette.paper)
             }
             if let recent = store.recentEntry {
-                continueReading(recent).listRowSeparator(.hidden)
+                continueReading(recent).listRowSeparator(.hidden).listRowBackground(Palette.paper)
             }
             HStack {
                 Text("我的书架").font(.bookTitle(22)).foregroundStyle(Palette.ink)
                 Spacer()
                 Text("\(store.shelf.count) 本").font(.caption.monospacedDigit()).foregroundStyle(Palette.secondary)
-            }.padding(.top, 18).listRowSeparator(.hidden)
+            }.padding(.top, 18).listRowSeparator(.hidden).listRowBackground(Palette.paper)
 
             if store.shelf.isEmpty {
                 VStack(spacing: 0) {
@@ -28,7 +29,7 @@ struct LibraryView: View {
                         Label("先读一篇《桃花源记》", systemImage: "book")
                     }.buttonStyle(PrimaryButtonStyle())
                     Text("本地公版示例 · 无需联网").font(.caption).foregroundStyle(Palette.secondary).padding(.top, 10)
-                }.padding(.bottom, 24).listRowSeparator(.hidden)
+                }.padding(.bottom, 24).listRowSeparator(.hidden).listRowBackground(Palette.paper)
             } else {
                 ForEach(store.sortedShelf) { entry in
                     NavigationLink {
@@ -37,6 +38,7 @@ struct LibraryView: View {
                         BookRow(book: entry.book, annotation: progressLabel(entry))
                     }
                     .listRowSeparator(.visible)
+                    .listRowBackground(Palette.paper)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) { store.remove(entry.book) } label: { Label("移除", systemImage: "trash") }
                     }
@@ -46,10 +48,9 @@ struct LibraryView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Palette.paper)
+        .navigationTitle("清读")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Text("清 读").font(.bookTitle(18)).foregroundStyle(Palette.ink)
-            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button { readingBook = LocalSample.book } label: { Label("阅读本地公版示例", systemImage: "leaf") }

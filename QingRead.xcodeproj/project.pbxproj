@@ -32,7 +32,7 @@
 		D9F82689E8F760ECED47CA3E = { isa = PBXBuildFile; productRef = 8D6A224FA1D1DD751157EB0C; };
 		326A678791C89F5FAABDFBFA = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D9F82689E8F760ECED47CA3E); runOnlyForDeploymentPostprocessing = 0; };
 		CF21FADD42EAB8F8303A3895 = { isa = XCLocalSwiftPackageReference; relativePath = .; };
-		AB52CB08E0FDF02BF6C67C33 = { isa = XCBuildConfiguration;  buildSettings = { CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; name = Debug; };
+		AB52CB08E0FDF02BF6C67C33 = { isa = XCBuildConfiguration;  buildSettings = { CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; name = Debug; };
 		5283471FF90C511CFE244FFF = { isa = XCBuildConfiguration;  buildSettings = { CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_OPTIMIZATION_LEVEL = "-O"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; name = Release; };
 		640DC9EFD529235A8D9E2727 = { isa = XCConfigurationList; buildConfigurations = (AB52CB08E0FDF02BF6C67C33, 5283471FF90C511CFE244FFF); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		EF00B4C26D3BA245CBAB3F00 = { isa = XCBuildConfiguration; baseConfigurationReference = 9788083BD201345E7D7C8B3C; buildSettings = { CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; ENABLE_PREVIEWS = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; }; name = Debug; };

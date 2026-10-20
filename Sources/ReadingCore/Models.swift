@@ -92,7 +92,7 @@ public struct SourceDefinition: Codable, Hashable, Identifiable, Sendable {
         self.catalogBooks = catalogBooks
     }
 
-    public static let builtIn: [SourceDefinition] = [
+    public static let builtIn: [SourceDefinition] = WebSourceCatalog.sources + [
         SourceDefinition(
             id: "chinese-classics",
             name: "古典小说精选",

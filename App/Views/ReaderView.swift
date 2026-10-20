@@ -283,8 +283,8 @@ private struct ReaderTextView: UIViewRepresentable {
 
     private func attributedText() -> NSAttributedString {
         let color = UIColor(settings.theme.foreground)
-        let bodyFont = UIFont(name: "STSongti-SC-Regular", size: settings.fontSize) ?? UIFont.systemFont(ofSize: settings.fontSize)
-        let titleFont = UIFont(name: "STSongti-SC-Regular", size: settings.fontSize + 7) ?? UIFont.systemFont(ofSize: settings.fontSize + 7, weight: .medium)
+        let bodyFont = UIFont(name: "SongtiSC-Regular", size: settings.fontSize) ?? UIFont.systemFont(ofSize: settings.fontSize)
+        let titleFont = UIFont(name: "SongtiSC-Regular", size: settings.fontSize + 7) ?? UIFont.systemFont(ofSize: settings.fontSize + 7, weight: .medium)
         let titleParagraph = NSMutableParagraphStyle()
         titleParagraph.paragraphSpacing = 28
         titleParagraph.lineSpacing = 6

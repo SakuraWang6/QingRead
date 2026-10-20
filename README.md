@@ -12,7 +12,7 @@ SwiftUI / iOS 16+ / 本地优先 / 无账号 / 无广告 SDK / 无会员与内�
 - 按章节缓存正文，已读缓存可离线打开；清除缓存保留书架与进度。
 - 内置《桃花源记》离线样例，便于在网络不可用时体验阅读器。
 
-当前内置在线来源面向中文经典文本，**还不是覆盖热门连载小说的小书亭替代品**。通用网站来源通过声明式 CSS 规则扩展。不会把本地样例或虚构数据当成联网搜索结果。
+内置两个网络小说站点与两个经典文本来源；已针对《超神机械师》《这游戏也太真实了》核实站内搜索、目录和首章。站点可用性与内容质量仍需持续验证，**不承诺全网覆盖或每一章均已核对**。通用网站来源通过声明式 CSS 规则扩展，本地样例不插入联网搜索结果。
 
 ## 开发和运行
 
@@ -36,11 +36,12 @@ python3 scripts/generate-project.py
 ```sh
 swift test
 swift run reading-probe 三國演義
+swift run reading-probe --source biequgei 这游戏也太真实了
 ```
 
 本机只有 Command Line Tools 时，使用 `bash scripts/verify-core.sh`；脚本会为该环境配置 Swift Testing 的框架搜索路径，所有缓存保留在仓库 `.build` 中。
 
-`reading-probe` 会真正访问来源，并依次验证搜索、目录和第一章；网络或解析失败会返回非零退出码，不回退为示例数据。
+`reading-probe` 会真正访问来源，并依次验证搜索、目录和第一章；网络或解析失败会返回非零退出码，不回退为示例数据。`--source` 可限定到 `biequgei`、`woshuge`、`chinese-classics` 或 `zh-wikisource` 中的一个来源。
 
 无签名模拟器构建：
 

@@ -12,7 +12,7 @@ enum Palette {
 
 extension Font {
     static func bookTitle(_ size: CGFloat) -> Font {
-        .custom("STSongti-SC-Regular", size: size, relativeTo: .title)
+        .custom("SongtiSC-Regular", size: size, relativeTo: .title)
     }
 }
 
