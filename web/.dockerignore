@@ -1,0 +1,15 @@
+node_modules
+android
+dist
+coverage
+playwright-report
+test-results
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+.DS_Store
+work

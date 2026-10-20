@@ -109,3 +109,11 @@ Z-Library 当前未接入在线搜书或章节阅读；它属于整本电子书�
 本地 iPhone 17 已验证两本用户书单的搜索、目录、首章及重启后继续阅读，见[本地书架截图](docs/previews/local-library.png)。
 
 独立实现，参考竞品的产品行为，没有复制竞品客户端源码。自行编写的源代码采用 MIT 许可；依赖与模型保留各自许可，预编译语音库包含 GPL 等组件，不能将整个二进制概括为 MIT。实际依赖记录见离线语音文档，完整声明随 App 打包，可在「书源 → 开源许可」查看。
+
+## Web 与 Android
+
+移动端 Web 位于 [`web/`](web/README.md)，包含三列书架、多源搜书、分类推荐、离线缓存、EPUB / PDF / TXT 导入、沉浸阅读设置与系统听书。运行 `cd web && npm ci && npm run dev` 后打开 `http://127.0.0.1:5173`。
+
+Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键与系统安全区。仓库的 Android workflow 可构建 debug APK；本机未安装 Android SDK，安卓设备运行与原生 AI 听书仍待验证。配置远端 HTTPS 清读 API 后可联网搜书，本地文件可直接离线阅读。详见 [`Android 说明`](web/android/README.md)。
+
+服务器部署文件已备好，当前只在本机运行，没有修改远端服务器。

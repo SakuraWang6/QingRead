@@ -1,0 +1,52 @@
+{
+  "name": "qingread-web",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:api": "tsx watch server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "test": "vitest run",
+    "android:sync": "npm run build && cap sync android",
+    "prepare:assets": "node scripts/copy-pdf-assets.mjs",
+    "predev:web": "npm run prepare:assets",
+    "prebuild": "npm run prepare:assets"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/static": "^10.1.6",
+    "@noble/hashes": "^2.4.0",
+    "cheerio": "^1.2.0",
+    "fastify": "^5.6.2",
+    "fflate": "^0.8.2",
+    "iconv-lite": "^0.7.2",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.577.0",
+    "opencc-js": "^1.0.5",
+    "pdfjs-dist": "^6.4.299",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.2.1",
+    "fake-indexeddb": "^6.2.6",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.0.18"
+  }
+}

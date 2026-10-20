@@ -1,0 +1,46 @@
+name: qingread
+services:
+  qingread:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qingread-web:local
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      NODE_OPTIONS: --max-old-space-size=192
+      QINGREAD_ACCESS_TOKEN: ${QINGREAD_ACCESS_TOKEN:?请先在 .env 设置 QINGREAD_ACCESS_TOKEN}
+      QINGREAD_ALLOWED_ORIGINS: ${QINGREAD_ALLOWED_ORIGINS:-}
+    # Keep this service behind the existing HTTPS reverse proxy.
+    ports:
+      - "127.0.0.1:${QINGREAD_PORT:-8787}:8787"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    mem_reservation: 128m
+    cpus: 1.0
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/api/health').then(r=>{if(!r.ok)throw Error('HTTP');return r.json()}).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"

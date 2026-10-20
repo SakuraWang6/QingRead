@@ -12,3 +12,19 @@ local.xcconfig
 /work/
 __pycache__/
 *.pyc
+
+# Web and Android local state
+/node_modules/
+web/node_modules/
+web/dist/
+web/coverage/
+web/.env
+web/.env.*
+!web/.env.example
+web/android/.gradle/
+web/android/**/build/
+web/android/local.properties
+web/android/**/*.jks
+web/android/**/*.keystore
+web/*.tsbuildinfo
+web/public/pdfjs/

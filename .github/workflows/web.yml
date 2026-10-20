@@ -1,0 +1,61 @@
+name: Web
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+    inputs:
+      live_sources:
+        description: 'Also verify real book sources over the network'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CI: 'true'
+      QINGREAD_LIVE_TESTS: '0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Test client storage, readers and source API
+        run: npm test
+      - name: Typecheck and build PWA including PDF resources
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Verify live book sources on explicit manual request
+        if: github.event_name == 'workflow_dispatch' && inputs.live_sources
+        env:
+          QINGREAD_LIVE_TESTS: '1'
+        run: npm test -- tests/server-live.test.ts
+      - name: Save built Web app
+        uses: actions/upload-artifact@v7
+        with:
+          name: QingRead-web-dist
+          path: web/dist/
+          if-no-files-found: error
+          retention-days: 7

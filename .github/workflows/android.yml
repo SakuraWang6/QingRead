@@ -1,0 +1,87 @@
+name: Android debug APK
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['web/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: 'Optional public HTTPS book-service address (never credentials)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: web
+    env:
+      VITE_API_BASE: ${{ inputs.api_base || vars.QINGREAD_API_BASE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Restore stable personal test signing identity
+        env:
+          QINGREAD_ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.QINGREAD_ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          import sys
+
+          encoded = os.environ.get('QINGREAD_ANDROID_DEBUG_KEYSTORE_B64', '')
+          if not encoded:
+              sys.exit('Missing repository secret QINGREAD_ANDROID_DEBUG_KEYSTORE_B64. Configure the persistent personal test keystore before building; a new signing identity will not be generated.')
+          try:
+              data = base64.b64decode(''.join(encoded.split()), validate=True)
+          except (ValueError, TypeError):
+              sys.exit('QINGREAD_ANDROID_DEBUG_KEYSTORE_B64 is not valid base64.')
+          if not data:
+              sys.exit('The personal test keystore secret is empty.')
+          target = Path.home() / '.android' / 'debug.keystore'
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_bytes(data)
+          target.chmod(0o600)
+          PY
+          if ! keytool -list -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android >/dev/null 2>&1; then
+            echo 'The personal test keystore must contain alias androiddebugkey and use the standard debug store password android.' >&2
+            exit 1
+          fi
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install web dependencies
+        run: npm ci
+      - name: Verify reader and API logic
+        run: npm test
+      - name: Build bundled web application
+        run: npm run build
+      - name: Sync Android application
+        run: npx cap sync android
+      - name: Install Android SDK build dependencies
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build and lint debug APK
+        working-directory: web/android
+        run: ./gradlew --no-daemon assembleDebug lintDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QingRead-Android-debug
+          path: web/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
