@@ -25,6 +25,12 @@ GitHub Actions 此前已通过核心测试、无签名 iPhone 模拟器构建和
 
 截图来自实际原生界面，见 [书架](previews/library.png)、[搜书](previews/search.png)、[书源](previews/sources.png)、[阅读器](previews/reader.png)。它们不是 HTML 设计稿或手绘效果图。首版代码 `d34f2d3` 的[完整 GitHub Actions 验证](https://github.com/SakuraWang6/QingRead/actions/runs/39386533440)已成功：13个测试通过、iPhone模拟器构建通过、安装启动与四页截图成功。模拟器截图在一次实际启动后保存，不能代替真机交互和长期阅读测试。
 
+## 真机安装
+
+已在 iPhone 17（iOS 26.6.1）完成 Personal Team 免费签名、签名校验、描述文件设备匹配校验和实际安装。用户开启开发者模式并信任个人开发签名后，`devicectl` 已成功启动 `app.qingread.personal`。签名配置通过被 Git 忽略的 `Config/local.xcconfig` 保留在本机；证书、描述文件、Team ID 和设备标识未提交。
+
+此项验证覆盖签名、安装和启动；真机联网搜书、长期阅读和离线使用仍需继续体验。
+
 ## 尚需验证
 
 - 真机文字位置恢复、后台切换、字号和行距调整、离线缓存、窄屏与辅助功能。

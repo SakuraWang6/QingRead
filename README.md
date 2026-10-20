@@ -23,6 +23,14 @@ SwiftUI / iOS 16+ / 本地优先 / 无账号 / 无广告 SDK / 无会员与内�
 3. 真机运行时，在 Signing & Capabilities 中选择自己的 Team，并将 Bundle Identifier 改成唯一值。
 4. 连接 iPhone，按系统提示信任设备并启用开发者模式，然后运行。
 
+本机签名设置也可以保存在 `Config/local.xcconfig`，工程会自动读取，该文件已被 Git 忽略：
+
+```xcconfig
+DEVELOPMENT_TEAM = 你的TeamID
+```
+
+若默认 Bundle Identifier 已被占用，也可在同一文件覆盖 `PRODUCT_BUNDLE_IDENTIFIER`。
+
 普通 Apple 账号可以安装自用，签名有效期为 7 天。付费 Developer Program 可使用更长有效期的签名。项目不包含签名证书、账号凭据或开发团队标识。
 
 重新生成工程（新增或删除 App Swift 文件后运行）：

@@ -16,4 +16,5 @@ INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPort
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
-// Put a DEVELOPMENT_TEAM override in your own Xcode signing settings.
+// Keep personal signing settings in the ignored Config/local.xcconfig file.
+#include? "local.xcconfig"
