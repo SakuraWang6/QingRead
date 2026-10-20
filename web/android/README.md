@@ -18,7 +18,9 @@ cd android
 
 调试包在 `app/build/outputs/apk/debug/app-debug.apk`。仓库的 **Android debug APK** 工作流执行同样的构建和检查，并将 APK 保存为可下载 Artifact。手动运行时可填写公开的 HTTPS API 地址，或设置仓库变量 `QINGREAD_API_BASE`；不填也能构建，安装后再在 App 内配置。
 
-CI 使用固定的个人测试签名，以便新调试包可以覆盖旧包并保留设备上的 IndexedDB 数据。仓库必须配置 Secret `QINGREAD_ANDROID_DEBUG_KEYSTORE_B64`，内容为持久保存的个人测试 keystore 的 Base64；别名为 `androiddebugkey`，keystore 和密钥密码均为标准调试值 `android`。工作流会将其恢复到 Runner 的 `~/.android/debug.keystore`，不会输出密钥。缺少或无效 Secret 时构建明确失败，绝不临时生成另一把签名密钥。
+CI 使用固定的个人测试签名，以便后续同签名调试包可以覆盖升级并保留设备上的 IndexedDB 数据。仓库必须配置 Secret `QINGREAD_ANDROID_DEBUG_KEYSTORE_B64`，内容为持久保存的个人测试 keystore 的 Base64；别名为 `androiddebugkey`，keystore 和密钥密码均为标准调试值 `android`。工作流将其恢复到 Runner 的临时私有路径，并通过 `QINGREAD_DEBUG_KEYSTORE_PATH` 显式传给 Gradle 的 debug 签名配置，不依赖 Android 默认 keystore 位置。构建前导出的公开证书、构建后 APK 的证书均必须与固定 SHA-256 `ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70` 一致，否则失败并拒绝上传 APK。工作流不会输出私钥，也不会临时生成替代签名。
+
+早期 0.5.0 和首次 0.5.1 CI 产物曾实际使用其他临时调试签名，不能与本固定签名覆盖升级。如果安装过这些旧包，需先导出阅读备份，再卸载旧包、安装固定签名版本并恢复备份。临时私钥无法恢复，不能通过更改证书指纹绕过 Android 的签名检查。手动本地构建时也应将 `QINGREAD_DEBUG_KEYSTORE_PATH` 指向同一份保管的 keystore，才能保持签名一致。
 
 这只是此私有仓库的个人测试签名，**不是上架用的 release 签名**。请备份原始 keystore；更换签名身份会导致旧安装包无法覆盖升级。正式分发前应另外配置私密、持久的 release 签名文件，并保管好密钥；不要将 keystore 或其 Base64 提交到仓库。
 

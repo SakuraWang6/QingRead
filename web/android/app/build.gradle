@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+def qingreadDebugKeystorePath = System.getenv('QINGREAD_DEBUG_KEYSTORE_PATH')
+if (System.getenv('CI') == 'true' && !qingreadDebugKeystorePath) {
+    throw new GradleException('CI requires QINGREAD_DEBUG_KEYSTORE_PATH; refusing to generate a temporary signing identity.')
+}
+if (qingreadDebugKeystorePath && !file(qingreadDebugKeystorePath).isFile()) {
+    throw new GradleException('The configured personal test keystore file is missing.')
+}
+
 android {
     namespace = "app.qingread.android"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,7 +24,20 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            if (qingreadDebugKeystorePath) {
+                storeFile = file(qingreadDebugKeystorePath)
+                storePassword = 'android'
+                keyAlias = 'androiddebugkey'
+                keyPassword = 'android'
+            }
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

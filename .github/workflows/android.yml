@@ -25,6 +25,7 @@ jobs:
         working-directory: web
     env:
       VITE_API_BASE: ${{ inputs.api_base || vars.QINGREAD_API_BASE }}
+      QINGREAD_DEBUG_CERT_SHA256: ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,15 +56,28 @@ jobs:
               sys.exit('QINGREAD_ANDROID_DEBUG_KEYSTORE_B64 is not valid base64.')
           if not data:
               sys.exit('The personal test keystore secret is empty.')
-          target = Path.home() / '.android' / 'debug.keystore'
-          target.parent.mkdir(parents=True, exist_ok=True)
+          target = Path(os.environ['RUNNER_TEMP']) / 'qingread-debug.keystore'
           target.write_bytes(data)
           target.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as environment:
+              environment.write(f'QINGREAD_DEBUG_KEYSTORE_PATH={target}\n')
           PY
-          if ! keytool -list -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android >/dev/null 2>&1; then
+          if ! keytool -exportcert -keystore "$RUNNER_TEMP/qingread-debug.keystore" -alias androiddebugkey -storepass android -file "$RUNNER_TEMP/qingread-debug.cer" >/dev/null 2>&1; then
             echo 'The personal test keystore must contain alias androiddebugkey and use the standard debug store password android.' >&2
             exit 1
           fi
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import sys
+
+          certificate = Path(os.environ['RUNNER_TEMP']) / 'qingread-debug.cer'
+          fingerprint = hashlib.sha256(certificate.read_bytes()).hexdigest()
+          if fingerprint != os.environ['QINGREAD_DEBUG_CERT_SHA256']:
+              sys.exit('The keystore certificate does not match the fixed personal test signing identity.')
+          print(f'Personal test certificate SHA-256: {fingerprint}')
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -85,7 +99,20 @@ jobs:
       - name: Verify APK signature and archive
         working-directory: web/android
         run: |
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > "$RUNNER_TEMP/qingread-apk-signature.txt"
+          cat "$RUNNER_TEMP/qingread-apk-signature.txt"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import sys
+
+          result = (Path(os.environ['RUNNER_TEMP']) / 'qingread-apk-signature.txt').read_text()
+          fingerprints = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)$', result, re.MULTILINE)
+          if [value.lower() for value in fingerprints] != [os.environ['QINGREAD_DEBUG_CERT_SHA256']]:
+              sys.exit('APK signing identity differs from the fixed personal test certificate. Refusing to publish an incompatible update.')
+          print('APK signature matches the fixed personal test signing identity.')
+          PY
           unzip -t app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
