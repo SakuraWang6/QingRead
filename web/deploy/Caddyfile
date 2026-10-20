@@ -1,4 +1,12 @@
 {
+    log default {
+        format filter {
+            wrap json
+            fields {
+                request>headers>X-Qingread-Token delete
+            }
+        }
+    }
     auto_https disable_redirects
     default_sni {$QINGREAD_PUBLIC_HOST}
     servers {
@@ -19,7 +27,15 @@ https://{$QINGREAD_PUBLIC_HOST} {
         Referrer-Policy no-referrer
         -Server
     }
-    reverse_proxy qingread:8787 {
-        flush_interval -1
+    handle /downloads/QingRead-Android-0.5.1.apk {
+        root * /downloads
+        uri strip_prefix /downloads
+        header Content-Disposition "attachment; filename=QingRead-Android-0.5.1.apk"
+        file_server
+    }
+    handle {
+        reverse_proxy qingread:8787 {
+            flush_interval -1
+        }
     }
 }

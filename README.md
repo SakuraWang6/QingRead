@@ -114,6 +114,6 @@ Z-Library 当前未接入在线搜书或章节阅读；它属于整本电子书�
 
 移动端 Web 位于 [`web/`](web/README.md)，包含三列书架、多源搜书、分类推荐、离线缓存、EPUB / PDF / TXT 导入、沉浸阅读设置与系统听书。运行 `cd web && npm ci && npm run dev` 后打开 `http://127.0.0.1:5173`。
 
-Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键与系统安全区。仓库的 Android workflow 已通过首次构建、Lint 与 APK 签名校验；本机未安装 Android SDK，尚未在安卓设备运行，原生 AI 听书仍待移植。配置远端 HTTPS 清读 API 后可联网搜书，本地文件可直接离线阅读。详见 [`Android 说明`](web/android/README.md)。
+Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键与系统安全区。0.5.1 / versionCode 2 已通过构建、Lint、固定证书 `ff9db7…` 的 APK v2 签名与 ZIP 校验；本机未安装 Android SDK，尚未在安卓模拟器或真机运行，原生 AI 听书仍待移植。此版本预设已部署的 HTTPS 服务器地址；访问码在设置中填写，可在设备上记住。旧临时签名 0.5.0 / 首次 0.5.1 若安装过，需要先备份再卸载重装一次。详见 [`Android 说明`](web/android/README.md)。
 
-服务器部署文件已备好，当前只在本机运行，没有修改远端服务器。
+Web 与书源服务已部署到 [https://192.144.237.46](https://192.144.237.46)，运行于 Ubuntu 的 `/srv/qingread` Docker Compose 项目。Caddy 2.11.7 在 443 管理短期 IP 证书及自动续期，原 80 服务保留；API / Caddy 分别限制为 384 / 128 MiB、0.75 / 0.25 CPU。首次在「设置 → 服务器连接」填写私人访问码并勾选记住即可；访问码不在仓库或 APK 中。书架与阅读进度仍保存在各设备本机，不会云同步。服务器至 Gutenberg 的整本 EPUB 下载存在连接重置，尚不稳定。[实际部署、验证范围与本项目回滚步骤](web/deploy/DEPLOYMENT.md)。

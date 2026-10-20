@@ -1,12 +1,12 @@
 # 手动部署移动 Web 与安卓书源服务
 
-这个配置将网页与书源 API 放进一个 Node 24 容器，默认只映射服务器的 `127.0.0.1:8787`，通过已有 HTTPS 反向代理访问。不会占用现有 80 端口，也不会修改其他服务。本目录仅提供部署文件，没有自动连接服务器或发布。
+通用配置将网页与书源 API 放进一个 Node 24 容器，通过 HTTPS 反向代理访问。当前已经在 Ubuntu 的 `/srv/qingread` 部署独立生产 Compose，使用 [https://192.144.237.46](https://192.144.237.46)，原 80 服务保留；[实际配置、已测范围和回滚记录](DEPLOYMENT.md)。下面同时保留迁移到其他服务器或接入已有反向代理的手动步骤。
 
 ## 独立 HTTPS 部署（保留现有 80 端口）
 
 `compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
 
-部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、`QINGREAD_ACCESS_TOKEN`。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile，然后执行：
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、`QINGREAD_ACCESS_TOKEN`。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.5.1.apk`，该目录仅供 Caddy 只读访问。然后执行：
 
 ```sh
 docker compose -f compose.production.yaml config --quiet
@@ -17,7 +17,7 @@ API 上限 384 MiB、0.75 CPU；HTTPS 上限 128 MiB、0.25 CPU，两者禁用�
 
 公网 IPv4 使用 Let's Encrypt `shortlived` 证书，通过 TCP 443 的 TLS-ALPN 验证，不接管 80。Caddy 持久化证书并自动续期；公网 443 必须一直放行。先使用 staging 端点与独立 data 目录验证，再切换正式配置，避免无效申请。没有有效证书时不要让用户跳过浏览器安全警告。
 
-验证 `https://公网主机/api/health`、未授权接口 401、授权来源列表、网页真实搜索、安卓 Origin 预检及整本文件下载，再复查原服务健康、OOM 标记与内存。回滚只在这个目录执行 `docker compose -f compose.production.yaml down`，保留证书目录，不操作其他 Compose 项目。
+部署验证应覆盖 `https://公网主机/api/health`、未授权接口 401、授权来源列表、网页搜索、安卓 Origin 预检及整本文件下载，再复查原服务健康、OOM 标记与内存。这是验证清单，不代表所有链路都已稳定通过；服务器到 Gutenberg 的部分整本下载存在连接重置，详见实际部署记录。回滚只在本项目目录执行 `docker compose -f compose.production.yaml down`，不加 `-v`，保留证书目录，不操作其他 Compose 项目。
 
 依据：[Let's Encrypt 公网 IP 证书](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)、[Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
 
@@ -86,7 +86,7 @@ docker compose up -d --force-recreate
 
 容器以 UID 1000 非 root 运行，文件系统只读，只给 `/tmp` 64 MiB 临时空间，移除所有 Linux capabilities 并禁止提权。不挂载 Docker socket、主机目录或凭据。服务不需要持久卷：书架、阅读进度、文件和离线缓存目前保存在客户端，服务器只有可丢弃的书源缓存，**不会自动同步 iOS、网页与安卓书架**。
 
-Compose 将内存上限设为 384 MiB、Node 堆上限 192 MiB，预留原生 Buffer 与流式下载空间；CPU 上限 1 核。对于 2 核 2 GiB 的个人服务器，这是保守起点。请通过 `docker stats --no-stream` 观察实际负载；高并发或大目录可能需要调高限制，内存不足会被容器运行时重启。整本文件上限 250 MiB，但下载是流式转发，不会整本常驻服务内存。
+`web/compose.yaml` 通用配置将内存上限设为 384 MiB、Node 堆上限 192 MiB，CPU 上限 1 核；当前实际使用的 `compose.production.yaml` 则把 API 限为 384 MiB / 0.75 CPU、Caddy 限为 128 MiB / 0.25 CPU。请通过 `docker stats --no-stream` 观察实际负载；高并发或大目录可能需要调高限制，内存不足会被容器运行时重启。整本文件上限 250 MiB，下载采用流式转发，但服务器到部分海外书源的整本下载仍可能中断。
 
 更新代码后在 `web/` 运行：
 
@@ -102,7 +102,7 @@ docker compose ps
 
 2026-10-20 已在本机 OrbStack 完成 Node 24 多阶段镜像构建，以及临时 `127.0.0.1:8788` 容器验证：健康检查、静态首页与 PWA 清单、PDF worker、无令牌 401（含编码 API 路径）、授权获取 10 个书源、真实小说搜索均通过；请求全部 211 个静态文件之后，首次搜书仍成功，静态预缓存不会消耗 API 限额。实际进程 UID 为 1000，根目录只读、`/tmp` 可写，权限限制生效；一次搜索后的内存约 120 MiB，容器上限 384 MiB。临时容器已清理，镜像保留为 `qingread-web:local`。
 
-本机镜像是 ARM64；上面的服务器 `docker compose build` 会按服务器自身架构重新构建，不要直接将 ARM64 镜像当作 x86_64 镜像运行。这里没有进行远程服务器部署。依赖或代码发生变化后，应重新构建并复核健康与鉴权。
+上述本机测试镜像是 ARM64，不能直接当作 x86_64 镜像运行。当前公网生产镜像已另行在开发机构建为 `linux/amd64`，上传至 Ubuntu 并部署；生产部署不在服务器上执行编译。依赖或代码发生变化后，应重新构建并复核健康与鉴权，具体以 [实际部署记录](DEPLOYMENT.md) 为准。
 
 ## 持续验证
 

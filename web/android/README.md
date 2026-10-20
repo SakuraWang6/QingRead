@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。原生工程已生成并同步；[首次 CI 构建、Lint 和 APK 签名验证已通过](https://github.com/SakuraWang6/QingRead/actions/runs/39438734922)。本机没有 Android SDK，尚未在模拟器或真机运行。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.5.1 / versionCode 2** 已通过 [固定证书的 CI 编译、Lint、APK v2 签名与完整性校验](https://github.com/SakuraWang6/QingRead/actions/runs/39444094943)，证书 SHA-256 为下述 `ff9db7…`。本机没有 Android SDK，尚未在模拟器或真机运行。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 
@@ -26,11 +26,13 @@ CI 使用固定的个人测试签名，以便后续同签名调试包可以覆�
 
 ## 服务器与离线
 
-APK 内的页面原点固定为 `https://localhost`，它提供打包的页面和 PDF 字体资源。**这个 localhost 是手机本机，不是 Mac 或远程书源服务器。** 首次打开后到「设置 → 服务器连接」输入可以从手机访问、证书有效的 HTTPS 域名。地址可带 `/api`，不包含用户名或密码；若服务启用访问码，在独立访问码栏填写。
+APK 内的页面原点固定为 `https://localhost`，它提供打包的页面和 PDF 字体资源。**这个 localhost 是手机本机，不是 Mac 或远程书源服务器。** 当前 0.5.1 服务器版已预设 [https://192.144.237.46](https://192.144.237.46)，在「设置 → 服务器连接」将地址留空即可使用默认服务，在独立访问码栏输入自己私下保管的访问码并勾选「在此设备记住访问码」，保存后无需每次填写。访问码不在代码或 APK 内。更换其他服务器时，填写可从手机访问且证书有效的 HTTPS 地址；地址可带 `/api`，不包含用户名或密码。
 
 服务端已允许 Capacitor 的 `https://localhost` Origin，并保留访问码与请求限制。App 不开启混合内容或明文 HTTP；服务器只使用 HTTP 时，应先通过反向代理配置 TLS。
 
 原生壳不注册 PWA ServiceWorker；页面和 PDF 渲染资源直接来自 APK，因此启动不依赖服务器。已导入文件与已缓存章节继续通过 IndexedDB 离线读取。联网搜索、未缓存章节和整本下载需要服务器。更换 API 地址不会同步 iOS/Web/Android 的本地书架，现阶段同步依赖备份导入导出。
+
+当前公网整本下载出现过一次中断，仍在复核；不能把构建通过视为下载链路稳定。服务器实际部署与已测范围见 [部署记录](../deploy/DEPLOYMENT.md)。
 
 ## 安卓交互
 

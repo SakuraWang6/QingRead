@@ -1,0 +1,80 @@
+# 实际部署记录
+
+更新于 2026-10-20（Asia/Shanghai）。访问地址：[https://192.144.237.46](https://192.144.237.46)。这是已部署的私人清读 Web 与书源服务，书架、阅读进度、导入文件和正文缓存仍保存在各设备本机，**不提供云同步**。
+
+## 服务器
+
+| 项目 | 实际配置 |
+|---|---|
+| 系统与运行方式 | Ubuntu，Docker Compose 项目 `qingread` |
+| 部署目录 | `/srv/qingread` |
+| Compose 文件 | `/srv/qingread/compose.yaml`（来自仓库 `compose.production.yaml`） |
+| 生产应用代码版本 | `b922e0951738ea81b232d16ae365093951e0339c` |
+| 对外入口 | TCP 443，Caddy `2.11.7-alpine` |
+| 原有服务 | 原 TCP 80 服务保留，未替换其配置 |
+| API | 私有容器网络 `qingread:8787`，不单独开放公网端口 |
+| API 资源上限 | 384 MiB 内存、0.75 CPU |
+| Caddy 资源上限 | 128 MiB 内存、0.25 CPU |
+| 安卓安装包 | `/srv/qingread/downloads/QingRead-Android-0.5.1.apk`，Caddy 只读挂载 |
+
+镜像在开发电脑构建为服务器所需的 `linux/amd64` 后上传，服务器不执行前端编译或 npm 安装。运行时日志会删除 `X-Qingread-Token` 字段；已用故障上游和假访问码验证。生产 `.env`、访问码与证书数据不放入 Git 或 APK；`.env` 权限为 600。Caddy 的 `caddy-data`、`caddy-config` 是持久目录，更新与回滚时保留。
+
+## HTTPS 与访问码
+
+Caddy 使用 Let's Encrypt 的 `shortlived` 公网 IP 证书，通过 443 的 TLS-ALPN 验证，关闭占用 80 的 HTTP 验证及自动重定向。证书由 Caddy 持久保存并自动续期；这是已配置的自动续期机制，本次部署尚未跨完整续期周期验证。保持公网 443 可访问，勿删除证书目录或运行第二个争用此端口的代理。
+
+第一次在网页或安卓 App 打开「设置 → 服务器连接」，输入自己私下保管的访问码，勾选「在此设备记住访问码」，保存并重新连接。同一设备、同一服务地址可继续使用已保存的访问码；更换地址或清理站点数据后需要重新填写。**访问码不写入网址、仓库、镜像构建参数或 APK。**
+
+网页与 API 同源时，服务地址可以留空。Android 0.5.1 服务器版已将上述 HTTPS 地址作为默认值，地址栏留空即可使用它；APK 自身的 `https://localhost` 只负责提供打包页面，不是书源服务器。访问码只控制书源 API，配置成功不会上传或同步本地书架。
+
+## 已完成与尚未完成的验证
+
+- 公网 HTTPS 页面、访问码鉴权、API / CORS 检查及手机尺寸网页浏览已复核。实际搜书、1106 章目录、正文与后续 10 章预缓存通过。
+- 较小的 Gutenberg 公版 EPUB（263,753 字节）已完整下载并成功解包；不代表所有海外大文件链路稳定。
+- Web 的 TypeScript / 生产构建、阅读器与服务端回归检查已完成；页面、PWA、PDF 资源由应用提供。
+- Android **0.5.1 / versionCode 2** 已通过 CI 编译、Lint、APK v2 签名验证与 ZIP 完整性检查。APK 内的默认 HTTPS API、版本、包名和 PDF 资源也已核对。
+- 安卓尚未在模拟器或真机运行；不能把 CI 构建成功视为设备交互、后台听书或文件导出的验证。
+- 服务器到 Gutenberg 的《红楼梦》EPUB 传输会被中途重置，**此来源的整本下载尚不稳定**。对比容器内原生 fetch、本机 API 和公网下载均复现；同文件在开发电脑可完整下载，已排除反向代理与清读流桥接为本次根因。上游书源可用性不由部署保证。
+
+Android 的固定个人测试证书 SHA-256：
+
+```text
+ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70
+```
+
+[固定签名构建与验证记录](https://github.com/SakuraWang6/QingRead/actions/runs/39444094943)。构建前后均强制比对此公开指纹；私钥通过仓库加密 Secret 恢复到 Runner 私有临时路径，Gradle 显式使用该路径。这是个人测试签名，不是上架 release 签名。
+
+早期 0.5.0 及首次 0.5.1 的 APK 曾使用其他临时签名。如果装过这些旧包，需先导出阅读备份并保留原电子书文件，再卸载一次，安装固定签名版后恢复备份。备份不包含原文件与正文缓存；以后同一固定签名下的更新可直接覆盖安装。
+
+安装包直链：[QingRead Android 0.5.1](https://192.144.237.46/downloads/QingRead-Android-0.5.1.apk)。文件不含访问码，SHA-256 为 `f099c39acb417bdc3be5b5a48fdfb5505a504f6ffc7cd7ac9459f1bed8e8c436`。
+
+部署后的状态抽查：原有三个容器均 healthy、restart=0、OOM=false，原 80 端口仍返回原有 307；服务器可用内存约 977 MiB，清读 API / Caddy 当时约 115 / 13 MiB。数值为本次抽查，不是长期监控承诺。
+
+## 查看、更新与回滚
+
+只在本项目目录操作，不展开或公开含访问码的 Compose 环境：
+
+```sh
+cd /srv/qingread
+sudo docker compose ps
+sudo docker compose logs --tail 100 qingread https
+```
+
+更新时先保留上一镜像版本及当前配置，在私有 `.env` 修改 `QINGREAD_IMAGE` 后执行：
+
+```sh
+cd /srv/qingread
+sudo docker compose config --quiet
+sudo docker compose up -d
+```
+
+如需停止并回滚本次项目：
+
+```sh
+cd /srv/qingread
+sudo docker compose down
+```
+
+不加 `-v`，不删除 `caddy-data`、`caddy-config` 或 `.env`，不停止其他项目，也不改原 80 服务。若要恢复上一应用镜像，将本项目的 `QINGREAD_IMAGE` 改回已保留版本，再执行 `up -d`。
+
+通用部署步骤与配置说明见 [README](README.md)，安卓构建与限制见 [Android README](../android/README.md)。证书机制参考 [Let's Encrypt IP 证书说明](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)和 [Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
