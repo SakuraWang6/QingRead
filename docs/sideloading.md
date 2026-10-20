@@ -57,6 +57,6 @@ AltStore 会尝试后台刷新。可以偶尔打开 My Apps 检查剩余天数�
 - [AltServer 运行与同网要求](https://faq.altstore.io/altstore-classic/altserver)
 - [AltStore 后台刷新设置](https://faq.altstore.io/altstore-classic/your-altstore)
 
-本机已安装并验证官方 AltServer 的开发者签名；首次 AltStore 安装、导入清读和拔线刷新需要完成实际验证，安装 AltServer 本身不等于配置成功。
+本机已安装并验证官方 AltServer 的开发者签名；当时 AltStore 仍未成功配置，后来改用上面的 Xcode 自动续签方案。2026-10-20 项目整理时，已将不再使用的 AltServer 及配置移入 Mac 废纸篓，现有 Xcode 续签任务保留。
 
-2026-10-20 本机排查：官网通用下载地址最初返回 1.8，安装时报 `machineID` 缺失。升级官方 1.8.1 后，这一步通过，Apple 登录又返回 `-80045`，AltStore 仍未成功安装。官方仓库有同类[未解决报告](https://github.com/altstoreio/AltStore/issues/1828)；[PR 1834](https://github.com/altstoreio/AltStore/pull/1834) 尚未合并，不能视为已发布修复。无线续签目前未配置完成。
+2026-10-20 本机排查：官网通用下载地址最初返回 1.8，安装时报 `machineID` 缺失。升级官方 1.8.1 后，这一步通过，Apple 登录又返回 `-80045`，AltStore 仍未成功安装。官方仓库有同类[未解决报告](https://github.com/altstoreio/AltStore/issues/1828)；[PR 1834](https://github.com/altstoreio/AltStore/pull/1834) 尚未合并，不能视为已发布修复。此处仅记录 AltStore 路线的历史失败；当前采用前文已验证的 Xcode 后台续签。

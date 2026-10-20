@@ -35,7 +35,7 @@ chmod 600 .env
 openssl rand -hex 32
 ```
 
-把刚生成的随机值填入 `.env` 的 `QINGREAD_ACCESS_TOKEN`，把 `QINGREAD_ALLOWED_ORIGINS` 改成网页实际地址，例如 `https://read.example.com`。不要把随机值粘贴到聊天或提交到 Git。访问令牌不能为空，Compose 会拒绝空令牌。若 8787 已被使用，只修改 `QINGREAD_PORT`。
+把刚生成的随机值填入 `.env` 的 `QINGREAD_ACCESS_TOKEN`，把 `QINGREAD_ALLOWED_ORIGINS` 改成网页实际地址，例如 `https://read.example.com`。不要把随机值粘贴到聊天或提交到 Git。默认对外监听要求令牌；若明确需要免访问码访问，设置 `QINGREAD_PUBLIC_ACCESS=true` 并将令牌留空。若 8787 已被使用，只修改 `QINGREAD_PORT`。
 
 ```sh
 docker compose config --quiet
@@ -45,7 +45,7 @@ docker compose ps
 curl --fail http://127.0.0.1:8787/api/health
 ```
 
-健康响应应包含 `ok: true` 和 `requiresToken: true`。若改过端口，请相应修改 `curl`。健康检查不需要令牌；搜索、目录、正文和封面 API 都需要令牌。用 `docker compose logs --tail 100 qingread` 查看启动错误，不要公开整份 Compose 展开结果，因为其中含令牌。
+健康响应应包含 `ok: true`；`requiresToken` 表示当前是否需要访问码。若改过端口，请相应修改 `curl`。健康检查不需要令牌；设置了非空令牌时，搜索、目录、正文和封面 API 都需要令牌；明确开放且令牌为空时无需填写。用 `docker compose logs --tail 100 qingread` 查看启动错误，不要公开整份 Compose 展开结果，因为其中含令牌。
 
 ## 接入已有 HTTPS 反向代理
 

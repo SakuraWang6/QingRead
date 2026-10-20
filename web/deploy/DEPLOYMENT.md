@@ -9,7 +9,7 @@
 | 系统与运行方式 | Ubuntu，Docker Compose 项目 `qingread` |
 | 部署目录 | `/srv/qingread` |
 | Compose 文件 | `/srv/qingread/compose.yaml`（来自仓库 `compose.production.yaml`） |
-| 生产应用代码版本 | `b922e0951738ea81b232d16ae365093951e0339c` |
+| 生产应用代码版本 | `ce1dbca`（镜像 `qingread-web:0.5.1-public-ce1dbca`） |
 | 对外入口 | TCP 443，Caddy `2.11.7-alpine` |
 | 原有服务 | 原 TCP 80 服务保留，未替换其配置 |
 | API | 私有容器网络 `qingread:8787`，不单独开放公网端口 |
@@ -52,6 +52,10 @@ ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70
 
 部署后的状态抽查：原有三个容器均 healthy、restart=0、OOM=false，原 80 端口仍返回原有 307；服务器可用内存约 977 MiB，清读 API / Caddy 当时约 115 / 13 MiB。数值为本次抽查，不是长期监控承诺。
 
+## 本机 SSH 连接
+
+本次 Mac 的 VPN 虚拟路由曾让 SSH 在握手前关闭；经物理 Wi-Fi 接口 `en0` 连接已验证可用，未修改服务器 SSH 或系统代理。实际使用的 `scripts/ssh-en0-connector.py` 已保留为维护脚本，可通过 SSH 的 `ProxyCommand` 调用。它使用 macOS 的 `IP_BOUND_IF`，只适用于当前 Mac 的 `en0` 接口，不是服务器依赖，也不负责代理书源流量。私钥仍使用本机已有文件，不复制进项目。
+
 ## 查看、更新与回滚
 
 只在本项目目录操作，不展开或公开含访问码的 Compose 环境：
@@ -80,3 +84,5 @@ sudo docker compose down
 不加 `-v`，不删除 `caddy-data`、`caddy-config` 或 `.env`，不停止其他项目，也不改原 80 服务。若要恢复上一应用镜像，将本项目的 `QINGREAD_IMAGE` 改回已保留版本，再执行 `up -d`。
 
 通用部署步骤与配置说明见 [README](README.md)，安卓构建与限制见 [Android README](../android/README.md)。证书机制参考 [Let's Encrypt IP 证书说明](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)和 [Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
+
+恢复早于 `ce1dbca` 的镜像时，旧启动器不支持公共模式，须同时配置非空 `QINGREAD_ACCESS_TOKEN`；不要只回退镜像并保留空令牌。

@@ -13,7 +13,8 @@ services:
       HOST: 0.0.0.0
       PORT: "8787"
       NODE_OPTIONS: --max-old-space-size=192
-      QINGREAD_ACCESS_TOKEN: ${QINGREAD_ACCESS_TOKEN:?请先在 .env 设置 QINGREAD_ACCESS_TOKEN}
+      QINGREAD_ACCESS_TOKEN: ${QINGREAD_ACCESS_TOKEN:-}
+      QINGREAD_PUBLIC_ACCESS: ${QINGREAD_PUBLIC_ACCESS:-false}
       QINGREAD_ALLOWED_ORIGINS: ${QINGREAD_ALLOWED_ORIGINS:-}
     # Keep this service behind the existing HTTPS reverse proxy.
     ports:
