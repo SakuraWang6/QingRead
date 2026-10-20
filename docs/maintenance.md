@@ -34,6 +34,15 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 
 ## 开源后的签名与同步数据
 
-公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人 0.6 安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，已安装后台续签副本随 0.6 更新。
+公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，已安装后台续签副本已更新至 0.7。
 
-服务器 `app-data` 是持久化账号与书架数据库，清理时必须保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。只删除已成功加载且有原镜像可回滚的 incoming 安装归档和确认可重建的本机构建缓存。`.private/backups/phone-before-sync-06` 保存同步升级前的手机数据，不进入 Git。
+服务器 `app-data` 保存持久化账号、书架数据库和 `files` 原文件，清理时必须完整保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。只删除已成功加载且有原镜像可回滚的 incoming 安装归档和确认可重建的本机构建缓存。`.private/backups/phone-before-sync-06` 保存同步升级前的手机数据，不进入 Git。
+
+
+## 0.7 后的清理边界
+
+- 可清理 `.build/out`、真机构建的 `Intermediates.noindex`、索引、日志和编译模块缓存；保留 `SourcePackages` 与当前 `Build/Products/Debug-iphoneos/QingRead.app`。
+- 语音推理依赖、`web/node_modules` 是仍在使用的开发依赖，不按临时下载处理。全局 Docker 构建缓存还被其他项目使用，不做全局清空。
+- 临时页面、封面测速副本、设备枚举和一次性部署脚本完成任务后移除；验证结论保留在 [验证记录](verification.md)。
+- 当前交付件保留在工作区 outputs；较早截图、试听和旧版 APK 归档，服务器连接参数和设备日志进入私有目录。
+- `.private` 目录权限应为 700，签名配置与密钥文件为 600。整理后仍需检查当前 App 严格签名校验与后台续签任务。

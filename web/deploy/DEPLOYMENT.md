@@ -1,67 +1,41 @@
-# 部署参考与已验证配置
+# 部署维护基线
 
-> 地址均为示例。部署者需替换为自己的主机；本仓库不提供公共共享服务。下文保留历史小服务器部署验证记录，0.6 新增持久化 SQLite 同步，见文末。
+更新于 2026-10-21（Asia/Shanghai），应用版本 0.7.0，运行代码基线 `5bed2a8`。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
 
+## 当前配置
 
-更新于 2026-10-20（Asia/Shanghai）。访问地址：[https://read.example.com](https://read.example.com)。这是供自己和朋友直接访问的清读 Web 与书源服务，书架、阅读进度、导入文件和正文缓存仍保存在各设备本机，**不提供云同步**。
-
-## 服务器
-
-| 项目 | 实际配置 |
+| 项目 | 配置 |
 |---|---|
-| 系统与运行方式 | Ubuntu，Docker Compose 项目 `qingread` |
-| 部署目录 | `/srv/qingread` |
-| Compose 文件 | `/srv/qingread/compose.yaml`（来自仓库 `compose.production.yaml`） |
-| 生产应用代码版本 | `ce1dbca`（镜像 `qingread-web:0.5.1-public-ce1dbca`） |
-| 对外入口 | TCP 443，Caddy `2.11.7-alpine` |
-| 原有服务 | 原 TCP 80 服务保留，未替换其配置 |
-| API | 私有容器网络 `qingread:8787`，不单独开放公网端口 |
-| API 资源上限 | 384 MiB 内存、0.75 CPU |
-| Caddy 资源上限 | 128 MiB 内存、0.25 CPU |
-| 安卓安装包 | `/srv/qingread/downloads/QingRead-Android-0.5.1.apk`，Caddy 只读挂载 |
+| 平台 | Ubuntu、`linux/amd64` Docker 镜像 |
+| 部署目录与项目 | `/srv/qingread`，Compose 项目 `qingread` |
+| 应用镜像 | `qingread-web:0.7.0` |
+| HTTPS | Caddy `2.11.7-alpine`，公网 TCP 443 |
+| 应用入口 | Compose 私有网络 `qingread:8787` |
+| 资源上限 | 应用 384 MiB / 0.75 CPU；Caddy 128 MiB / 0.25 CPU |
+| 书源访问 | 显式 `QINGREAD_PUBLIC_ACCESS=true`、访问码留空 |
+| 个人数据 | 用户名与密码注册，书架、进度、EPUB/PDF/TXT 按账号隔离 |
+| 云文件配额 | 单本 250 MiB、每账号 2 GiB、总计 10 GiB，预留 5 GiB 磁盘 |
+| 个人 Android 包 | 0.7.0 / versionCode 4，固定证书在私有环境签名 |
 
-镜像在开发电脑构建为服务器所需的 `linux/amd64` 后上传，服务器不执行前端编译或 npm 安装。运行时日志会删除 `X-Qingread-Token` 字段；已用故障上游和假访问码验证。生产 `.env`、访问码与证书数据不放入 Git 或 APK；`.env` 权限为 600。Caddy 的 `caddy-data`、`caddy-config` 是持久目录，更新与回滚时保留。
+镜像在开发电脑构建，生产服务器不执行 npm 安装或前端编译。原有 TCP 80 服务和其他 Compose 项目保持独立。运行日志过滤 `X-QingRead-Token` 与 `Authorization`，不得公开展开后的 Compose 配置或私有环境文件。
 
-## HTTPS 与访问方式
+## 必须保留的数据
 
-Caddy 使用 Let's Encrypt 的 `shortlived` 公网 IP 证书，通过 443 的 TLS-ALPN 验证，关闭占用 80 的 HTTP 验证及自动重定向。证书由 Caddy 持久保存并自动续期；这是已配置的自动续期机制，本次部署尚未跨完整续期周期验证。保持公网 443 可访问，勿删除证书目录或运行第二个争用此端口的代理。
+| 路径 | 内容 |
+|---|---|
+| `.env` | 私有部署参数，权限 600 |
+| `app-data/accounts.sqlite` 及 WAL/SHM | 账号、密码哈希、会话哈希、书架、进度、云文件索引 |
+| `app-data/files/` | 按账号存放的原文件，目录 700、文件 600 |
+| `app-data/covers/` | 可重新获取的公共封面缓存 |
+| `caddy-data/`、`caddy-config/` | HTTPS 证书与代理持久数据 |
+| `downloads/` | 已验签的发布 APK；`QingRead-Android-latest.apk` 指向当前版本 |
+| 私有备份目录 | 升级前配置及一致的数据快照 |
 
-当前按使用者要求关闭访问码：部署环境设置 `QINGREAD_PUBLIC_ACCESS=true`、`QINGREAD_ACCESS_TOKEN=`，Web 和 Android 直接连接。访问地址不变，不需要重新安装 APK；服务器连接设置里的访问码可留空。拿到网址的人可以使用服务，现有请求限流、来源白名单、上游并发和容器资源上限继续生效。
-
-网页与 API 同源时，服务地址留空即可。Android 0.5.1 服务器版已预设上述 HTTPS 地址；APK 内的 `https://localhost` 只负责提供打包页面，不是书源服务器。书架与进度仍保存在当前设备。
-
-启动器默认拒绝没有访问码的对外监听；只有明确设置 `QINGREAD_PUBLIC_ACCESS=true` 才允许。以后需要恢复访问码时，在私有 `.env` 填入 `QINGREAD_ACCESS_TOKEN` 并重建 API 容器；只要令牌非空，鉴权仍会执行。
-
-## 已完成与尚未完成的验证
-
-- 公网 HTTPS 页面、免访问码 API / Android CORS 检查及手机尺寸网页浏览已复核。实际搜书、1106 章目录、正文与后续 10 章预缓存通过。
-- 较小的 Gutenberg 公版 EPUB（263,753 字节）已完整下载并成功解包；不代表所有海外大文件链路稳定。
-- Web 的 TypeScript / 生产构建、阅读器与服务端回归检查已完成；页面、PWA、PDF 资源由应用提供。
-- Android **0.5.1 / versionCode 2** 已通过 CI 编译、Lint、APK v2 签名验证与 ZIP 完整性检查。APK 内的默认 HTTPS API、版本、包名和 PDF 资源也已核对。
-- 安卓尚未在模拟器或真机运行；不能把 CI 构建成功视为设备交互、后台听书或文件导出的验证。
-- 服务器到 Gutenberg 的《红楼梦》EPUB 传输会被中途重置，**此来源的整本下载尚不稳定**。对比容器内原生 fetch、本机 API 和公网下载均复现；同文件在开发电脑可完整下载，已排除反向代理与清读流桥接为本次根因。上游书源可用性不由部署保证。
-
-Android 的固定个人测试证书 SHA-256：
-
-```text
-ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70
-```
-
-[固定签名构建与验证记录](https://github.com/SakuraWang6/QingRead/actions/runs/39444094943)。构建前后均强制比对此公开指纹；私钥通过仓库加密 Secret 恢复到 Runner 私有临时路径，Gradle 显式使用该路径。这是个人测试签名，不是上架 release 签名。
-
-早期 0.5.0 及首次 0.5.1 的 APK 曾使用其他临时签名。如果装过这些旧包，需先导出阅读备份并保留原电子书文件，再卸载一次，安装固定签名版后恢复备份。备份不包含原文件与正文缓存；以后同一固定签名下的更新可直接覆盖安装。
-
-安装包直链：[QingRead Android 0.5.1](https://read.example.com/downloads/QingRead-Android-0.5.1.apk)。文件不含访问码，SHA-256 为 `f099c39acb417bdc3be5b5a48fdfb5505a504f6ffc7cd7ac9459f1bed8e8c436`。
-
-部署后的状态抽查：原有三个容器均 healthy、restart=0、OOM=false，原 80 端口仍返回原有 307；服务器可用内存约 977 MiB，清读 API / Caddy 当时约 115 / 13 MiB。数值为本次抽查，不是长期监控承诺。
-
-## 本机 SSH 连接
-
-本次 Mac 的 VPN 虚拟路由曾让 SSH 在握手前关闭；经物理 Wi-Fi 接口 `en0` 连接已验证可用，未修改服务器 SSH 或系统代理。实际使用的 `scripts/ssh-en0-connector.py` 已保留为维护脚本，可通过 SSH 的 `ProxyCommand` 调用。它使用 macOS 的 `IP_BOUND_IF`，只适用于当前 Mac 的 `en0` 接口，不是服务器依赖，也不负责代理书源流量。私钥仍使用本机已有文件，不复制进项目。
+备份数据库和原文件时，应在低峰仅暂停清读应用服务，复制整个 `app-data` 后立即恢复；不要只复制运行中的 SQLite 主文件。还原使用同一份数据库与文件目录。保留上一版本镜像与配置，备份不进入 Git。完整步骤见 [部署说明](README.md)。
 
 ## 查看、更新与回滚
 
-只在本项目目录操作，不展开或公开含访问码的 Compose 环境：
+只在本项目目录操作：
 
 ```sh
 cd /srv/qingread
@@ -69,30 +43,23 @@ sudo docker compose ps
 sudo docker compose logs --tail 100 qingread https
 ```
 
-更新时先保留上一镜像版本及当前配置，在私有 `.env` 修改 `QINGREAD_IMAGE` 后执行：
+更新前检查主机可用内存、磁盘和其他服务状态，保留一致备份与旧镜像，在私有 `.env` 修改 `QINGREAD_IMAGE`，然后只更新应用：
 
 ```sh
-cd /srv/qingread
 sudo docker compose config --quiet
-sudo docker compose up -d
+sudo docker compose up -d --no-deps qingread
 ```
 
-如需停止并回滚本次项目：
+验证健康接口的版本、账号隔离和下载后，复查容器健康、OOM 标记及原服务。回滚时将 `QINGREAD_IMAGE` 改为已保留的兼容版本，再执行同一条应用更新命令。不要删除 `app-data`、证书、卷或其他项目，也不要用旧的 0.5 镜像恢复当前同步功能。
 
-```sh
-cd /srv/qingread
-sudo docker compose down
-```
+清理只处理已加载成功的 `incoming` 安装归档和确认未被容器引用的过旧清读镜像，保留当前版本与一个回滚版本；不执行全局 Docker prune。
 
-不加 `-v`，不删除 `caddy-data`、`caddy-config` 或 `.env`，不停止其他项目，也不改原 80 服务。若要恢复上一应用镜像，将本项目的 `QINGREAD_IMAGE` 改回已保留版本，再执行 `up -d`。
+## HTTPS、连接与验证范围
 
-通用部署步骤与配置说明见 [README](README.md)，安卓构建与限制见 [Android README](../android/README.md)。证书机制参考 [Let's Encrypt IP 证书说明](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)和 [Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
+Caddy 使用 Let's Encrypt `shortlived` 公网 IP 证书，通过 TCP 443 的 TLS-ALPN 验证并自动续期，不接管 80。保持 443 可访问，保留证书目录；没有有效证书时不要绕过浏览器警告。
 
-恢复早于 `ce1dbca` 的镜像时，旧启动器不支持公共模式，须同时配置非空 `QINGREAD_ACCESS_TOKEN`；不要只回退镜像并保留空令牌。
+Mac 上可用 `scripts/ssh-en0-connector.py` 作为 SSH 的 `ProxyCommand`，仅将连接绑定到当前 Mac 的 `en0`，不修改系统路由，也不代理书源流量。私钥由部署者在项目外自行保管。
 
+本轮已验证的公网原文件隔离、跨会话续读、资源状态与 Android 构建记录见 [项目验证记录](../../docs/verification.md)。部分海外来源整本下载仍有连接重置，未继续排查；Android 尚无真机运行结论。
 
-## 0.6 同步更新
-
-2026-10-21：镜像由工作电脑构建，生产只重建清读 API，Caddy 热重载，保留原 HTTP 80 与其他项目。新增 `app-data:/data` 持久化私有目录，注册/登录与同步接口独立账号认证，公共书源继续免访问码。升级前保留前一镜像及配置，数据库目录 700、文件 600，登录 scrypt 单并发。
-
-通过公网验证两个独立账号、相同账号两个会话的书架与当前位置续读、未登录拒绝及退出令牌撤销。Android 0.6 / code 3 由私有构建完成固定签名验证，公开 CI 不再获得个人签名私钥。账号测试不包含用户真实数据；安卓仍未在真机运行。部署后需继续复查原服务健康与内存，不将构建通过当作所有书源下载稳定。
+公开 CI 使用临时调试签名，不保存个人签名 Secret。长期分发的 APK 必须在私有环境使用固定证书签名，升级保持同一证书。早期临时签名包若无法覆盖升级，应先导出阅读备份并保留原文件，之后再处理卸载。

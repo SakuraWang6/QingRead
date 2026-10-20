@@ -85,7 +85,8 @@ export class ReaderSpeech {
       if (generation !== this.generation || event.error === 'interrupted' || event.error === 'canceled') return;
       this.speaking = false; this.publish(); this.options?.onError(`系统听书暂时中断（${event.error}），可点击播放重试。`);
     };
+    // Retain the active utterance until replacement or stop, including its callbacks.
     this.utterance = utterance;
-    window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.speak(this.utterance);
   }
 }

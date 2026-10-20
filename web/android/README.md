@@ -16,7 +16,7 @@ cd android
 ./gradlew --no-daemon assembleDebug lintDebug
 ```
 
-调试包在 `app/build/outputs/apk/debug/app-debug.apk`。仓库的 **Android debug APK** 工作流执行同样的构建和检查，并将 APK 保存为可下载 Artifact。手动运行时可填写公开的 HTTPS API 地址，或设置仓库变量 `QINGREAD_API_BASE`；不填也能构建，安装后再在 App 内配置。
+调试包在 `app/build/outputs/apk/debug/app-debug.apk`。仓库的 **Android debug APK** 工作流执行同样的构建和检查，并将 APK 保存为可下载 Artifact。手动运行时通过 `api_base` 输入项填写公开的 HTTPS API 地址；不填也能构建，安装后再在 App 内配置。
 
 公开 CI 不读取个人签名 Secret，使用临时调试签名构建验证包。不同 Runner 的调试包可能不能覆盖升级；要长期分发和保留数据，请自行保管固定签名，在私有构建环境通过 `QINGREAD_DEBUG_KEYSTORE_PATH` 传给 Gradle。keystore、私钥及 Base64 都不能提交到仓库。已有个人固定签名保留在本地私有目录，历史包升级必须保持相同证书。
 
