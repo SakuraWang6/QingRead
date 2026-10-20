@@ -21,6 +21,16 @@ describe('offline account storage',()=>{
     const next=(await store.syncRequest()).mutations[0];await store.acceptSync(snapshot({cursor:2,acknowledged:[next.id],records:[{bookID:sampleBook.id,entry:next.entry!,revision:2,changedAt:new Date().toISOString()}]}));
     expect(store.hasPendingSync()).toBe(false);expect(store.getSnapshot().shelf[0].position?.characterOffset).toBe(80);
   });
+  it('publishes file identity for an already-saved remote book without resetting progress',async()=>{
+    const store=fresh(),book={...sampleBook,publicationFormat:'txt' as const};
+    await store.add(book);await store.savePosition(book,sampleChapter,.6,60);
+    const file=new File(['第一章 开始\n正文。'],'book.txt');await store.importFile(file,book);
+    const saved=store.getSnapshot().shelf[0];expect(saved.book.fileHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(saved.position?.characterOffset).toBe(60);
+    expect((await store.syncRequest()).mutations[0].entry?.book.fileHash).toBe(saved.book.fileHash);
+    expect((await store.importFile(new File(['第一章 开始\n正文。'],'renamed.txt'))).id).toBe(book.id);
+    expect(store.getSnapshot().shelf).toHaveLength(1);
+  });
   it('applies remote removals without deleting local publication files or inventing upload operations',async()=>{
     const store=fresh();await store.add(sampleBook);const sent=(await store.syncRequest()).mutations[0];
     await store.acceptSync(snapshot({acknowledged:[sent.id],records:[{bookID:sampleBook.id,entry:null,revision:1,changedAt:new Date().toISOString()}]}));

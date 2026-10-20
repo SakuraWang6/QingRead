@@ -400,6 +400,16 @@ extension AppStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    private func saveImportedMetadata(_ book: Book) {
+        if let index = shelf.firstIndex(where: { $0.id == book.id }) {
+            guard let hash = book.fileHash, shelf[index].book.fileHash != hash else { return }
+            let previous = shelf[index]
+            shelf[index] = ShelfEntry(book: previous.book.withFileHash(hash), position: previous.position, addedAt: previous.addedAt)
+            cloud.localChanged(.add, book: shelf[index].book)
+            persist(shelf, name: "library.json")
+        } else { add(book) }
+    }
+
     func importPublication(at url: URL, format: BookFileFormat? = nil, metadata: Book? = nil) async throws -> Book {
         let format = format ?? BookFileFormat(rawValue: url.pathExtension.lowercased())
         guard let format else { throw AppError.message("请选择 EPUB、PDF 或 TXT 文件。") }
@@ -458,13 +468,13 @@ extension AppStore {
         guard root == importRoot else { throw CancellationError() }
         try Task.checkCancellation()
         let book = prepared.0
-        if publicationURL(for: book) != nil { return shelf.first(where: { $0.id == book.id })?.book ?? book }
+        if publicationURL(for: book) != nil { saveImportedMetadata(book); return shelf.first(where: { $0.id == book.id })?.book ?? book }
         let destination = importedDirectory(book)
         if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
         try FileManager.default.moveItem(at: stage, to: destination)
         importedBooks[book.id] = prepared.1
         persist(importedBooks, name: "imported-books.json")
-        add(book)
+        saveImportedMetadata(book)
         cacheRevision += 1
         return book
     }

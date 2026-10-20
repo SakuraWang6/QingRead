@@ -206,6 +206,11 @@ export class BrowserLibrary {
     for(const content of publication.contents)await tx.objectStore('localContents').put(content,contentKey(publication.book,content.chapter));
     await tx.done;
     if(publication.cover){const url=URL.createObjectURL(publication.cover);this.coverURLs.set(publication.book.id,url);publication.book={...publication.book,coverURL:url};}
+    const existing=this.state.shelf.find(entry=>entry.book.id===publication.book.id);
+    if(existing){
+      existing.book={...existing.book,fileHash:publication.book.fileHash,coverURL:publication.book.coverURL??existing.book.coverURL};
+      this.enqueue('add',existing.book.id,existing);await this.persist();return existing.book;
+    }
     await this.add(publication.book);return publication.book;
   }
   async clearCache(){this.generation++;const db=await this.db,tx=db.transaction(['chapters','contents'],'readwrite');await Promise.all([tx.objectStore('chapters').clear(),tx.objectStore('contents').clear()]);await tx.done;this.emit();}
