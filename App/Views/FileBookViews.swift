@@ -43,6 +43,9 @@ struct FileBookDetailView: View {
                     Button { showReader = true } label: { Label("打开本地整本", systemImage: "book") }.buttonStyle(PrimaryButtonStyle())
                     Text("已下载，可离线阅读").font(.caption).foregroundStyle(Palette.secondary)
                 } else {
+                    PublicationImportButton(expectedBook: book) { _ in showReader = true }
+                    Text("导入同一份电子书后会匹配云端书架和进度；文件本身不会上传。").font(.caption).foregroundStyle(Palette.secondary)
+                    if book.sourceID != "local-file" {
                     Button {
                         if isDownloading { task?.cancel(); return }
                         error = nil; isDownloading = true; progress = 0
@@ -58,6 +61,7 @@ struct FileBookDetailView: View {
                     } label: { Label(isDownloading ? "停止下载" : "下载整本并阅读", systemImage: isDownloading ? "stop.circle" : "arrow.down.circle") }
                         .buttonStyle(PrimaryButtonStyle())
                     if isDownloading { ProgressView(value: progress).tint(Palette.cinnabar) }
+                    }
                 }
                 if let error { InlineNotice(message: error, isError: true) }
                 if !book.summary.isEmpty { Text(book.summary).font(.system(size: 15)).lineSpacing(5) }
@@ -71,6 +75,7 @@ struct FileBookDetailView: View {
 }
 
 struct PublicationImportButton: View {
+    var expectedBook: Book? = nil
     var iconOnly = false
     var onImported: (Book) -> Void = { _ in }
     @EnvironmentObject private var store: AppStore
@@ -91,7 +96,7 @@ struct PublicationImportButton: View {
                     Task {
                         let access = url.startAccessingSecurityScopedResource()
                         defer { if access { url.stopAccessingSecurityScopedResource() }; isImporting = false }
-                        do { onImported(try await store.importPublication(at: url)) }
+                        do { onImported(try await store.importPublication(at: url, metadata: expectedBook)) }
                         catch { self.error = error.localizedDescription }
                     }
                 case .failure(let failure): error = failure.localizedDescription

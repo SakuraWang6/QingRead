@@ -1,12 +1,12 @@
 # 手动部署移动 Web 与安卓书源服务
 
-通用配置将网页与书源 API 放进一个 Node 24 容器，通过 HTTPS 反向代理访问。当前已经在 Ubuntu 的 `/srv/qingread` 部署独立生产 Compose，使用 [https://192.144.237.46](https://192.144.237.46)，原 80 服务保留；[实际配置、已测范围和回滚记录](DEPLOYMENT.md)。下面同时保留迁移到其他服务器或接入已有反向代理的手动步骤。
+通用配置将网页与书源 API 放进一个 Node 24 容器，通过 HTTPS 反向代理访问。当前已经在 Ubuntu 的 `/srv/qingread` 部署独立生产 Compose，使用 [https://read.example.com](https://read.example.com)，原 80 服务保留；[实际配置、已测范围和回滚记录](DEPLOYMENT.md)。下面同时保留迁移到其他服务器或接入已有反向代理的手动步骤。
 
 ## 独立 HTTPS 部署（保留现有 80 端口）
 
 `compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
 
-部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.5.1.apk`，该目录仅供 Caddy 只读访问。然后执行：
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.6.0.apk`，该目录仅供 Caddy 只读访问。然后执行：
 
 ```sh
 docker compose -f compose.production.yaml config --quiet
@@ -25,7 +25,7 @@ API 上限 384 MiB、0.75 CPU；HTTPS 上限 128 MiB、0.25 CPU，两者禁用�
 
 需要现有 Docker Engine 与 Docker Compose 插件、一个指向服务器的域名，以及已配置证书的 HTTPS 反向代理。若目前没有这些，请先确认服务器现有服务与端口，再另行安排安装；下面步骤不会安装系统软件。
 
-将仓库复制或拉取到服务器上的独立目录，例如 `/opt/qingread`。仓库是私有的，使用你已有的 GitHub SSH 授权；不要把私钥或 GitHub 令牌写进镜像、Compose 或聊天。
+将仓库复制或拉取到服务器上的独立目录，例如 `/opt/qingread`。可以公开克隆源码；不要把私钥或 GitHub 令牌写进镜像、Compose 或聊天。
 
 进入仓库的 `web/` 目录：
 
@@ -109,3 +109,16 @@ docker compose ps
 `.github/workflows/web.yml` 在 `web/` 或该工作流变化时运行 Node 24 的 `npm ci`、单元测试、TypeScript / PWA 构建和生产依赖审计，高风险生产依赖会阻止验证通过。构建产物保存 7 天，不发布网站或连接服务器。一般 CI 不依赖外部书源可用性；手动运行工作流时可以勾选 `live_sources`，额外执行真实书源测试。
 
 本地对应命令是在 `web/` 运行 `npm ci`、`npm test`、`npm run build` 和 `npm audit --omit=dev --audit-level=high`。浏览器 PWA 首次预缓存、PDF 字体与其他静态文件不会消耗 `/api/` 的请求限额，API 自身仍保留限流。
+
+
+## 账号数据库与备份
+
+启动前创建可写目录（不要对现有目录递归修改其他服务权限）：
+
+```sh
+sudo install -d -o 1000 -g 1000 -m 700 app-data
+```
+
+Compose 将 `app-data` 挂载到 `/data`，容器根文件系统继续只读。数据不会写进镜像或代码。健康响应 `syncEnabled: true` 表示同步已启动。只更新清读容器，不删除数据目录。
+
+用 SQLite 在线备份 API 生成一致快照，或只暂停清读容器后备份整个 `app-data`（数据库、WAL、SHM 必须一致），随后立即启动清读。备份包含私人书架和密码哈希，应限制为所有者可读，并加密异地保存。不能只复制运行中的主数据库文件；不要将备份上传 GitHub。保留原镜像、配置和迁移前数据快照，以便回滚。

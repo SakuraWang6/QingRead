@@ -1,11 +1,12 @@
 # 清读 · QingRead
 
-免费的原生 iPhone 阅读器。输入书名搜书，把找到的作品加入书架，安静地读下去。
+免费的 iPhone、移动 Web 与 Android 阅读器。多源搜书、离线阅读，使用自建服务器同步书架和进度。
 
-SwiftUI / iOS 16+ / 本地优先 / 无账号 / 无广告 SDK / 无会员与内购。
+SwiftUI / React / Capacitor / 本地优先 / 可选账号同步 / 无广告 SDK / 无会员与内购。
 
-## 当前功能（0.4）
+## 当前功能（0.6）
 
+- 用户名与密码自助注册；iPhone、Web 和 Android 使用同一账号同步书架与阅读位置，各账号数据分别保存。未登录仍可本地使用，已有书架需主动合并。
 - 多来源搜索，来源失败分别显示；可以启用、停用和导入书源。
 - 三列封面书架，点击直接继续阅读，长按查看详情或管理。
 - 推荐与六类书库，实时读取来源站书目，可打开目录、收藏和阅读。
@@ -114,8 +115,8 @@ Z-Library 当前未接入在线搜书或章节阅读；它属于整本电子书�
 
 移动端 Web 位于 [`web/`](web/README.md)，包含三列书架、多源搜书、分类推荐、离线缓存、EPUB / PDF / TXT 导入、沉浸阅读设置与系统听书。运行 `cd web && npm ci && npm run dev` 后打开 `http://127.0.0.1:5173`。
 
-Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键与系统安全区。0.5.1 / versionCode 2 已通过构建、Lint、固定证书 `ff9db7…` 的 APK v2 签名与 ZIP 校验；本机未安装 Android SDK，尚未在安卓模拟器或真机运行，原生 AI 听书仍待移植。此版本预设已部署的 HTTPS 服务器地址；当前无需访问码，可直接使用。旧临时签名 0.5.0 / 首次 0.5.1 若安装过，需要先备份再卸载重装一次。详见 [`Android 说明`](web/android/README.md)。
+Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键、系统安全区和 Android KeyStore 加密登录保存。当前版本 0.6.0 / versionCode 3，尚未在安卓真机运行；离线 AI 语音尚未移植。公开 CI 构建普通调试包，个人固定签名只在私有环境保管，见 [Android 说明](web/android/README.md)。
 
-Web 与书源服务已部署到 [https://192.144.237.46](https://192.144.237.46)，运行于 Ubuntu 的 `/srv/qingread` Docker Compose 项目。Caddy 2.11.7 在 443 管理短期 IP 证书及自动续期，原 80 服务保留；API / Caddy 分别限制为 384 / 128 MiB、0.75 / 0.25 CPU。当前 Web 与安卓可直接连接，无需访问码；部署显式开启 `QINGREAD_PUBLIC_ACCESS=true`，限流与资源上限继续保留。书架与阅读进度仍保存在各设备本机，不会云同步。服务器至 Gutenberg 的整本 EPUB 下载存在连接重置，尚不稳定。[实际部署、验证范围与本项目回滚步骤](web/deploy/DEPLOYMENT.md)。
+服务端使用 Node.js 24 与 SQLite，提供可选账号同步。按 [部署说明](web/deploy/README.md) 自建服务器；项目没有默认的公共共享服务器，也不提供邮箱验证或密码找回。iPhone 的同步地址可在「设置 → 账号与同步」填写，Web 与 Android 在「设置 → 服务器连接」配置。详细范围、文件匹配、冲突处理和备份见 [云同步](docs/cloud-sync.md)。
 
 本机构建产物与下载整理、签名数据保留及重建说明见[本地维护](docs/maintenance.md)。

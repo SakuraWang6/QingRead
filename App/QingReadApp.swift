@@ -5,11 +5,14 @@ import ReadingCore
 @main
 struct QingReadApp: App {
     @StateObject private var store = AppStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(store)
+                .task { await store.cloud.start() }
+                .onChange(of: scenePhase) { _ in Task { await store.cloud.sync() } }
                 .tint(Palette.cinnabar)
         }
     }

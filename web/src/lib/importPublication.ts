@@ -40,12 +40,13 @@ export function textChapters(text:string, title:string) {
   if(!chapters.length)throw new Error('文件没有可读取的正文');
   return chapters;
 }
-export async function parsePublication(file:File, metadata?:Book):Promise<LocalPublication> {
+export async function parsePublication(file:File, metadata?:Book,knownBooks:Book[]=[]):Promise<LocalPublication> {
   if(!file.size || file.size>MAX_FILE) throw new Error('请选择 250 MB 以内的非空电子书');
   const format=(metadata?.publicationFormat || file.name.split('.').pop()?.toLowerCase()) as BookFormat;
   if(!['epub','pdf','txt'].includes(format)) throw new Error('支持 EPUB、PDF 和 TXT 文件');
   const data=new Uint8Array(await file.arrayBuffer());
   const identity=Array.from(sha256(data),v=>v.toString(16).padStart(2,'0')).join('');
+  if(metadata?.fileHash && metadata.fileHash!==identity)throw new Error('文件与云端书籍不一致，请选择原来导入的同一份文件');
   let title=file.name.replace(/\.[^.]+$/,''), author='';
   let sections:{title:string;paragraphs:string[]}[]=[]; let cover:Blob|undefined;
   if(format==='pdf'){
@@ -84,7 +85,8 @@ export async function parsePublication(file:File, metadata?:Book):Promise<LocalP
     if(coverItem){const path=archivePath(coverItem.getAttribute('href')||'',base);const bytes=files[path];const mime=coverItem.getAttribute('media-type')||'';if(bytes&&bytes.byteLength<=8*1024*1024&&/^image\/(jpeg|png|webp)$/.test(mime))cover=new Blob([new Uint8Array(bytes)],{type:mime});}
     if(!sections.length)throw new Error('EPUB 无可读取正文，可能加密或仅包含图片');
   }
-  const book:Book=metadata||{id:`file|${identity}`,title,author,summary:'',sourceID:'local-file',sourceName:'本地文件',url:`qingread-import://${identity}`,publicationFormat:format};
+  const known=metadata||knownBooks.find(book=>book.fileHash===identity);
+  const book:Book={...(known||{id:`file|${identity}`,title,author,summary:'',sourceID:'local-file',sourceName:'本地文件',url:`qingread-import://${identity}`,publicationFormat:format}),fileHash:identity};
   const chapters=sections.map((section,index)=>({id:`${book.id}|${index}`,title:section.title,url:`qingread-import://${identity}/${index}`,index}));
   const contents:ChapterContent[]=chapters.map((chapter,index)=>({chapter,paragraphs:sections[index].paragraphs}));
   return {book,chapters,contents,file,cover};

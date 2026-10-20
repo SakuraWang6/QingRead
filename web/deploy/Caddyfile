@@ -4,6 +4,7 @@
             wrap json
             fields {
                 request>headers>X-Qingread-Token delete
+                request>headers>Authorization delete
             }
         }
     }
@@ -27,10 +28,10 @@ https://{$QINGREAD_PUBLIC_HOST} {
         Referrer-Policy no-referrer
         -Server
     }
-    handle /downloads/QingRead-Android-0.5.1.apk {
+    handle /downloads/QingRead-Android-*.apk {
         root * /downloads
         uri strip_prefix /downloads
-        header Content-Disposition "attachment; filename=QingRead-Android-0.5.1.apk"
+        header Content-Disposition "attachment"
         file_server
     }
     handle {

@@ -7,3 +7,8 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 .update-prompt{position:fixed;bottom:calc(90px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:1200;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 24px);width:max-content;padding:12px 16px;border:1px solid #d8d0c2;border-radius:8px;background:#fbf8f0;color:#39342d;box-shadow:0 8px 28px #30291b26;font:12px/1.6 -apple-system,BlinkMacSystemFont,sans-serif}.update-prompt button{padding:6px 8px;color:#a75038;white-space:nowrap}.update-prompt button:focus-visible{outline:2px solid #a75038;outline-offset:2px}
+
+.account-panel { display:flex; flex-direction:column; gap:14px; }
+.account-panel h2 { margin:0; font-size:22px; font-weight:600; }
+.account-panel p { margin:0; line-height:1.7; font-size:14px; color:var(--muted, #7b756c); }
+.account-panel .primary-button,.account-panel .secondary-button { width:100%; min-height:44px; }

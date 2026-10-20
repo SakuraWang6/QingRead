@@ -31,3 +31,17 @@ web/public/pdfjs/
 
 # Local signing backup (never commit)
 .private/
+.data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Persistent service data must stay outside source control
+web/app-data/
+web/deploy/app-data/
+web/deploy/caddy-data/
+web/deploy/caddy-config/
+web/deploy/downloads/

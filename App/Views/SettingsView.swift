@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     var body: some View {
         List {
+            Section("账号") { NavigationLink { CloudAccountView(cloud: store.cloud) } label: { Label("账号与同步", systemImage: "person.crop.circle") } }
             Section {
                 NavigationLink { SourcesView() } label: { Label("书源", systemImage: "books.vertical") }
                 NavigationLink { VoiceSettingsView() } label: { Label("听书与离线音色", systemImage: "waveform") }

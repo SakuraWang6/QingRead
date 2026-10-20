@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.5.1 / versionCode 2** 已通过 [固定证书的 CI 编译、Lint、APK v2 签名与完整性校验](https://github.com/SakuraWang6/QingRead/actions/runs/39444094943)，证书 SHA-256 为下述 `ff9db7…`。本机没有 Android SDK，尚未在模拟器或真机运行。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.6.0 / versionCode 3**，加入账号同步与 Android KeyStore 加密登录保存。本机无 Android SDK，尚未在模拟器或真机运行。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 
@@ -18,21 +18,15 @@ cd android
 
 调试包在 `app/build/outputs/apk/debug/app-debug.apk`。仓库的 **Android debug APK** 工作流执行同样的构建和检查，并将 APK 保存为可下载 Artifact。手动运行时可填写公开的 HTTPS API 地址，或设置仓库变量 `QINGREAD_API_BASE`；不填也能构建，安装后再在 App 内配置。
 
-CI 使用固定的个人测试签名，以便后续同签名调试包可以覆盖升级并保留设备上的 IndexedDB 数据。仓库必须配置 Secret `QINGREAD_ANDROID_DEBUG_KEYSTORE_B64`，内容为持久保存的个人测试 keystore 的 Base64；别名为 `androiddebugkey`，keystore 和密钥密码均为标准调试值 `android`。工作流将其恢复到 Runner 的临时私有路径，并通过 `QINGREAD_DEBUG_KEYSTORE_PATH` 显式传给 Gradle 的 debug 签名配置，不依赖 Android 默认 keystore 位置。构建前导出的公开证书、构建后 APK 的证书均必须与固定 SHA-256 `ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70` 一致，否则失败并拒绝上传 APK。工作流不会输出私钥，也不会临时生成替代签名。
+公开 CI 不读取个人签名 Secret，使用临时调试签名构建验证包。不同 Runner 的调试包可能不能覆盖升级；要长期分发和保留数据，请自行保管固定签名，在私有构建环境通过 `QINGREAD_DEBUG_KEYSTORE_PATH` 传给 Gradle。keystore、私钥及 Base64 都不能提交到仓库。已有个人固定签名保留在本地私有目录，历史包升级必须保持相同证书。
 
-早期 0.5.0 和首次 0.5.1 CI 产物曾实际使用其他临时调试签名，不能与本固定签名覆盖升级。如果安装过这些旧包，需先导出阅读备份，再卸载旧包、安装固定签名版本并恢复备份。临时私钥无法恢复，不能通过更改证书指纹绕过 Android 的签名检查。手动本地构建时也应将 `QINGREAD_DEBUG_KEYSTORE_PATH` 指向同一份保管的 keystore，才能保持签名一致。
+## 服务器、同步与离线
 
-这只是此私有仓库的个人测试签名，**不是上架用的 release 签名**。请备份原始 keystore；更换签名身份会导致旧安装包无法覆盖升级。正式分发前应另外配置私密、持久的 release 签名文件，并保管好密钥；不要将 keystore 或其 Base64 提交到仓库。
+页面原点固定为 `https://localhost`，表示 APK 内页面，与远程服务器不同。在「设置 → 服务器连接」填写自己部署的 HTTPS 地址，再在「账号与同步」注册或登录。手动构建可通过 `VITE_API_BASE` 指定自己的默认服务，公开源码没有预设服务器。后端允许 Capacitor 的 `https://localhost` Origin，App 不开放明文 HTTP。
 
-## 服务器与离线
+同一服务器、同一账号同步书架和当前阅读位置。勾选记住登录时，令牌经 Android KeyStore 加密保存；密码不保存。未登录书架需要主动合并，账号切换使用独立本地存储。整本文件与正文缓存不上传，另一设备需要重新下载或导入同一份文件，见 [同步说明](../../docs/cloud-sync.md)。
 
-APK 内的页面原点固定为 `https://localhost`，它提供打包的页面和 PDF 字体资源。**这个 localhost 是手机本机，不是 Mac 或远程书源服务器。** 当前 0.5.1 服务器版已预设 [https://192.144.237.46](https://192.144.237.46)，在「设置 → 服务器连接」将地址留空即可使用默认服务，当前服务器已关闭访问码，访问码栏留空即可直接使用，无需重新安装。更换其他服务器时，填写可从手机访问且证书有效的 HTTPS 地址；地址可带 `/api`，不包含用户名或密码。
-
-服务端已允许 Capacitor 的 `https://localhost` Origin，当前免访问码，仍保留请求限制。App 不开启混合内容或明文 HTTP；服务器只使用 HTTP 时，应先通过反向代理配置 TLS。
-
-原生壳不注册 PWA ServiceWorker；页面和 PDF 渲染资源直接来自 APK，因此启动不依赖服务器。已导入文件与已缓存章节继续通过 IndexedDB 离线读取。联网搜索、未缓存章节和整本下载需要服务器。更换 API 地址不会同步 iOS/Web/Android 的本地书架，现阶段同步依赖备份导入导出。
-
-服务器到部分海外书源的大文件传输存在连接重置；目前不继续排查该链路，不能把构建通过视为下载链路稳定。服务器实际部署与已测范围见 [部署记录](../deploy/DEPLOYMENT.md)。
+原生壳不注册 PWA ServiceWorker，页面与 PDF 资源随 APK 打包，已导入文件和章节缓存可离线阅读。部分海外大文件下载可能受服务器网络限制。
 
 ## 安卓交互
 

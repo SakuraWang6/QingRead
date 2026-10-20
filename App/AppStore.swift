@@ -4,21 +4,6 @@ import CryptoKit
 import ReadingCore
 import PDFKit
 
-struct ReadingPosition: Codable, Hashable {
-    var chapterID: String
-    var chapterIndex: Int
-    var characterOffset: Int
-    var chapterFraction: Double
-    var updatedAt: Date
-}
-
-struct ShelfEntry: Codable, Identifiable {
-    var id: String { book.id }
-    let book: Book
-    var position: ReadingPosition?
-    let addedAt: Date
-}
-
 enum ChapterCacheState { case uncached, loading, cached }
 
 private struct SavedSources: Codable {
@@ -36,9 +21,12 @@ final class AppStore: ObservableObject {
     @Published private(set) var importedBooks: [String: ImportedBookRecord] = [:]
     @Published var storageMessage: String?
 
+    lazy var cloud = NativeCloudSync(store: self)
+
     private var importedSources: [SourceDefinition] = []
-    private let root: URL
-    private let cacheRoot: URL
+    private let guestRoot: URL
+    private var root: URL
+    private var cacheRoot: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var chapterProgresses: [String: [String: Double]] = [:]
@@ -56,10 +44,16 @@ final class AppStore: ObservableObject {
 
     init(storageRoot: URL? = nil, client: any HTTPClient = URLSessionHTTPClient()) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        root = storageRoot ?? base.appendingPathComponent("QingRead", isDirectory: true)
+        guestRoot = storageRoot ?? base.appendingPathComponent("QingRead", isDirectory: true)
+        root = guestRoot
         cacheRoot = root.appendingPathComponent("ChapterCache", isDirectory: true)
         contentClient = client
         encoder.outputFormatting = [.sortedKeys]
+        loadProfileStorage()
+    }
+
+    private func loadProfileStorage() {
+        shelf=[];importedBooks=[:];importedSources=[];disabledSourceIDs=[];chapterProgresses=[:];settings=ReaderSettings();sources=SourceDefinition.builtIn
         do {
             try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
             shelf = try read([ShelfEntry].self, name: "library.json") ?? []
@@ -88,6 +82,55 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func selectCloudProfile(_ key: String?) throws {
+        cacheGeneration=UUID();prefetchTask?.cancel();cancelContentRequests()
+        root=key.map { guestRoot.appendingPathComponent("Accounts/"+stableKey($0),isDirectory:true) } ?? guestRoot
+        cacheRoot=root.appendingPathComponent("ChapterCache",isDirectory:true)
+        try FileManager.default.createDirectory(at:cacheRoot,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+        loadProfileStorage();cacheRevision += 1
+    }
+    func loadCloudState() throws -> NativeCloudLocalState { try read(NativeCloudLocalState.self,name:"cloud-state.json") ?? NativeCloudLocalState() }
+    func saveCloudState(_ value: NativeCloudLocalState) throws { try encoder.encode(value).write(to:root.appendingPathComponent("cloud-state.json"),options:.atomic) }
+    func replaceCloudShelf(_ value: [ShelfEntry]) throws {
+        try encoder.encode(value).write(to:root.appendingPathComponent("library.json"),options:.atomic)
+        shelf=value
+        for entry in value { if let p=entry.position { chapterProgresses[entry.id,default:[:]][p.chapterID]=max(chapterProgresses[entry.id]?[p.chapterID] ?? 0,p.chapterFraction) } }
+        persist(chapterProgresses,name:"chapter-progress.json")
+    }
+    func mergeGuestLibrary() throws {
+        guard root != guestRoot else { return }
+        let source=guestRoot.appendingPathComponent("library.json")
+        guard FileManager.default.fileExists(atPath:source.path) else { return }
+        let entries=try decoder.decode([ShelfEntry].self,from:Data(contentsOf:source))
+        let importURL=guestRoot.appendingPathComponent("imported-books.json")
+        let imports=FileManager.default.fileExists(atPath:importURL.path) ? try decoder.decode([String:ImportedBookRecord].self,from:Data(contentsOf:importURL)) : [:]
+        for entry in entries {
+            var book=entry.book
+            if let imported=imports[book.id] {
+                let original=guestRoot.appendingPathComponent("ImportedBooks/"+stableKey(book.id),isDirectory:true),destination=importedDirectory(book)
+                if !FileManager.default.fileExists(atPath:destination.path) && FileManager.default.fileExists(atPath:original.path) {
+                    try FileManager.default.createDirectory(at:destination.deletingLastPathComponent(),withIntermediateDirectories:true)
+                    let stage=destination.deletingLastPathComponent().appendingPathComponent(".import-"+UUID().uuidString,isDirectory:true)
+                    do { try FileManager.default.copyItem(at:original,to:stage);try FileManager.default.moveItem(at:stage,to:destination) }
+                    catch { try? FileManager.default.removeItem(at:stage);throw error }
+                }
+                importedBooks[book.id]=imported
+                if book.fileHash==nil,let url=publicationURL(for:book),let handle=try? FileHandle(forReadingFrom:url) {
+                    defer { try? handle.close() }
+                    var hash=SHA256()
+                    while let data=try handle.read(upToCount:1024*1024),!data.isEmpty { hash.update(data:data) }
+                    book=book.withFileHash(hash.finalize().map { String(format:"%02x",$0) }.joined())
+                }
+            }
+            let merged=ShelfEntry(book:book,position:entry.position,addedAt:entry.addedAt)
+            if let index=shelf.firstIndex(where:{$0.id==book.id}) {
+                if (merged.position?.updatedAt ?? merged.addedAt) > (shelf[index].position?.updatedAt ?? shelf[index].addedAt) { shelf[index]=merged }
+            } else { shelf.append(merged) }
+            cloud.localChanged(.add,book:book)
+        }
+        persist(importedBooks,name:"imported-books.json");persist(shelf,name:"library.json")
+    }
+
     var enabledSourceIDs: Set<String> { Set(sources.map(\.id)).subtracting(disabledSourceIDs) }
     var recentEntry: ShelfEntry? {
         shelf.filter { $0.position != nil }.max { ($0.position?.updatedAt ?? .distantPast) < ($1.position?.updatedAt ?? .distantPast) }
@@ -102,6 +145,7 @@ final class AppStore: ObservableObject {
     func add(_ book: Book) {
         guard !isSaved(book) else { return }
         shelf.append(ShelfEntry(book: book, position: nil, addedAt: Date()))
+        cloud.localChanged(.add, book: book)
         persist(shelf, name: "library.json")
     }
 
@@ -110,6 +154,7 @@ final class AppStore: ObservableObject {
         cancelPrefetch(for: book)
         cancelContentRequests(for: book.id)
         shelf.removeAll { $0.id == book.id }
+        cloud.localChanged(.remove, book: book)
         persist(shelf, name: "library.json")
         chapterProgresses.removeValue(forKey: book.id)
         persist(chapterProgresses, name: "chapter-progress.json")
@@ -133,6 +178,7 @@ final class AppStore: ObservableObject {
         } else {
             shelf.append(ShelfEntry(book: book, position: position, addedAt: Date()))
         }
+        cloud.localChanged(.progress, book: book)
         persist(shelf, name: "library.json")
         let furthest = max(chapterProgresses[book.id]?[chapter.id] ?? 0, position.chapterFraction)
         chapterProgresses[book.id, default: [:]][chapter.id] = furthest
@@ -359,6 +405,8 @@ extension AppStore {
         guard let format else { throw AppError.message("请选择 EPUB、PDF 或 TXT 文件。") }
         let library = root.appendingPathComponent("ImportedBooks", isDirectory: true)
         let stage = library.appendingPathComponent(".import-" + UUID().uuidString, isDirectory: true)
+        let importRoot = root
+        let knownBooks = shelf.map(\.book)
         let prepared = try await Task.detached(priority: .userInitiated) { () throws -> (Book, ImportedBookRecord) in
             do {
                 try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
@@ -371,6 +419,7 @@ extension AppStore {
                 var hash = SHA256()
                 while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty { hash.update(data: data) }
                 let identity = hash.finalize().map { String(format: "%02x", $0) }.joined()
+                if let expected = metadata?.fileHash, expected != identity { throw AppError.message("文件与云端书籍不一致，请选择原来导入的同一份文件。") }
                 let publication: ImportedPublication?
                 let pageCount: Int
                 var title = url.deletingPathExtension().lastPathComponent
@@ -388,7 +437,8 @@ extension AppStore {
                     publication = result; pageCount = result.chapters.count
                     title = result.title == "original" ? title : result.title; author = result.author; cover = result.cover
                 }
-                let book = metadata ?? Book(id: "file|" + identity, title: title, author: author, summary: "", sourceID: "local-file", sourceName: "本地文件", url: URL(string: "qingread-import://" + identity)!, publicationFormat: format)
+                let originalBook = metadata ?? knownBooks.first(where: { $0.fileHash == identity }) ?? Book(id: "file|" + identity, title: title, author: author, summary: "", sourceID: "local-file", sourceName: "本地文件", url: URL(string: "qingread-import://" + identity)!, publicationFormat: format)
+                let book = originalBook.withFileHash(identity)
                 let encoder = JSONEncoder()
                 let chapters = (0..<pageCount).map { index in
                     Chapter(id: book.id + "|\(index)", title: publication?.chapters[index].title ?? "第 \(index + 1) 页", url: URL(string: "qingread-import://\(identity)/\(index)")!, index: index)
@@ -405,6 +455,7 @@ extension AppStore {
             } catch { try? FileManager.default.removeItem(at: stage); throw error }
         }.value
         defer { try? FileManager.default.removeItem(at: stage) }
+        guard root == importRoot else { throw CancellationError() }
         try Task.checkCancellation()
         let book = prepared.0
         if publicationURL(for: book) != nil { return shelf.first(where: { $0.id == book.id })?.book ?? book }
@@ -419,6 +470,7 @@ extension AppStore {
     }
 
     func downloadPublication(_ book: Book, onProgress: @escaping @MainActor (Double) -> Void) async throws -> Book {
+        let downloadRoot = root
         let url = try await ReadingService(sources: sources).downloadURL(for: book)
         var request = URLRequest(url: url)
         request.setValue(book.url.absoluteString, forHTTPHeaderField: "Referer")
@@ -428,6 +480,7 @@ extension AppStore {
         let owned = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + (book.publicationFormat?.rawValue ?? "epub"))
         try FileManager.default.moveItem(at: temporary, to: owned)
         defer { try? FileManager.default.removeItem(at: owned) }
+        guard root == downloadRoot else { throw CancellationError() }
         return try await importPublication(at: owned, format: book.publicationFormat, metadata: book)
     }
 }

@@ -1,6 +1,6 @@
 # 实际部署记录
 
-更新于 2026-10-20（Asia/Shanghai）。访问地址：[https://192.144.237.46](https://192.144.237.46)。这是供自己和朋友直接访问的清读 Web 与书源服务，书架、阅读进度、导入文件和正文缓存仍保存在各设备本机，**不提供云同步**。
+更新于 2026-10-20（Asia/Shanghai）。访问地址：[https://read.example.com](https://read.example.com)。这是供自己和朋友直接访问的清读 Web 与书源服务，书架、阅读进度、导入文件和正文缓存仍保存在各设备本机，**不提供云同步**。
 
 ## 服务器
 
@@ -48,7 +48,7 @@ ff9db7beba4dd6075e1e9f4d09dea86a8353d68811dd84f5d4f7026f1067cb70
 
 早期 0.5.0 及首次 0.5.1 的 APK 曾使用其他临时签名。如果装过这些旧包，需先导出阅读备份并保留原电子书文件，再卸载一次，安装固定签名版后恢复备份。备份不包含原文件与正文缓存；以后同一固定签名下的更新可直接覆盖安装。
 
-安装包直链：[QingRead Android 0.5.1](https://192.144.237.46/downloads/QingRead-Android-0.5.1.apk)。文件不含访问码，SHA-256 为 `f099c39acb417bdc3be5b5a48fdfb5505a504f6ffc7cd7ac9459f1bed8e8c436`。
+安装包直链：[QingRead Android 0.5.1](https://read.example.com/downloads/QingRead-Android-0.5.1.apk)。文件不含访问码，SHA-256 为 `f099c39acb417bdc3be5b5a48fdfb5505a504f6ffc7cd7ac9459f1bed8e8c436`。
 
 部署后的状态抽查：原有三个容器均 healthy、restart=0、OOM=false，原 80 端口仍返回原有 307；服务器可用内存约 977 MiB，清读 API / Caddy 当时约 115 / 13 MiB。数值为本次抽查，不是长期监控承诺。
 

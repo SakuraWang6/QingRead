@@ -15,7 +15,9 @@ INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
-MARKETING_VERSION = 0.4.0
-CURRENT_PROJECT_VERSION = 4
+MARKETING_VERSION = 0.6.0
+CURRENT_PROJECT_VERSION = 6
 // Keep personal signing settings in the ignored Config/local.xcconfig file.
 #include? "local.xcconfig"
+
+// Set QINGREAD_SYNC_SERVER in ignored local.xcconfig for a personal build.

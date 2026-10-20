@@ -13,8 +13,9 @@ public struct Book: Codable, Hashable, Identifiable, Sendable {
     public let url: URL
     public let publicationFormat: BookFileFormat?
     public let fileDownloadURL: URL?
+    public let fileHash: String?
 
-    public init(id: String? = nil, title: String, author: String = "", summary: String = "", coverURL: URL? = nil, sourceID: String, sourceName: String, url: URL, publicationFormat: BookFileFormat? = nil, fileDownloadURL: URL? = nil) {
+    public init(id: String? = nil, title: String, author: String = "", summary: String = "", coverURL: URL? = nil, sourceID: String, sourceName: String, url: URL, publicationFormat: BookFileFormat? = nil, fileDownloadURL: URL? = nil, fileHash: String? = nil) {
         self.id = id ?? "\(sourceID)|\(url.absoluteString)"
         self.title = title
         self.author = author
@@ -25,6 +26,11 @@ public struct Book: Codable, Hashable, Identifiable, Sendable {
         self.url = url
         self.publicationFormat = publicationFormat
         self.fileDownloadURL = fileDownloadURL
+        self.fileHash = fileHash
+    }
+
+    public func withFileHash(_ hash: String) -> Book {
+        Book(id: id, title: title, author: author, summary: summary, coverURL: coverURL, sourceID: sourceID, sourceName: sourceName, url: url, publicationFormat: publicationFormat, fileDownloadURL: fileDownloadURL, fileHash: hash)
     }
 }
 

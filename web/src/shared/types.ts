@@ -3,6 +3,7 @@ export interface Book {
   id: string; title: string; author: string; summary: string; coverURL?: string | null;
   sourceID: string; sourceName: string; url: string; publicationFormat?: BookFormat | null;
   fileDownloadURL?: string | null;
+  fileHash?: string;
 }
 export interface Chapter { id: string; title: string; url: string; index: number }
 export interface ChapterContent { chapter: Chapter; paragraphs: string[] }

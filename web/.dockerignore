@@ -13,3 +13,12 @@ test-results
 *.tsbuildinfo
 .DS_Store
 work
+.data
+*.sqlite*
+*.db*
+
+app-data
+deploy/app-data
+deploy/caddy-data
+deploy/caddy-config
+deploy/downloads

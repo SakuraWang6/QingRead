@@ -1,14 +1,20 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const folders:string[]=[];
+import { afterEach, describe, expect, it } from 'vitest';
+afterEach(()=>folders.splice(0).forEach(path=>rmSync(path,{recursive:true,force:true})));
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 function start(token: string, publicAccess: string) {
+  const directory=mkdtempSync(join(tmpdir(),'qingread-startup-'));folders.push(directory);
   return spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: root,
-    env: { ...process.env, HOST: '0.0.0.0', PORT: '0', QINGREAD_ACCESS_TOKEN: token, QINGREAD_PUBLIC_ACCESS: publicAccess },
+    env: { ...process.env, HOST: '0.0.0.0', PORT: '0', QINGREAD_DATA_DIR: directory, QINGREAD_ACCESS_TOKEN: token, QINGREAD_PUBLIC_ACCESS: publicAccess },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }

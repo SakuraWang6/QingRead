@@ -5,6 +5,8 @@ import { defaultSettings } from '../shared/types';
 import { sampleBook, sampleChapter, sampleContent } from './sample';
 import { parsePublication } from './importPublication';
 import { api } from './api';
+import { sha256 } from '@noble/hashes/sha2.js';
+import type { CloudMutation, CloudRecord, CloudSnapshot } from '../shared/sync';
 
 const contentKey=(book:Book,chapter:Chapter)=>`${book.id}\0${chapter.id}`;
 const bounded=(n:number,lo:number,hi:number,fallback:number)=>Number.isFinite(n)?Math.max(lo,Math.min(hi,n)):fallback;
@@ -20,7 +22,7 @@ function shelfEntry(value:unknown):ShelfEntry {
   if(b.publicationFormat!=null&&!['epub','pdf','txt'].includes(b.publicationFormat as string))throw new Error('备份包含无效电子书类型');
   if(b.fileDownloadURL!=null&&typeof b.fileDownloadURL!=='string')throw new Error('备份包含无效下载网址');
   const book:Book={id:b.id,title:b.title as string,author:b.author as string,summary:b.summary as string,sourceID:b.sourceID,sourceName:b.sourceName as string,url:b.url as string,
-    publicationFormat:b.publicationFormat as Book['publicationFormat'],fileDownloadURL:b.fileDownloadURL as Book['fileDownloadURL'],coverURL:typeof b.coverURL==='string'&&b.coverURL.startsWith('https://')?b.coverURL:undefined};
+    publicationFormat:b.publicationFormat as Book['publicationFormat'],fileDownloadURL:b.fileDownloadURL as Book['fileDownloadURL'],fileHash:typeof b.fileHash==='string'&&/^[a-f0-9]{64}$/.test(b.fileHash)?b.fileHash:undefined,coverURL:typeof b.coverURL==='string'&&b.coverURL.startsWith('https://')?b.coverURL:undefined};
   let position:ReadingPosition|undefined;
   if(value.position!==undefined){
     const p=value.position;
@@ -59,8 +61,9 @@ export class BrowserLibrary {
   private progress:Record<string,Record<string,number>>=Object.create(null);
   private coverURLs=new Map<string,string>();
   private persistenceBlocked=false;
+  private cloud={cursor:0,revisions:{} as Record<string,number>,pending:[] as CloudMutation[],deferred:{} as Record<string,CloudRecord>};
   readonly initialized:Promise<void>;
-  constructor(name='qingread-web-v1'){
+  constructor(name='qingread-web-v1',private cloudEnabled=false){
     this.db=openDB(name,2,{upgrade(db){for(const store of ['meta','chapters','contents','imports','files','covers','localContents'])if(!db.objectStoreNames.contains(store))db.createObjectStore(store);}});
     this.initialized=this.hydrate();
   }
@@ -74,7 +77,7 @@ export class BrowserLibrary {
       const raw:unknown=await db.get('meta','state');
       const saved=record(raw)?raw:undefined;
       const shelf:ShelfEntry[]=[];let isolated=0;
-      if(raw===undefined)shelf.push({book:sampleBook,addedAt:new Date().toISOString()});
+      if(raw===undefined&&!this.cloudEnabled)shelf.push({book:sampleBook,addedAt:new Date().toISOString()});
       else if(Array.isArray(saved?.shelf))for(const entry of saved.shelf){try{shelf.push(shelfEntry(entry));}catch{isolated++;}}
       else isolated++;
       if(isolated){
@@ -83,6 +86,8 @@ export class BrowserLibrary {
         await db.put('meta',{savedAt:new Date().toISOString(),state:raw},'quarantined-state');
       }
       this.progress=progressRecords(await db.get('meta','progress'));
+      const cloud=await db.get('meta','cloud');
+      if(record(cloud)&&Number.isSafeInteger(cloud.cursor)&&Array.isArray(cloud.pending)&&record(cloud.revisions))this.cloud=cloud as typeof this.cloud;
       const warnings:string[]=isolated?[`已隔离 ${isolated} 条异常书架记录，原始快照已保留。`]:[];
       // Migrate early preview records: keep large files separate from catalog metadata.
       for(const old of await db.getAll('imports') as LocalPublication[]){
@@ -113,13 +118,21 @@ export class BrowserLibrary {
   private persist(){
     if(this.persistenceBlocked){this.emit();return this.writing;}
     const saved={...this.state,shelf:this.state.shelf.map(e=>({...e,book:{...e.book,coverURL:e.book.coverURL?.startsWith('blob:')?undefined:e.book.coverURL}}))};
-    this.writing=this.writing.catch(()=>{}).then(async()=>{const db=await this.db;await db.put('meta',saved,'state');}).catch(e=>this.report(e));
+    const progress=structuredClone(this.progress),cloud=structuredClone(this.cloud);
+    this.writing=this.writing.catch(()=>{}).then(async()=>{const db=await this.db,tx=db.transaction('meta','readwrite');await tx.store.put(saved,'state');await tx.store.put(progress,'progress');await tx.store.put(cloud,'cloud');await tx.done;}).catch(e=>this.report(e));
     this.emit();return this.writing;
   }
-  async add(book:Book){await this.initialized;if(this.state.shelf.some(e=>e.book.id===book.id))return;this.state={...this.state,shelf:[...this.state.shelf,{book,addedAt:new Date().toISOString()}]};await this.persist();}
+  private enqueue(action:CloudMutation['action'],bookID:string,entry?:ShelfEntry){
+    if(!this.cloudEnabled)return;
+    const previous=this.cloud.pending.find(m=>m.bookID===bookID);
+    const mutation:CloudMutation={id:crypto.randomUUID(),action:action==='progress'&&previous?.action==='add'?'add':action,bookID,baseRevision:this.cloud.revisions[bookID]??0,changedAt:new Date().toISOString(),...(entry?{entry:{...entry,book:{...entry.book,coverURL:entry.book.coverURL?.startsWith('blob:')?undefined:entry.book.coverURL}}}:{})};
+    this.cloud.pending=[...this.cloud.pending.filter(m=>m.bookID!==bookID),mutation];
+  }
+  async add(book:Book){await this.initialized;if(this.state.shelf.some(e=>e.book.id===book.id))return;const entry={book,addedAt:new Date().toISOString()};this.state={...this.state,shelf:[...this.state.shelf,entry]};this.enqueue('add',book.id,entry);await this.persist();}
   async remove(book:Book){
     await this.initialized;if(this.persistenceBlocked)return;this.generation++;
     this.state={...this.state,shelf:this.state.shelf.filter(e=>e.book.id!==book.id)};delete this.progress[book.id];
+    this.enqueue('remove',book.id);
     await this.persist();
     const db=await this.db,tx=db.transaction(['chapters','contents','imports','meta','files','covers','localContents'],'readwrite');
     await tx.objectStore('chapters').delete(book.id);await tx.objectStore('imports').delete(book.id);await tx.objectStore('files').delete(book.id);await tx.objectStore('covers').delete(book.id);for(const key of await tx.objectStore('localContents').getAllKeys())if(String(key).startsWith(book.id+'\0'))await tx.objectStore('localContents').delete(key);
@@ -133,6 +146,7 @@ export class BrowserLibrary {
     const existing=this.state.shelf.find(e=>e.book.id===book.id);
     this.state={...this.state,shelf:[...this.state.shelf.filter(e=>e.book.id!==book.id),{book:existing?.book||book,position,addedAt:existing?.addedAt||new Date().toISOString()}]};
     this.progress[book.id]??=Object.create(null);this.progress[book.id][chapter.id]=Math.max(this.progress[book.id][chapter.id]??0,value);
+    this.enqueue(existing?'progress':'add',book.id,this.state.shelf.find(e=>e.book.id===book.id));
     await this.persist();
     if(!this.persistenceBlocked)try{await(await this.db).put('meta',this.progress,'progress');}catch(e){this.report(e);}
   }
@@ -183,7 +197,7 @@ export class BrowserLibrary {
   }
   async getPublication(book:Book):Promise<Blob|undefined>{return await(await this.db).get('files',book.id);}
   async importFile(file:File,metadata?:Book){
-    await this.initialized;if(this.persistenceBlocked)throw new Error('本地数据尚未安全加载，请刷新后再导入');const publication=await parsePublication(file,metadata),db=await this.db;
+    await this.initialized;if(this.persistenceBlocked)throw new Error('本地数据尚未安全加载，请刷新后再导入');const publication=await parsePublication(file,metadata,this.state.shelf.map(e=>e.book)),db=await this.db;
     if(await db.get('imports',publication.book.id))return this.state.shelf.find(e=>e.book.id===publication.book.id)?.book||publication.book;
     const tx=db.transaction(['imports','files','covers','localContents'],'readwrite');
     await tx.objectStore('imports').put({book:publication.book,chapters:publication.chapters,fileSize:publication.file?.size||0},publication.book.id);
@@ -216,8 +230,69 @@ export class BrowserLibrary {
     await tx.store.put(state,'state');await tx.store.put(progress,'progress');await tx.done;
     this.progress=progress;
     this.state={...state,shelf:state.shelf.map(entry=>{const cover=this.coverURLs.get(entry.book.id);return cover?{...entry,book:{...entry.book,coverURL:cover}}:entry;})};
-    this.emit();
+    for(const entry of shelf)this.enqueue('add',entry.book.id,this.state.shelf.find(e=>e.book.id===entry.book.id));
+    await this.persist();
+  }
+  async syncRequest(){await this.initialized;await this.writing;return{cursor:this.cloud.cursor,mutations:structuredClone(this.cloud.pending.slice(0,50))};}
+  hasPendingSync(){return this.cloud.pending.length>0;}
+  async acceptSync(snapshot:CloudSnapshot){
+    await this.initialized;
+    const ack=new Set(snapshot.acknowledged);
+    this.cloud.pending=this.cloud.pending.filter(m=>!ack.has(m.id));
+    const pending=new Set(this.cloud.pending.map(m=>m.bookID));
+    this.cloud.deferred??={};
+    for(const remote of snapshot.records){
+      if(remote.revision<(this.cloud.revisions[remote.bookID]??0))continue;
+      this.cloud.revisions[remote.bookID]=remote.revision;this.cloud.deferred[remote.bookID]=remote;
+    }
+    for(const [bookID,remote]of Object.entries(this.cloud.deferred)){
+      if(pending.has(bookID))continue;
+      const previous=this.state.shelf.find(e=>e.book.id===bookID);
+      this.state={...this.state,shelf:this.state.shelf.filter(e=>e.book.id!==bookID)};
+      if(remote.entry){
+        const entry=shelfEntry(remote.entry),cover=this.coverURLs.get(bookID);
+        if(cover)entry.book={...entry.book,coverURL:cover};
+        this.state.shelf.push(entry);
+        if(entry.position){this.progress[bookID]??=Object.create(null);this.progress[bookID][entry.position.chapterID]=Math.max(this.progress[bookID][entry.position.chapterID]??0,entry.position.chapterFraction);}
+      }else if(previous){delete this.progress[bookID];}
+      delete this.cloud.deferred[bookID];
+    }
+    this.cloud.cursor=snapshot.cursor;
+    await this.persist();
+  }
+  async mergeFrom(source:BrowserLibrary){
+    await this.initialized;await source.initialized;await source.writing;
+    const backup=await source.exportBackup();
+    await this.importBackup(new File([backup],'local-library.json'));
+    const from=await source.db,to=await this.db;
+    const bookIDs=new Set(source.state.shelf.map(e=>e.book.id));
+    for(const name of ['imports','files','covers','chapters'])for(const bookID of bookIDs){const value=await from.get(name,bookID);if(value!==undefined)await to.put(name,value,bookID);}
+    for(const name of ['contents','localContents'])for(const key of await from.getAllKeys(name)){if(typeof key==='string'&&bookIDs.has(key.split('\0')[0]))await to.put(name,await from.get(name,key),key);}
+    for(const bookID of bookIDs){
+      const cover=await to.get('covers',bookID) as Blob|undefined;if(cover instanceof Blob&&!this.coverURLs.has(bookID))this.coverURLs.set(bookID,URL.createObjectURL(cover));
+      const file=await to.get('files',bookID) as Blob|undefined,entry=this.state.shelf.find(e=>e.book.id===bookID);
+      if(entry&&file instanceof Blob&&!entry.book.fileHash){
+        const hash=sha256.create(),reader=file.stream().getReader();
+        for(;;){const next=await reader.read();if(next.done)break;hash.update(next.value);}
+        const fileHash=Array.from(hash.digest(),v=>v.toString(16).padStart(2,'0')).join('');
+        entry.book={...entry.book,fileHash};this.enqueue('add',bookID,entry);
+      }
+    }
+    await this.persist();
   }
 }
-export const library=new BrowserLibrary();
-export const useLibrary=()=>useSyncExternalStore(library.subscribe,library.getSnapshot,library.getSnapshot);
+export const guestLibrary=new BrowserLibrary();
+export let library=guestLibrary;
+const libraryListeners=new Set<()=>void>();
+const notifyLibrary=()=>libraryListeners.forEach(fn=>fn());
+let detachLibrary=library.subscribe(notifyLibrary);
+const profiles=new Map<string,BrowserLibrary>();
+export async function switchLibraryProfile(profile:string|null){
+  let next=guestLibrary;
+  if(profile){next=profiles.get(profile)??new BrowserLibrary('qingread-cloud-'+profile,true);profiles.set(profile,next);}
+  await next.initialized;
+  detachLibrary();library=next;detachLibrary=library.subscribe(notifyLibrary);notifyLibrary();
+}
+const subscribeLibrary=(listener:()=>void)=>{libraryListeners.add(listener);return()=>{libraryListeners.delete(listener);};};
+const librarySnapshot=()=>library.getSnapshot();
+export const useLibrary=()=>useSyncExternalStore(subscribeLibrary,librarySnapshot,librarySnapshot);

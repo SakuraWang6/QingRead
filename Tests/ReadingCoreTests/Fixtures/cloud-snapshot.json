@@ -1,0 +1,38 @@
+{
+  "anchorFormat": "body-utf16-v1",
+  "cursor": 2,
+  "records": [
+    {
+      "bookID": "file|169fcaf0a2eb66ce4d2487231e3f9ae3da0cc3a9398e0377c6eef55c51e8f265",
+      "entry": {
+        "book": {
+          "id": "file|169fcaf0a2eb66ce4d2487231e3f9ae3da0cc3a9398e0377c6eef55c51e8f265",
+          "title": "同步样例",
+          "author": "测试",
+          "summary": "",
+          "sourceID": "local-file",
+          "sourceName": "本地文件",
+          "url": "qingread-import://169fcaf0a2eb66ce4d2487231e3f9ae3da0cc3a9398e0377c6eef55c51e8f265",
+          "publicationFormat": "txt",
+          "fileHash": "169fcaf0a2eb66ce4d2487231e3f9ae3da0cc3a9398e0377c6eef55c51e8f265"
+        },
+        "addedAt": "2026-10-20T12:00:00.000Z",
+        "position": {
+          "chapterID": "file|169fcaf0a2eb66ce4d2487231e3f9ae3da0cc3a9398e0377c6eef55c51e8f265|0",
+          "chapterIndex": 0,
+          "characterOffset": 7,
+          "chapterFraction": 0.5,
+          "updatedAt": "2026-10-20T12:01:02.345Z"
+        }
+      },
+      "revision": 2,
+      "changedAt": "2026-10-20T12:01:03.000Z"
+    }
+  ],
+  "acknowledged": [
+    "fixture-op-0001"
+  ],
+  "rejected": [],
+  "hasMore": false,
+  "serverTime": "2026-10-20T12:01:04.000Z"
+}

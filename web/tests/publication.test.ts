@@ -26,6 +26,14 @@ describe('publication imports',()=>{
     const zip=zipSync({'large.xhtml':strToU8('x'.repeat(17*1024*1024))});
     await expect(parsePublication(new File([zip],'large.epub'))).rejects.toThrow('过大');
   });
+  it('reattaches the same file to a cloud book and rejects different bytes',async()=>{
+    const file=new File(['第一章 开始\n正文。'],'fixture.txt');
+    const first=await parsePublication(file);
+    const cloud={...first.book,id:'catalog|shared-book',title:'云端书籍'};
+    const restored=await parsePublication(file,undefined,[cloud]);
+    expect(restored.book.id).toBe(cloud.id);expect(restored.chapters[0].id).toBe(cloud.id+'|0');
+    await expect(parsePublication(new File(['其他正文'],'wrong.txt'),cloud)).rejects.toThrow('不一致');
+  });
   it('bounds unbroken TXT without dropping composed characters',()=>{
     const text='👩🏽‍🚀中文'.repeat(10000);const chapters=textChapters(text,'书');
     expect(chapters.flatMap(c=>c.paragraphs).join('')).toBe(text);
