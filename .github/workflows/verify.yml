@@ -1,0 +1,30 @@
+name: Verify
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: python3 scripts/generate-project.py
+      - name: Test reading core
+        run: bash scripts/verify-core.sh
+      - name: Build iPhone Simulator app
+        run: >-
+          xcodebuild build -project QingRead.xcodeproj -scheme QingRead
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO
+      - name: Launch simulator app and capture actual UI
+        run: python3 scripts/simulator-preview.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QingRead-simulator-preview
+          path: .build/preview.png
+          retention-days: 7
