@@ -11,7 +11,9 @@ services:
       PORT: "8787"
       NODE_OPTIONS: --max-old-space-size=192
       QINGREAD_UPSTREAM_CONCURRENCY: "4"
-      QINGREAD_ACCESS_TOKEN: ${QINGREAD_ACCESS_TOKEN:?请设置私人访问码}
+      # Empty means public access; quotas and resource limits still apply.
+      QINGREAD_ACCESS_TOKEN: ${QINGREAD_ACCESS_TOKEN:-}
+      QINGREAD_PUBLIC_ACCESS: ${QINGREAD_PUBLIC_ACCESS:-false}
       QINGREAD_ALLOWED_ORIGINS: https://${QINGREAD_PUBLIC_HOST:?请设置公网主机名或IP}
     expose:
       - "8787"

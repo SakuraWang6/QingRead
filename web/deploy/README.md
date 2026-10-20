@@ -6,7 +6,7 @@
 
 `compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
 
-部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、`QINGREAD_ACCESS_TOKEN`。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.5.1.apk`，该目录仅供 Caddy 只读访问。然后执行：
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.5.1.apk`，该目录仅供 Caddy 只读访问。然后执行：
 
 ```sh
 docker compose -f compose.production.yaml config --quiet
