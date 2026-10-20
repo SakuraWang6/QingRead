@@ -1,0 +1,68 @@
+name: qingread
+services:
+  qingread:
+    image: ${QINGREAD_IMAGE:?请设置已构建的镜像版本}
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      NODE_OPTIONS: --max-old-space-size=192
+      QINGREAD_UPSTREAM_CONCURRENCY: "4"
+      QINGREAD_ACCESS_TOKEN: ${QINGREAD_ACCESS_TOKEN:?请设置私人访问码}
+      QINGREAD_ALLOWED_ORIGINS: https://${QINGREAD_PUBLIC_HOST:?请设置公网主机名或IP}
+    expose:
+      - "8787"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    memswap_limit: 384m
+    mem_reservation: 128m
+    cpus: 0.75
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/api/health').then(r=>r.json()).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+
+  https:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      QINGREAD_PUBLIC_HOST: ${QINGREAD_PUBLIC_HOST:?请设置公网主机名或IP}
+      GOMEMLIMIT: 80MiB
+      GOMAXPROCS: "1"
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    memswap_limit: 128m
+    mem_reservation: 32m
+    cpus: 0.25
+    pids_limit: 128
+    depends_on:
+      qingread:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: {max-size: 3m, max-file: "2"}

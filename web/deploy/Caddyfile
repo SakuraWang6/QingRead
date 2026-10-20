@@ -1,0 +1,25 @@
+{
+    auto_https disable_redirects
+    default_sni {$QINGREAD_PUBLIC_HOST}
+    servers {
+        protocols h1 h2
+    }
+}
+
+https://{$QINGREAD_PUBLIC_HOST} {
+    tls {
+        issuer acme https://acme-v02.api.letsencrypt.org/directory {
+            profile shortlived
+            disable_http_challenge
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+    reverse_proxy qingread:8787 {
+        flush_interval -1
+    }
+}

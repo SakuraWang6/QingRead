@@ -78,7 +78,7 @@ async function publicAddresses(hostname: string): Promise<{ address: string; fam
   return resolved;
 }
 
-async function openURL(value: string | URL, sourceID: string, options: { signal?: AbortSignal; referer?: string; timeout?: number }, redirects = 0): Promise<{ stream: Readable; url: URL; contentType: string; contentLength: number }> {
+async function openURL(value: string | URL, sourceID: string, options: { signal?: AbortSignal; referer?: string; timeout?: number; totalTimeout?: number }, redirects = 0, deadlineAt = Date.now() + (options.totalTimeout ?? 25_000)): Promise<{ stream: Readable; url: URL; contentType: string; contentLength: number }> {
   const url = validateSourceURL(value, sourceID);
   if (redirects > 4) throw new ServiceError('来源重定向过多。');
   const addresses = await publicAddresses(url.hostname);
@@ -96,7 +96,8 @@ async function openURL(value: string | URL, sourceID: string, options: { signal?
       lookup: ((_hostname: string, opts: { all?: boolean }, callback: (...args: any[]) => void) => opts.all ? callback(null, [chosen]) : callback(null, chosen.address, chosen.family)) as any,
     }, resolve);
     request.setTimeout(options.timeout ?? 18_000, () => request.destroy(new ServiceError('来源连接超时，请稍后重试。', 504)));
-    const deadline = setTimeout(() => request.destroy(new ServiceError('来源响应超时，请稍后重试。', 504)), options.timeout === 30_000 ? 180_000 : 25_000);
+    // Keep an absolute deadline across redirects, separate from socket idleness.
+    const deadline = setTimeout(() => request.destroy(new ServiceError('来源响应超时，请稍后重试。', 504)), Math.max(1, deadlineAt - Date.now()));
     request.on('close', () => clearTimeout(deadline));
     request.on('error', reject); request.end();
   });
@@ -107,7 +108,7 @@ async function openURL(value: string | URL, sourceID: string, options: { signal?
     // Some legacy sources emit http Location headers while serving HTTPS.
     // Upgrade only same-host redirects; no plaintext request is ever sent.
     if (target.protocol === 'http:' && target.hostname === url.hostname) target.protocol = 'https:';
-    return openURL(target, sourceID, options, redirects + 1);
+    return openURL(target, sourceID, options, redirects + 1, deadlineAt);
   }
   if (status < 200 || status >= 300) { response.resume(); throw new ServiceError(`来源暂时无法访问（HTTP ${status}）。`); }
   let stream: Readable = response;
@@ -115,6 +116,9 @@ async function openURL(value: string | URL, sourceID: string, options: { signal?
   if (encoding === 'gzip') stream = response.pipe(createGunzip());
   else if (encoding === 'br') stream = response.pipe(createBrotliDecompress());
   else if (encoding === 'deflate') stream = response.pipe(createInflate());
+  // Destroying a pipe destination does not destroy its source. Closing a
+  // canceled/oversized decoded stream must also release the upstream socket.
+  if (stream !== response) stream.once('close', () => response.destroy());
   response.on('error', error => stream.destroy(error));
   return { stream, url, contentType: response.headers['content-type'] ?? '', contentLength: encoding ? 0 : Number(response.headers['content-length'] ?? 0) };
 }
@@ -131,12 +135,14 @@ export function limitStream(stream: Readable, limit: number, signal?: AbortSigna
   return stream.pipe(limiter);
 }
 
+const configuredConcurrency = Number(process.env.QINGREAD_UPSTREAM_CONCURRENCY?.trim() || 4);
+const upstreamConcurrency = Number.isFinite(configuredConcurrency) ? Math.max(1, Math.min(8, Math.trunc(configuredConcurrency))) : 4;
 let activeRequests = 0;
 const waiting: (() => void)[] = [];
 async function acquireSlot(): Promise<() => void> {
-  if (activeRequests < 12) activeRequests += 1;
+  if (activeRequests < upstreamConcurrency) activeRequests += 1;
   else {
-    if (waiting.length >= 64) throw new ServiceError('书源服务正忙，请稍后再试。', 503);
+    if (waiting.length >= 32) throw new ServiceError('书源服务正忙，请稍后再试。', 503);
     await new Promise<void>((resolve, reject) => {
       const grant = () => { clearTimeout(timer); resolve(); };
       const timer = setTimeout(() => { const index = waiting.indexOf(grant); if (index >= 0) waiting.splice(index, 1); reject(new ServiceError('书源服务排队超时，请稍后再试。', 503)); }, 25_000);
@@ -147,7 +153,7 @@ async function acquireSlot(): Promise<() => void> {
   return () => { if (done) return; done = true; const next = waiting.shift(); if (next) next(); else activeRequests -= 1; };
 }
 
-export async function fetchStream(url: string | URL, sourceID: string, options: { signal?: AbortSignal; referer?: string; maxBytes?: number; timeout?: number } = {}) {
+export async function fetchStream(url: string | URL, sourceID: string, options: { signal?: AbortSignal; referer?: string; maxBytes?: number; timeout?: number; totalTimeout?: number } = {}) {
   const release = await acquireSlot();
   try {
     const result = await openURL(url, sourceID, options);

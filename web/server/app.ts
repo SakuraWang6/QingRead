@@ -44,7 +44,7 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   });
   const objectSchema = { type: 'object', required: ['book'], properties: { book: { type: 'object' }, chapter: { type: 'object' } }, additionalProperties: false } as const;
   const searchSchema = { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 100 }, sourceIDs: { type: 'array', maxItems: 10, uniqueItems: true, items: { type: 'string', maxLength: 80 } } }, additionalProperties: false } as const;
-  app.get('/api/health', async () => ({ ok: true, version: '0.5.0', sources: sources.length, requiresToken: Boolean(token) }));
+  app.get('/api/health', async () => ({ ok: true, version: '0.5.1', sources: sources.length, requiresToken: Boolean(token) }));
   app.get('/api/sources', async () => sources);
   app.post<{ Body: { query: string; sourceIDs?: string[] } }>('/api/search', { schema: { body: searchSchema } }, async request => {
     if (request.body.sourceIDs?.some(id => !sources.some(s => s.id === id))) throw new ServiceError('请求包含未登记书源。', 400);
@@ -88,7 +88,7 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   app.post<{ Body: { book: unknown } }>('/api/download', { config: { rateLimit: { max: 12, timeWindow: '1 minute' } }, schema: { body: objectSchema } }, async (request, reply) => {
     const { url, book, source } = await downloadURL(request.body.book);
     const controller = new AbortController();
-    const result = await fetchStream(url, source.id, { maxBytes: MAX_DOWNLOAD, referer: book.url, timeout: 30_000, signal: controller.signal });
+    const result = await fetchStream(url, source.id, { maxBytes: MAX_DOWNLOAD, referer: book.url, timeout: 30_000, totalTimeout: 600_000, signal: controller.signal });
     const type = book.publicationFormat === 'pdf' ? 'application/pdf' : 'application/epub+zip';
     // Validate magic before sending headers. A source challenge must not become a saved book.
     const iterator = result.stream[Symbol.asyncIterator](); const prefixChunks: Buffer[] = []; let prefixSize = 0;

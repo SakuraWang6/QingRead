@@ -1,21 +1,27 @@
 import type { Book, Category, Chapter, ChapterContent, DiscoverySection, SearchResponse, SourceDefinition } from '../shared/types';
 import { androidServerIssue, isAndroidApp } from './android';
+import { authenticationRequiredEvent, serverConnectionStore, ServerAuthenticationError } from './connection';
 
 export function apiBase(): string {
   const configured = localStorage.getItem('qingread.apiBase')?.trim().replace(/\/+$/, '') || import.meta.env.VITE_API_BASE?.replace(/\/+$/, '') || '';
   if (isAndroidApp()) { const issue = androidServerIssue(configured); if (issue) throw new Error(issue); }
-  return configured ? configured.endsWith('/api') ? configured : configured + '/api' : '/api';
+  return serverConnectionStore().apiAddress();
 }
-function headers(json = false): HeadersInit {
-  const token = sessionStorage.getItem('qingread.accessToken')?.trim();
+function headers(address: string, json = false): HeadersInit {
+  const token = serverConnectionStore().tokenFor(address);
   return { ...(json ? { 'Content-Type': 'application/json' } : {}), ...(token ? { 'X-QingRead-Token': token } : {}) };
 }
 async function checked(response: Response): Promise<Response> {
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(authenticationRequiredEvent));
+    throw new ServerAuthenticationError();
+  }
   if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.message || `服务请求失败（${response.status}）`); }
   return response;
 }
 async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await checked(await fetch(apiBase() + path, { method: body === undefined ? 'GET' : 'POST', headers: headers(body !== undefined), body: body === undefined ? undefined : JSON.stringify(body), signal }));
+  const address = apiBase();
+  const response = await checked(await fetch(address + path, { method: body === undefined ? 'GET' : 'POST', headers: headers(address, body !== undefined), body: body === undefined ? undefined : JSON.stringify(body), signal, redirect: 'error' }));
   return response.json();
 }
 export const api = {
@@ -23,7 +29,8 @@ export const api = {
   sources: (signal?: AbortSignal) => request<SourceDefinition[]>('/sources', undefined, signal),
   search: async (query: string, sourceIDs?: string[], signal?: AbortSignal, onUpdate?: (result: SearchResponse) => void): Promise<SearchResponse> => {
     if (!onUpdate) return request('/search', { query, sourceIDs }, signal);
-    const response = await checked(await fetch(apiBase() + '/search/stream', { method: 'POST', headers: headers(true), body: JSON.stringify({ query, sourceIDs }), signal }));
+    const address = apiBase();
+    const response = await checked(await fetch(address + '/search/stream', { method: 'POST', headers: headers(address, true), body: JSON.stringify({ query, sourceIDs }), signal, redirect: 'error' }));
     if (!response.body) throw new Error('当前浏览器不支持流式搜索。');
     const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '', result: SearchResponse = { books: [], failures: [] };
     try { for (;;) { const { value, done } = await reader.read(); pending += decoder.decode(value, { stream: !done }); const lines = pending.split('\n'); pending = lines.pop() ?? ''; for (const line of lines) if (line.trim()) { result = JSON.parse(line); onUpdate(result); } if (done) break; }
@@ -35,7 +42,7 @@ export const api = {
   recommendations: (signal?: AbortSignal) => request<{ sections: DiscoverySection[] }>('/recommendations', undefined, signal),
   categories: (signal?: AbortSignal) => request<Category[]>('/categories', undefined, signal),
   category: (id: string, signal?: AbortSignal) => request<Book[]>('/categories/' + encodeURIComponent(id), undefined, signal),
-  download: async (book: Book, signal?: AbortSignal): Promise<Blob> => (await checked(await fetch(apiBase() + '/download', { method: 'POST', headers: headers(true), body: JSON.stringify({ book }), signal }))).blob(),
+  download: async (book: Book, signal?: AbortSignal): Promise<Blob> => { const address = apiBase(); return (await checked(await fetch(address + '/download', { method: 'POST', headers: headers(address, true), body: JSON.stringify({ book }), signal, redirect: 'error' }))).blob(); },
   coverURL: (book: Book): string => book.coverURL?.startsWith('blob:') ? book.coverURL : book.sourceID === 'local' || book.sourceID.startsWith('local-') ? '' : apiBase() + '/cover?' + new URLSearchParams({ sourceID: book.sourceID, bookURL: book.url, ...(book.coverURL ? { url: book.coverURL } : {}) }),
-  cover: async (book: Book, signal?: AbortSignal): Promise<Blob> => (await checked(await fetch(api.coverURL(book), { headers: headers(), signal }))).blob(),
+  cover: async (book: Book, signal?: AbortSignal): Promise<Blob> => { const address = apiBase(); return (await checked(await fetch(api.coverURL(book), { headers: headers(address), signal, redirect: 'error' }))).blob(); },
 };

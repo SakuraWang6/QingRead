@@ -5,6 +5,7 @@ import { api } from './lib/api';
 import { library, useLibrary } from './lib/store';
 import { Reader } from './components/Reader';
 import { androidServerIssue, isAndroidApp, useAndroidBack } from './lib/android';
+import { authenticationRequiredEvent, normalizeApiAddress, serverConnectionStore } from './lib/connection';
 
 type Tab = 'shelf' | 'discover' | 'categories' | 'search' | 'settings';
 const tabs: { id: Tab; label: string; icon: typeof Library }[] = [
@@ -22,6 +23,7 @@ export default function App() {
   const [reading, setReading] = useState<{ book: Book; chapterID?: string } | null>(null);
   const [notice, setNotice] = useState('');
   const [sourceError, setSourceError] = useState('');
+  const [authenticationRequired, setAuthenticationRequired] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [searchSeed, setSearchSeed] = useState('');
   const importInput = useRef<HTMLInputElement>(null);
@@ -35,9 +37,11 @@ export default function App() {
   });
   useEffect(() => {
     const connected = () => setOnline(navigator.onLine);
+    const needsAccessCode = () => setAuthenticationRequired(true);
+    window.addEventListener(authenticationRequiredEvent, needsAccessCode);
     window.addEventListener('online', connected); window.addEventListener('offline', connected);
     api.sources().then(sources => library.initializeSources(sources)).catch(error => setSourceError(message(error)));
-    return () => { window.removeEventListener('online', connected); window.removeEventListener('offline', connected); };
+    return () => { window.removeEventListener('online', connected); window.removeEventListener('offline', connected); window.removeEventListener(authenticationRequiredEvent, needsAccessCode); };
   }, []);
   useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(''), 4500); return () => clearTimeout(id); }, [notice]);
   useEffect(() => { if (!selected && !reading) return; const previous = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = previous; }; }, [selected, reading]);
@@ -54,6 +58,7 @@ export default function App() {
       <main className={`main-page page-${tab}`}>
         {!online && <div className="offline-banner"><WifiOff size={14} /> 当前离线，已缓存的书籍仍可阅读</div>}
         {serverIssue && <div className="error-banner">{serverIssue} {tab !== 'settings' && <button className="text-button" onClick={() => setTab('settings')}>前往设置</button>}</div>}
+        {authenticationRequired && <div className="error-banner">请在「设置 → 服务器连接」填写或更新服务访问码。{tab !== 'settings' && <button className="text-button" onClick={() => setTab('settings')}>前往设置</button>}</div>}
         {state.storageError && <div className="error-banner">{state.storageError}</div>}
         {tab === 'shelf' && <Shelf entries={state.shelf} ready={state.ready} onDetails={setSelected} onRead={read} onSearch={() => setTab('search')} onImport={() => importInput.current?.click()} importing={importing} onNotice={setNotice} />}
         {tab === 'discover' && <Discover onBook={setSelected} onSearch={openSearch} />}
@@ -204,7 +209,7 @@ function SettingsPage({ settings, sources, disabled, sourceError, onNotice, onIm
   useAndroidBack(() => { if (!panel) return false; setPanel(null); return true; }, 100);
   async function exportBackup() { try { const data = await library.exportBackup(); const blob = data instanceof Blob ? data : new Blob([typeof data === 'string' ? data : JSON.stringify(data)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `清读备份-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); onNotice('已导出书架、阅读设置与进度'); } catch (error) { onNotice(message(error)); } }
   async function importBackup(file?: File) { if (!file) return; try { await library.importBackup(file); onNotice('备份已恢复'); } catch (error) { onNotice(message(error)); } finally { if (backupInput.current) backupInput.current.value = ''; } }
-  return <><PageHeader title="设置" /><section className="settings-group"><h3>阅读与内容</h3><SettingRow icon={Library} title="书源管理" subtitle={`${sources.filter(source => !disabled.includes(source.id)).length} 个已启用`} onClick={() => setPanel('sources')} /><SettingRow icon={Headphones} title="听书与音色" subtitle="语音、语速与离线模型" onClick={() => setPanel('voices')} /><SettingRow icon={SlidersHorizontal} title="阅读偏好" subtitle="字号、段距、背景与翻页" onClick={() => setPanel('reading')} /></section><section className="settings-group"><h3>文件与数据</h3><SettingRow icon={FileUp} title="导入书籍" subtitle="EPUB / PDF / TXT" onClick={onImport} /><SettingRow icon={Download} title="导出阅读备份" subtitle="书架、进度与设置" onClick={() => void exportBackup()} /><SettingRow icon={ArrowDownToLine} title="恢复阅读备份" onClick={() => backupInput.current?.click()} /><SettingRow icon={Trash2} title="存储管理" subtitle="已下载章节与本地文件" onClick={() => setPanel('storage')} /></section><section className="settings-group"><h3>连接</h3><SettingRow icon={ShieldCheck} title="服务器连接" subtitle={localStorage.getItem('qingread.apiBase') || '当前使用本地服务'} onClick={() => setPanel('server')} /></section><div className="settings-about"><span className="brand-mark">清</span><strong>清读</strong><small>Web 0.5</small></div><input hidden type="file" accept=".json,application/json" ref={backupInput} onChange={event => void importBackup(event.target.files?.[0])} />{panel && <div className="modal-backdrop"><section className="settings-panel modal-panel" role="dialog" aria-modal="true"><div className="modal-toolbar"><button className="icon-button" onClick={() => setPanel(null)} aria-label="返回设置"><ArrowLeft size={21} /></button><strong>{{ sources: '书源管理', voices: '听书与音色', reading: '阅读偏好', storage: '存储管理', server: '服务器连接' }[panel]}</strong><button className="icon-button" onClick={() => setPanel(null)} aria-label="关闭"><X size={20} /></button></div>{panel === 'sources' ? <SourcesPanel sources={sources} disabled={disabled} error={sourceError} onNotice={onNotice} /> : panel === 'voices' ? <VoicesPanel settings={settings} /> : panel === 'reading' ? <ReadingPreferences settings={settings} /> : panel === 'storage' ? <StoragePanel onNotice={onNotice} /> : <ServerPanel onNotice={onNotice} />}</section></div>}</>;
+  return <><PageHeader title="设置" /><section className="settings-group"><h3>阅读与内容</h3><SettingRow icon={Library} title="书源管理" subtitle={`${sources.filter(source => !disabled.includes(source.id)).length} 个已启用`} onClick={() => setPanel('sources')} /><SettingRow icon={Headphones} title="听书与音色" subtitle="设备音色与语速" onClick={() => setPanel('voices')} /><SettingRow icon={SlidersHorizontal} title="阅读偏好" subtitle="字号、段距、背景与翻页" onClick={() => setPanel('reading')} /></section><section className="settings-group"><h3>文件与数据</h3><SettingRow icon={FileUp} title="导入书籍" subtitle="EPUB / PDF / TXT" onClick={onImport} /><SettingRow icon={Download} title="导出阅读备份" subtitle="书架、进度与设置" onClick={() => void exportBackup()} /><SettingRow icon={ArrowDownToLine} title="恢复阅读备份" onClick={() => backupInput.current?.click()} /><SettingRow icon={Trash2} title="存储管理" subtitle="已下载章节与本地文件" onClick={() => setPanel('storage')} /></section><section className="settings-group"><h3>连接</h3><SettingRow icon={ShieldCheck} title="服务器连接" subtitle={localStorage.getItem('qingread.apiBase') || import.meta.env.VITE_API_BASE || '当前站点服务'} onClick={() => setPanel('server')} /></section><div className="settings-about"><span className="brand-mark">清</span><strong>清读</strong><small>Web 0.5.1</small></div><input hidden type="file" accept=".json,application/json" ref={backupInput} onChange={event => void importBackup(event.target.files?.[0])} />{panel && <div className="modal-backdrop"><section className="settings-panel modal-panel" role="dialog" aria-modal="true"><div className="modal-toolbar"><button className="icon-button" onClick={() => setPanel(null)} aria-label="返回设置"><ArrowLeft size={21} /></button><strong>{{ sources: '书源管理', voices: '听书与音色', reading: '阅读偏好', storage: '存储管理', server: '服务器连接' }[panel]}</strong><button className="icon-button" onClick={() => setPanel(null)} aria-label="关闭"><X size={20} /></button></div>{panel === 'sources' ? <SourcesPanel sources={sources} disabled={disabled} error={sourceError} onNotice={onNotice} /> : panel === 'voices' ? <VoicesPanel settings={settings} /> : panel === 'reading' ? <ReadingPreferences settings={settings} /> : panel === 'storage' ? <StoragePanel onNotice={onNotice} /> : <ServerPanel onNotice={onNotice} />}</section></div>}</>;
 }
 function SettingRow({ icon: Icon, title, subtitle, onClick }: { icon: typeof Library; title: string; subtitle?: string; onClick: () => void }) { return <button className="setting-row" onClick={onClick}><span className="setting-icon"><Icon size={19} strokeWidth={1.6} /></span><span><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span><ChevronRight size={17} /></button>; }
 function SourcesPanel({ sources, disabled, error, onNotice }: { sources: SourceDefinition[]; disabled: string[]; error: string; onNotice: (text: string) => void }) {
@@ -234,7 +239,45 @@ function StoragePanel({ onNotice }: { onNotice: (text: string) => void }) {
   return <div className="panel-content"><div className="storage-meter"><span>此站点占用</span><strong>{estimate?.usage != null ? formatBytes(estimate.usage) : '读取中…'}</strong>{estimate?.quota != null && <small>可用配额约 {formatBytes(estimate.quota)}</small>}</div>{stats !== null && <div className="storage-breakdown">{Object.entries(stats as Record<string, unknown>).filter(([, value]) => typeof value === 'number').map(([key, value]) => <span key={key}>{({ chapters: '章节', books: '书籍', bytes: '缓存大小', files: '本地文件', contents: '已缓存章节', publications: '导入书籍', cachedChapters: '已缓存章节' } as Record<string, string>)[key] || key}<strong>{key.toLowerCase().includes('byte') ? formatBytes(Number(value)) : String(value)}</strong></span>)}</div>}<div className="info-note"><ShieldCheck size={17} /><p>浏览器可能在空间不足时回收站点数据。重要书籍请保留原文件，并定期导出阅读备份。</p></div><button className="secondary-button full-width" onClick={() => void persist()} disabled={persistent === true}><ShieldCheck size={16} />{persistent ? '已启用持久存储' : '申请持久存储'}</button><button className="danger-outline full-width" onClick={() => setConfirm(!confirm)}><Trash2 size={16} />清理章节缓存</button>{confirm && <div className="confirm-box"><p>清理后，联网书籍需要重新下载章节。书架、设置与进度会保留。</p><button className="danger-button" disabled={busy} onClick={() => void clear()}>{busy ? '清理中…' : '确认清理'}</button><button className="text-button" onClick={() => setConfirm(false)}>取消</button></div>}</div>;
 }
 function ServerPanel({ onNotice }: { onNotice: (text: string) => void }) {
-  const [base, setBase] = useState(localStorage.getItem('qingread.apiBase') || ''); const [token, setToken] = useState(sessionStorage.getItem('qingread.accessToken') || ''); const [error, setError] = useState('');
-  function save() { try { if (isAndroidApp()) { const issue = androidServerIssue(base.trim() || import.meta.env.VITE_API_BASE || ''); if (issue) throw new Error(issue); } if (base.trim()) { const url = new URL(base.trim()); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('请输入 HTTP 或 HTTPS 服务地址'); if (location.protocol === 'https:' && url.protocol !== 'https:') throw new Error('HTTPS 网页需要连接 HTTPS 服务'); localStorage.setItem('qingread.apiBase', base.trim().replace(/\/$/, '')); } else localStorage.removeItem('qingread.apiBase'); token.trim() ? sessionStorage.setItem('qingread.accessToken', token.trim()) : sessionStorage.removeItem('qingread.accessToken'); onNotice('连接设置已保存'); location.reload(); } catch (error) { setError(message(error)); } }
-  return <div className="panel-content"><p className="panel-explanation">{isAndroidApp() ? '请连接你自己的 HTTPS 书源服务。App 的 localhost 是手机本机，不能作为服务器地址。' : '本地开发默认连接同源服务。部署到自己的服务器后，可在这里修改地址。'}</p><label className="field-label" htmlFor="server-base">服务地址</label><input id="server-base" className="text-input" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" value={base} onChange={event => setBase(event.target.value)} placeholder={isAndroidApp() ? 'https://你的服务器域名' : '留空使用当前站点 /api'} /><label className="field-label" htmlFor="server-token">服务访问码（若服务器启用）</label><input id="server-token" className="text-input" type="password" autoComplete="off" value={token} onChange={event => setToken(event.target.value)} placeholder="可留空" /><p className="field-help">访问码仅保留在本次浏览器会话中。</p>{error && <div className="error-banner">{error}</div>}<button className="primary-button full-width" onClick={save}>保存并重新连接 <ArrowRight size={16} /></button><div className="info-note"><CircleHelp size={17} /><p>此设置只连接书源服务。书架、阅读进度和文件仍保存在当前设备，尚未开启跨设备同步。</p></div></div>;
+  const [initial] = useState(() => serverConnectionStore().load());
+  const [base, setBase] = useState(initial.base);
+  const [token, setToken] = useState(initial.token);
+  const [remember, setRemember] = useState(initial.remember);
+  const [boundAddress, setBoundAddress] = useState(initial.address);
+  const [error, setError] = useState('');
+  function changeBase(value: string) {
+    setBase(value);
+    let address = '';
+    try { address = normalizeApiAddress(value.trim() || import.meta.env.VITE_API_BASE || '', location.origin); } catch { /* A partial address is not a credential destination. */ }
+    if (address !== boundAddress) { setToken(''); setRemember(false); }
+    setBoundAddress(address);
+  }
+  function save() {
+    try {
+      if (isAndroidApp()) { const issue = androidServerIssue(base.trim() || import.meta.env.VITE_API_BASE || ''); if (issue) throw new Error(issue); }
+      if (base.trim()) {
+        const url = new URL(base.trim());
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('请输入 HTTP 或 HTTPS 服务地址');
+        if (location.protocol === 'https:' && url.protocol !== 'https:') throw new Error('HTTPS 网页需要连接 HTTPS 服务');
+      }
+      serverConnectionStore().save(base, token, remember);
+      onNotice('连接设置已保存'); location.reload();
+    } catch (error) { setError(message(error)); }
+  }
+  function clearToken() {
+    serverConnectionStore().clearToken(); setToken(''); setRemember(false); onNotice('此设备保存的访问码已清除');
+  }
+  return <div className="panel-content">
+    <p className="panel-explanation">{isAndroidApp() ? '连接你的 HTTPS 书源服务；留空使用此版本预设的服务器。' : '留空使用当前站点的书源服务，也可填写其他服务器地址。'}</p>
+    <label className="field-label" htmlFor="server-base">服务地址</label>
+    <input id="server-base" className="text-input" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" value={base} onChange={event => changeBase(event.target.value)} placeholder={import.meta.env.VITE_API_BASE || (isAndroidApp() ? 'https://你的服务器域名' : '留空使用当前站点 /api')} />
+    <label className="field-label" htmlFor="server-token">服务访问码（若服务器启用）</label>
+    <input id="server-token" className="text-input" type="password" autoComplete="off" value={token} onChange={event => setToken(event.target.value)} placeholder="可留空" />
+    <label className="field-label"><input type="checkbox" checked={remember} onChange={event => { setRemember(event.target.checked); if (!event.target.checked) serverConnectionStore().forgetRemembered(); }} /> 在此设备记住访问码</label>
+    <p className="field-help">访问码只用于当前服务地址。未勾选时仅保留在本次会话；更换服务地址需重新填写。</p>
+    {error && <div className="error-banner">{error}</div>}
+    <button className="primary-button full-width" onClick={save}>保存并重新连接 <ArrowRight size={16} /></button>
+    <button className="text-button" onClick={clearToken}>清除已保存的访问码</button>
+    <div className="info-note"><CircleHelp size={17} /><p>此设置只连接书源服务。书架、阅读进度和文件仍保存在当前设备，尚未开启跨设备同步。</p></div>
+  </div>;
 }

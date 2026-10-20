@@ -2,7 +2,26 @@
 
 这个配置将网页与书源 API 放进一个 Node 24 容器，默认只映射服务器的 `127.0.0.1:8787`，通过已有 HTTPS 反向代理访问。不会占用现有 80 端口，也不会修改其他服务。本目录仅提供部署文件，没有自动连接服务器或发布。
 
-## 服务器准备
+## 独立 HTTPS 部署（保留现有 80 端口）
+
+`compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
+
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、`QINGREAD_ACCESS_TOKEN`。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile，然后执行：
+
+```sh
+docker compose -f compose.production.yaml config --quiet
+docker compose -f compose.production.yaml up -d
+```
+
+API 上限 384 MiB、0.75 CPU；HTTPS 上限 128 MiB、0.25 CPU，两者禁用容器 swap、限制 PID 和日志。上游并发固定 4、排队上限 32；普通网页请求总时限 25 秒，整本文件最多 10 分钟，闲置 30 秒仍会释放连接。先检查原服务健康与可用内存，再逐项验证部署，不同时跑压测。
+
+公网 IPv4 使用 Let's Encrypt `shortlived` 证书，通过 TCP 443 的 TLS-ALPN 验证，不接管 80。Caddy 持久化证书并自动续期；公网 443 必须一直放行。先使用 staging 端点与独立 data 目录验证，再切换正式配置，避免无效申请。没有有效证书时不要让用户跳过浏览器安全警告。
+
+验证 `https://公网主机/api/health`、未授权接口 401、授权来源列表、网页真实搜索、安卓 Origin 预检及整本文件下载，再复查原服务健康、OOM 标记与内存。回滚只在这个目录执行 `docker compose -f compose.production.yaml down`，保留证书目录，不操作其他 Compose 项目。
+
+依据：[Let's Encrypt 公网 IP 证书](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)、[Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
+
+## 已有 HTTPS 反向代理时的手动部署
 
 需要现有 Docker Engine 与 Docker Compose 插件、一个指向服务器的域名，以及已配置证书的 HTTPS 反向代理。若目前没有这些，请先确认服务器现有服务与端口，再另行安排安装；下面步骤不会安装系统软件。
 
@@ -51,7 +70,7 @@ location / {
 
 先执行 `nginx -t` 检查，再按现有服务管理方式重载。网页必须通过 HTTPS 访问，PWA、浏览器存储与音频功能才能得到正常的安全上下文。源服务不信任客户端转发头做鉴权；在反向代理之后，限流会按代理地址合并计数，适合个人使用。
 
-验证 `https://read.example.com/api/health` 能正常返回，再打开网页的「设置 → 服务器」，输入访问令牌。网页与 API 部署在同域时，服务器地址可以留空；令牌只保存在当前标签页的 sessionStorage，关闭标签页或重新打开时可能需要再次输入。不要把令牌放进网址。
+验证 `https://read.example.com/api/health` 能正常返回，再打开网页的「设置 → 服务器」，输入访问令牌。网页与 API 部署在同域时，服务器地址可以留空；访问码默认只用于本次会话；用户可勾选“在此设备记住访问码”，并可在同一面板清除。访问码绑定完整服务地址，更换地址不会自动发送旧码。不要把令牌放进网址。
 
 ## 安卓连接
 
