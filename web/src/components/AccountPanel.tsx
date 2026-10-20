@@ -14,7 +14,7 @@ export function AccountPanel(){
     catch(e){setError(e instanceof Error?e.message:'登录失败');}
     finally{setPassword('');setConfirmation('');}
   }
-  if(cloud.session&&!relogin)return <div className="panel-body account-panel">
+  if(cloud.session&&!relogin)return <div className="panel-content account-panel">
     <h2>{cloud.session.user.username}</h2><p>书架与阅读进度只同步到这个账号。</p>
     <p role="status">{cloud.busy?'正在同步…':cloud.lastSync?'上次同步 '+new Date(cloud.lastSync).toLocaleTimeString():'本地进度已保留，等待同步'}</p>
     {cloud.error&&<p className="error-banner">{cloud.error}</p>}
@@ -24,7 +24,7 @@ export function AccountPanel(){
     {error&&<p role="alert">{error}</p>}
     <button className="secondary-button" disabled={cloud.busy} onClick={()=>void cloudSync.logout()}>退出账号，返回本机书架</button>
   </div>;
-  return <form className="panel-body account-panel" onSubmit={event=>void submit(event)}>
+  return <form className="panel-content account-panel" onSubmit={event=>void submit(event)}>
     <h2>{register?'创建同步账号':'登录同步账号'}</h2><p>你和朋友分别注册自己的账号；不登录也可以本地阅读。</p>
     <label className="field-label" htmlFor="cloud-username">用户名</label>
     <input id="cloud-username" className="text-input" value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" minLength={2} maxLength={32} required/>

@@ -1,4 +1,7 @@
-# 实际部署记录
+# 部署参考与已验证配置
+
+> 地址均为示例。部署者需替换为自己的主机；本仓库不提供公共共享服务。下文保留历史小服务器部署验证记录，0.6 新增持久化 SQLite 同步，见文末。
+
 
 更新于 2026-10-20（Asia/Shanghai）。访问地址：[https://read.example.com](https://read.example.com)。这是供自己和朋友直接访问的清读 Web 与书源服务，书架、阅读进度、导入文件和正文缓存仍保存在各设备本机，**不提供云同步**。
 
@@ -86,3 +89,10 @@ sudo docker compose down
 通用部署步骤与配置说明见 [README](README.md)，安卓构建与限制见 [Android README](../android/README.md)。证书机制参考 [Let's Encrypt IP 证书说明](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)和 [Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
 
 恢复早于 `ce1dbca` 的镜像时，旧启动器不支持公共模式，须同时配置非空 `QINGREAD_ACCESS_TOKEN`；不要只回退镜像并保留空令牌。
+
+
+## 0.6 同步更新
+
+2026-10-21：镜像由工作电脑构建，生产只重建清读 API，Caddy 热重载，保留原 HTTP 80 与其他项目。新增 `app-data:/data` 持久化私有目录，注册/登录与同步接口独立账号认证，公共书源继续免访问码。升级前保留前一镜像及配置，数据库目录 700、文件 600，登录 scrypt 单并发。
+
+通过公网验证两个独立账号、相同账号两个会话的书架与当前位置续读、未登录拒绝及退出令牌撤销。Android 0.6 / code 3 由私有构建完成固定签名验证，公开 CI 不再获得个人签名私钥。账号测试不包含用户真实数据；安卓仍未在真机运行。部署后需继续复查原服务健康与内存，不将构建通过当作所有书源下载稳定。

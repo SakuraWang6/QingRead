@@ -16,3 +16,13 @@ Android 工程已生成与同步，CI 使用固定个人测试签名构建。[�
 PWA 更新提示按 [Vite PWA 官方 React 指南](https://vite-pwa-org.netlify.app/frameworks/react) 接入，由读者选择更新时机。
 
 首次交付 APK SHA256：`c802abbb070b7478954c3eb2eac0b826cd20ca83c41c07e4769c1b97881f1fe3`。
+
+
+## 0.6 账号同步（2026-10-21）
+
+- Web/服务端：74 个确定性测试通过，4 个真实来源测试默认跳过；TypeScript 与生产 PWA 构建通过。
+- 账号隔离、重放幂等、离线删除、倒退续读、会话撤销、SQLite 重启持久化和不保存明文凭据均有回归测试。
+- Web 与 Swift 读取同一个 UTF-16/ISO-8601 契约夹具；Swift 核心 34 个测试通过。
+- 浏览器本地注册、主动合并与同步状态实测；公网独立会话继续阅读及两个账号隔离实测。
+- iPhone 0.6 签名构建、严格签名校验、原数据备份、覆盖安装与真机启动完成。
+- Android 0.6 / code 3 私有 CI 编译、Lint、APK v2 固定证书及 ZIP 校验通过；无安卓真机运行结论。

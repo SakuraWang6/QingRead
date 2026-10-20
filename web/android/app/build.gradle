@@ -1,9 +1,7 @@
 apply plugin: 'com.android.application'
 
 def qingreadDebugKeystorePath = System.getenv('QINGREAD_DEBUG_KEYSTORE_PATH')
-if (System.getenv('CI') == 'true' && !qingreadDebugKeystorePath) {
-    throw new GradleException('CI requires QINGREAD_DEBUG_KEYSTORE_PATH; refusing to generate a temporary signing identity.')
-}
+// Public CI uses an ephemeral debug identity. Private distribution may supply its own stable keystore.
 if (qingreadDebugKeystorePath && !file(qingreadDebugKeystorePath).isFile()) {
     throw new GradleException('The configured personal test keystore file is missing.')
 }

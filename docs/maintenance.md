@@ -30,3 +30,10 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 服务器当前只保留正式配置、证书目录、发布 APK、运行镜像和上一版回滚镜像。清理上传压缩包和 HTTPS staging 目录，不删除正式 `caddy-data` / `caddy-config`，不操作其他服务。
 
 部署时若需让 Mac 的 SSH 绕开本机 VPN 虚拟路由，可使用已保存的 `scripts/ssh-en0-connector.py` 作为 `ProxyCommand`；脚本仅用于当前 Mac 的物理 `en0` 接口连接，不会修改系统路由或服务器网络。
+
+
+## 开源后的签名与同步数据
+
+公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人 0.6 安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，已安装后台续签副本随 0.6 更新。
+
+服务器 `app-data` 是持久化账号与书架数据库，清理时必须保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。只删除已成功加载且有原镜像可回滚的 incoming 安装归档和确认可重建的本机构建缓存。`.private/backups/phone-before-sync-06` 保存同步升级前的手机数据，不进入 Git。
