@@ -27,12 +27,18 @@ def main():
     run("xcrun", "simctl", "status_bar", udid, "override", "--time", "9:41", "--dataNetwork", "wifi", "--wifiMode", "active", "--wifiBars", "3", "--batteryState", "charged", "--batteryLevel", "100")
     run("xcrun", "simctl", "ui", udid, "appearance", "light")
     run("xcrun", "simctl", "install", udid, str(app))
-    launch = run("xcrun", "simctl", "launch", udid, "app.qingread.personal")
-    print(launch.strip())
-    time.sleep(3)
-    destination = ROOT / ".build/preview.png"
-    run("xcrun", "simctl", "io", udid, "screenshot", str(destination))
-    print(f"Captured {device['name']}: {destination}")
+    directory = ROOT / ".build/previews"
+    directory.mkdir(parents=True, exist_ok=True)
+    for index, screen in enumerate(["library", "search", "sources", "reader"]):
+        if index:
+            run("xcrun", "simctl", "terminate", udid, "app.qingread.personal")
+        arguments = [] if screen == "library" else ["--qingread-preview", screen]
+        launch = run("xcrun", "simctl", "launch", udid, "app.qingread.personal", *arguments)
+        print(launch.strip())
+        time.sleep(3)
+        destination = directory / f"{screen}.png"
+        run("xcrun", "simctl", "io", udid, "screenshot", str(destination))
+        print(f"Captured {device['name']} / {screen}: {destination}")
 
 
 if __name__ == "__main__":

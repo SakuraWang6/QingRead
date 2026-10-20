@@ -50,6 +50,8 @@ xcodebuild build -project QingRead.xcodeproj -scheme QingRead \
   -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO
 ```
 
+Debug 构建可带 `--qingread-preview search`、`sources` 或 `reader` 作为启动参数，便于快速验证页面；`reader` 打开真实的本地公版样例。Release 不包含此入口。`scripts/simulator-preview.py` 会在可用 iPhone 模拟器中安装并启动 App，保存书架、搜书、书源和阅读器的实际截图。
+
 ## 仓库结构
 
 | 目录 | 职责 |

@@ -26,5 +26,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: QingRead-simulator-preview
-          path: .build/preview.png
+          path: .build/previews/*.png
           retention-days: 7

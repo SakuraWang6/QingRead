@@ -16,7 +16,7 @@
 
 ## iOS 构建和界面
 
-本机未安装完整 Xcode/iOS SDK，不能声称已在本机编译或运行 iPhone 界面。仓库配置了 GitHub Actions 的 macOS 验证：运行测试、构建无签名 iPhone 模拟器 App、安装启动并截取实际界面。其结果将随首次运行更新。
+本机未安装完整 Xcode/iOS SDK，不能声称已在本机编译或运行 iPhone 界面。首次 GitHub Actions 已通过核心测试和无签名 iPhone 模拟器构建。正在由 macOS runner 安装、启动并截图验证实际界面。
 
 ## 尚需验证
 
