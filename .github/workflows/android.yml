@@ -65,6 +65,9 @@ jobs:
             exit 1
           fi
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Install web dependencies
         run: npm ci
