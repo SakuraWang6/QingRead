@@ -58,7 +58,33 @@ import ReadingCore
                          seek: ReaderSeekRequest(utf16Offset: progressAnchor))
             canvas.layoutIfNeeded()
             assert(NSLocationInRange(progressAnchor, canvas.debugPagination().visible), "Progress must seek to the page containing the requested text")
-            print("QINGREAD_READER_SELFTEST migration=passed speechIntent=passed bookProgress=passed progressSeek=passed utf16=\(document.text.length) slidePages=\(first.ranges.count) largeFontPages=\(resized.ranges.count) coverPages=\(covered.ranges.count) anchor=passed")
+            for mode in [ReaderTurnMode.slide, .cover] {
+                settings.turnMode = mode
+                canvas.apply(content: content, settings: settings, initialOffset: 0, seek: ReaderSeekRequest(utf16Offset: progressAnchor))
+                canvas.layoutIfNeeded()
+                let beforeTap = canvas.debugPagination()
+                let beforeIndex = beforeTap.ranges.firstIndex(of: beforeTap.visible)!
+                assert(beforeIndex > 0)
+                var boundaryCalls = 0
+                canvas.onBoundary = { _ in boundaryCalls += 1 }
+                canvas.debugTap(at: 0.1)
+                assert(canvas.debugPagination().visible == beforeTap.ranges[beforeIndex - 1], "Left tap must move to the previous page within the current chapter")
+                assert(boundaryCalls == 0)
+                canvas.apply(content: content, settings: settings, initialOffset: 0, seek: ReaderSeekRequest(utf16Offset: 0))
+                canvas.layoutIfNeeded()
+                canvas.debugTap(at: 0.1)
+                assert(boundaryCalls == 1, "Only a left tap on the first page may cross the chapter boundary")
+            }
+            let nextChapter = Chapter(id: "diagnostic-next", title: "下一章", url: chapter.url, index: 1)
+            let nextContent = ChapterContent(chapter: nextChapter, paragraphs: ["下一章正文。"])
+            canvas.apply(content: nextContent, settings: settings, initialOffset: 0, seek: nil)
+            canvas.layoutIfNeeded()
+            canvas.apply(content: content, settings: settings, initialOffset: document.text.length - 1, seek: nil)
+            canvas.frame.size.height += 1
+            canvas.layoutIfNeeded()
+            let restoredPrevious = canvas.debugPagination()
+            assert(restoredPrevious.visible.location == restoredPrevious.ranges.last!.location, "Backwards chapter turn must restore the final page even when the viewport changes")
+            print("QINGREAD_READER_SELFTEST migration=passed speechIntent=passed bookProgress=passed progressSeek=passed previousPageTap=passed backwardsChapterResize=passed utf16=\(document.text.length) slidePages=\(first.ranges.count) largeFontPages=\(resized.ranges.count) coverPages=\(covered.ranges.count) anchor=passed")
         } catch { assertionFailure("Reader diagnostics failed: \(error)") }
     }
 

@@ -144,7 +144,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         super.layoutSubviews()
         guard bounds.width > 80, bounds.height > 100, document != nil else { return }
         if lastSize != bounds.size {
-            if lastSize != .zero { anchor = currentUTF16() }
+            // A chapter load or explicit seek owns its target. Resizing must
+            // never replace it with an offset from the previous document.
+            if lastSize != .zero && !needsPagination { anchor = currentUTF16() }
             lastSize = bounds.size
             needsPagination = true
         }
@@ -295,13 +297,16 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
 
     #if DEBUG
+    func debugTap(at x: CGFloat) { tapped(at: x, animated: false) }
     func debugPagination() -> (ranges: [NSRange], visible: NSRange, utf16Count: Int) {
         (pageRanges, pageRanges.indices.contains(pageIndex) ? pageRanges[pageIndex] : NSRange(), document?.text.length ?? 0)
     }
     #endif
 
-    private func turn(_ delta: Int) {
+    private func turn(_ delta: Int, animated: Bool = true) {
         guard !isAnimating else { return }
+        layoutIfNeeded()
+        guard !needsPagination else { return }
         onTurn?()
         if settings.turnMode == .scroll {
             let target = vertical.contentOffset.y + CGFloat(delta) * (bounds.height - 70)
@@ -311,7 +316,13 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         } else {
             let target = pageIndex + delta
             guard pageRanges.indices.contains(target) else { onBoundary?(delta); return }
-            if settings.turnMode == .slide {
+            if !animated {
+                pageIndex = target
+                horizontal.setContentOffset(CGPoint(x: CGFloat(target) * bounds.width, y: 0), animated: false)
+                if settings.turnMode == .cover { showCoverPage(target) }
+                report(settled: true)
+            } else if settings.turnMode == .slide {
+                isAnimating = true
                 horizontal.setContentOffset(CGPoint(x: CGFloat(target) * bounds.width, y: 0), animated: true)
             } else {
                 beginCover(delta)
@@ -321,9 +332,11 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
-        let x = gesture.location(in: self).x / max(1, bounds.width)
+        tapped(at: gesture.location(in: self).x / max(1, bounds.width))
+    }
+    private func tapped(at x: CGFloat, animated: Bool = true) {
         if x > 0.28 && x < 0.72 { onToggleControls?() }
-        else if settings.turnMode != .scroll { turn(x <= 0.28 ? -1 : 1) }
+        else if settings.turnMode != .scroll { turn(x <= 0.28 ? -1 : 1, animated: animated) }
     }
     @objc private func edgePanned(_ gesture: UIScreenEdgePanGestureRecognizer) {
         guard gesture.state == .ended else { return }
@@ -353,6 +366,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         report(settled: false)
     }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        isAnimating = false
         boundarySent = false; dragStartPage = pageIndex
         dragAtTop = scrollView.contentOffset.y <= 2
         dragAtBottom = scrollView.contentOffset.y >= max(0, scrollView.contentSize.height - scrollView.bounds.height) - 2
@@ -375,7 +389,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { report(settled: true) }
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { report(settled: true) }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { isAnimating = false; report(settled: true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate && !boundarySent { report(settled: true) }
     }

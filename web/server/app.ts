@@ -50,7 +50,7 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   });
   const objectSchema = { type: 'object', required: ['book'], properties: { book: { type: 'object' }, chapter: { type: 'object' } }, additionalProperties: false } as const;
   const searchSchema = { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 100 }, sourceIDs: { type: 'array', maxItems: 10, uniqueItems: true, items: { type: 'string', maxLength: 80 } } }, additionalProperties: false } as const;
-  app.get('/api/health', async () => ({ ok: true, version: '0.8.0', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud), filesEnabled: Boolean(options.files) }));
+  app.get('/api/health', async () => ({ ok: true, version: '0.8.1', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud), filesEnabled: Boolean(options.files) }));
   if (options.cloud) registerCloudRoutes(app, options.cloud);
   if (options.cloud && options.files) registerFileRoutes(app,options.cloud,options.files);
   app.get('/api/sources', async () => sources);
