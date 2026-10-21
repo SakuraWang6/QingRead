@@ -6,7 +6,7 @@
 
 `compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
 
-部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.7.0.apk`，该目录仅供 Caddy 只读访问。然后执行：
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.8.1.apk`，该目录仅供 Caddy 只读访问。然后执行：
 
 ```sh
 docker compose -f compose.production.yaml config --quiet
@@ -84,7 +84,7 @@ docker compose up -d --force-recreate
 
 ## 运行限制与更新
 
-容器以 UID 1000 非 root 运行，文件系统只读，只给 `/tmp` 64 MiB 临时空间，移除所有 Linux capabilities 并禁止提权。不挂载 Docker socket、主机目录或凭据。服务不需要持久卷：书架、阅读进度、文件和离线缓存目前保存在客户端，服务器只有可丢弃的书源缓存，**不会自动同步 iOS、网页与安卓书架**。
+容器以 UID 1000 非 root 运行，文件系统只读，只给 `/tmp` 64 MiB 临时空间，移除所有 Linux capabilities 并禁止提权。不挂载 Docker socket、主机目录或凭据。服务器通过 `app-data:/data` 持久化账号数据库与原文件；登录同一账号可同步 iOS、Web 与安卓书架和阅读位置，原文件按账号隔离。客户端章节缓存与语音模型不上传。
 
 `web/compose.yaml` 通用配置将内存上限设为 384 MiB、Node 堆上限 192 MiB，CPU 上限 1 核；当前实际使用的 `compose.production.yaml` 则把 API 限为 384 MiB / 0.75 CPU、Caddy 限为 128 MiB / 0.25 CPU。请通过 `docker stats --no-stream` 观察实际负载；高并发或大目录可能需要调高限制，内存不足会被容器运行时重启。整本文件上限 250 MiB，下载采用流式转发，但服务器到部分海外书源的整本下载仍可能中断。
 
@@ -96,7 +96,7 @@ docker compose up -d
 docker compose ps
 ```
 
-移除这一套服务用 `docker compose down`，它不会删除客户端的书架或阅读文件。部署前后都请检查现有站点与服务器资源；本配置不提供账号系统、跨设备同步、远程来源导入，也不绕过原站的登录、验证码或 DRM。
+移除这一套服务用 `docker compose down`，它不会删除客户端的书架或阅读文件。部署前后都请检查现有站点与服务器资源；本配置提供账号与跨设备同步；不提供远程来源导入，也不绕过原站的登录、验证码或 DRM。
 
 ## 本地验证状态
 

@@ -1,6 +1,6 @@
 # 部署维护基线
 
-更新于 2026-10-21（Asia/Shanghai），应用版本 0.7.0，运行代码基线 `5bed2a8`。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
+更新于 2026-10-21（Asia/Shanghai），Web/API 版本 0.8.1，运行代码基线 `37955bc`。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
 
 ## 当前配置
 
@@ -8,16 +8,16 @@
 |---|---|
 | 平台 | Ubuntu、`linux/amd64` Docker 镜像 |
 | 部署目录与项目 | `/srv/qingread`，Compose 项目 `qingread` |
-| 应用镜像 | `qingread-web:0.7.0` |
+| 应用镜像 | `qingread-web:0.8.1` |
 | HTTPS | Caddy `2.11.7-alpine`，公网 TCP 443 |
 | 应用入口 | Compose 私有网络 `qingread:8787` |
 | 资源上限 | 应用 384 MiB / 0.75 CPU；Caddy 128 MiB / 0.25 CPU |
 | 书源访问 | 显式 `QINGREAD_PUBLIC_ACCESS=true`、访问码留空 |
 | 个人数据 | 用户名与密码注册，书架、进度、EPUB/PDF/TXT 按账号隔离 |
 | 云文件配额 | 单本 250 MiB、每账号 2 GiB、总计 10 GiB，预留 5 GiB 磁盘 |
-| 个人 Android 包 | 0.7.0 / versionCode 4，固定证书在私有环境签名 |
+| 个人 Android 包 | 0.8.1 / versionCode 6，固定证书在私有环境签名 |
 
-镜像在开发电脑构建，生产服务器不执行 npm 安装或前端编译。原有 TCP 80 服务和其他 Compose 项目保持独立。运行日志过滤 `X-QingRead-Token` 与 `Authorization`，不得公开展开后的 Compose 配置或私有环境文件。
+前端在开发电脑编译，生产服务器不执行 npm 安装或前端编译。0.8.1 与 0.7.0 的依赖和其余后端代码一致，核对锁文件后以现有 0.7.0 镜像为底，仅 COPY 编译后的 dist、健康版本信息和包元数据；禁用构建网络，没有 RUN 步骤。保留 0.7.0 镜像和升级前私有配置供回滚。原有 TCP 80 服务和其他 Compose 项目保持独立。运行日志过滤 `X-QingRead-Token` 与 `Authorization`，不得公开展开后的 Compose 配置或私有环境文件。
 
 ## 必须保留的数据
 
@@ -63,3 +63,9 @@ Mac 上可用 `scripts/ssh-en0-connector.py` 作为 SSH 的 `ProxyCommand`，仅
 本轮已验证的公网原文件隔离、跨会话续读、资源状态与 Android 构建记录见 [项目验证记录](../../docs/verification.md)。部分海外来源整本下载仍有连接重置，未继续排查；Android 尚无真机运行结论。
 
 公开 CI 使用临时调试签名，不保存个人签名 Secret。长期分发的 APK 必须在私有环境使用固定证书签名，升级保持同一证书。早期临时签名包若无法覆盖升级，应先导出阅读备份并保留原文件，之后再处理卸载。
+
+## 0.8.1 更新验证
+
+公网 HTTPS 健康接口返回 0.8.1，10 个书源 API 正常，浏览器完成旧 PWA 更新。仅重建清读应用；更新后内存约 125 MiB / 384 MiB，清读及原有三个应用容器均健康、OOM=false。账号数据库、原文件和证书未迁移或清理。上传构建上下文与 APK 暂存已清除。
+
+个人 Android 0.8.1 已通过 CI 测试、编译、lint、固定升级证书 v2 签名与 ZIP 校验；公网 latest 下载与本机包 SHA-256 相同。尚未在安卓设备运行。
