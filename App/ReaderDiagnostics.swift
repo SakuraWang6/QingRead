@@ -63,23 +63,23 @@ import ReadingCore
     }
 
     private static func verifyBookProgress() {
-        assert(ReaderBookProgress.fraction(chapterIndex: 0, chapterFraction: 0, chapterCount: 0) == 0)
-        assert(ReaderBookProgress.destination(for: 0.5, chapterCount: 0) == nil)
-        assert(ReaderBookProgress.fraction(chapterIndex: 2, chapterFraction: 0.5, chapterCount: 10) == 0.25)
-        assert(ReaderBookProgress.destination(for: 0.25, chapterCount: 10) == .init(chapterIndex: 2, chapterFraction: 0.5))
-        assert(ReaderBookProgress.destination(for: 1, chapterCount: 10) == .init(chapterIndex: 9, chapterFraction: 1))
-        assert(ReaderBookProgress.destination(for: -1, chapterCount: 10) == .init(chapterIndex: 0, chapterFraction: 0))
-        assert(ReaderBookProgress.destination(for: .nan, chapterCount: 10) == .init(chapterIndex: 0, chapterFraction: 0))
-        assert(ReaderBookProgress.utf16Offset(for: 1, textLength: 7432) == 7431)
-        assert(ReaderBookProgress.utf16Offset(for: 0.5, textLength: 7432) == 3716)
-        assert(ReaderBookProgress.utf16Offset(for: 0.5, textLength: 0) == 0)
-        for index in 0..<120 {
-            let boundary = ReaderBookProgress.fraction(chapterIndex: index, chapterFraction: 0, chapterCount: 120)
-            assert(ReaderBookProgress.destination(for: boundary, chapterCount: 120) == .init(chapterIndex: index, chapterFraction: 0))
-            let fraction = ReaderBookProgress.fraction(chapterIndex: index, chapterFraction: 0.37, chapterCount: 120)
-            let target = ReaderBookProgress.destination(for: fraction, chapterCount: 120)!
-            assert(target.chapterIndex == index && abs(target.chapterFraction - 0.37) < 0.00001)
+        let pages = [2, 8, 1]
+        assert(ReaderBookProgress.destination(for: 0, pageCounts: []) == nil)
+        assert(ReaderBookProgress.destination(for: 0, pageCounts: pages) == .init(chapterIndex: 0, pageIndex: 0))
+        assert(ReaderBookProgress.destination(for: 1, pageCounts: pages) == .init(chapterIndex: 2, pageIndex: 0))
+        assert(ReaderBookProgress.destination(for: .nan, pageCounts: pages) == .init(chapterIndex: 0, pageIndex: 0))
+        for chapter in pages.indices {
+            for page in 0..<pages[chapter] {
+                let number = ReaderBookProgress.pageNumber(chapterIndex: chapter, pageIndex: page, pageCounts: pages)
+                let fraction = ReaderBookProgress.fraction(pageNumber: number, totalPages: 11)
+                assert(ReaderBookProgress.destination(for: fraction, pageCounts: pages) == .init(chapterIndex: chapter, pageIndex: page))
+            }
         }
+        assert(ReaderBookProgress.pageCounts(chapterCount: 3, lengths: [0: 100, 1: 900], measured: [0: 1], unitsPerPage: 300) == [1, 3, 3])
+        assert(ReaderBookProgress.utf16Offset(for: 1, textLength: 7432) == 7431)
+        assert(ReaderTurnGesture.commits(distance: 50, velocity: 100, extent: 393))
+        assert(ReaderTurnGesture.commits(distance: -15, velocity: -650, extent: 393))
+        assert(!ReaderTurnGesture.commits(distance: 8, velocity: 700, extent: 393))
     }
 }
 #endif

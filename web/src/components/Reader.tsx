@@ -3,7 +3,9 @@ import { ArrowLeft, ChevronLeft, ChevronRight, List, Settings2, Headphones, Play
 import type { Book, Chapter, ChapterContent, ReaderSettings, ReadingTheme } from '../shared/types';
 import { api } from '../lib/api';
 import { library, useLibrary } from '../lib/store';
-import { locationForBookFraction, pageForOffset, paginateText, paragraphSlices, safeOffset, wholeBookFraction, type TextPage } from '../lib/readerLayout';
+import { pageForOffset, paginateText, paragraphSlices, safeOffset, type TextPage } from '../lib/readerLayout';
+import { bookPageNumber, estimateBookPages, pageAtFraction, pageFraction, pageLocation, swipeTurn } from '../lib/bookProgress';
+import { ReaderDeviceStatus } from './ReaderDeviceStatus';
 import { ReaderSpeech } from '../lib/speech';
 import { useAndroidBack } from '../lib/android';
 import './Reader.css';
@@ -48,6 +50,11 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   const [pages, setPages] = useState<TextPage[]>([]);
   const pagesRef = useRef(pages); pagesRef.current = pages;
   const [page, setPage] = useState(0);
+  const [chapterLengths,setChapterLengths]=useState<Record<number,number>>({});
+  const [measuredPages,setMeasuredPages]=useState<{key:string;counts:Record<number,number>}>({key:'',counts:{}});
+  const [pageCapacity,setPageCapacity]=useState(350);
+  const [estimatedLayouts,setEstimatedLayouts]=useState<{key:string;counts:Record<number,number>}>({key:'',counts:{}});
+  const adjacentContents=useRef(new Map<string,ChapterContent>());
   const [anchor, setAnchor] = useState(0);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [transition, setTransition] = useState('');
@@ -78,8 +85,14 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   const layoutPendingRef = useRef(layoutPending); layoutPendingRef.current = layoutPending;
   const turnModeRef = useRef(settings.turnMode); turnModeRef.current = settings.turnMode;
   const fraction = text.length ? Math.min(1, anchor / text.length) : 0;
-  const totalFraction = wholeBookFraction(index, fraction, chapters.length);
   const isScroll = settings.turnMode === 'scroll';
+  const paginationKey=[viewport.width,viewport.height,settings.fontSize,settings.lineSpacing,settings.paragraphSpacing,settings.horizontalMargin,settings.font,settings.isBold,settings.turnMode].join('|');
+  const paginationKeyRef=useRef(paginationKey);paginationKeyRef.current=paginationKey;
+  const bookPages=estimateBookPages(chapters.length,chapterLengths,{...(estimatedLayouts.key===paginationKey?estimatedLayouts.counts:{}),...(measuredPages.key===paginationKey?measuredPages.counts:{})},pageCapacity);
+  const totalPages=Math.max(1,bookPages.reduce((a,b)=>a+b,0));
+  const chapterPage=isScroll?Math.min((bookPages[index]??1)-1,Math.floor(fraction*(bookPages[index]??1))):page;
+  const wholePage=bookPageNumber(index,chapterPage,bookPages);
+  const totalFraction=pageFraction(wholePage,totalPages);
   const setOffset = useCallback((value: number) => {
     const offset = safeOffset(textRef.current, value);
     anchorRef.current = offset; setAnchor(offset);
@@ -112,14 +125,17 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   useEffect(() => {
     if (!currentChapter) return;
     const controller = new AbortController();
-    setLoading(true); setError(''); setContent(undefined); setPages([]);
+    const cached=adjacentContents.current.get(currentChapter.id);
+    if(!cached){setLoading(true);setContent(undefined);setPages([]);}setError('');
     speech.current.stop();
     (async () => {
-      const result = await library.loadContent(book, currentChapter, controller.signal);
+      const result = cached ?? await library.loadContent(book, currentChapter, controller.signal);
       if (controller.signal.aborted) return;
       if (!result.paragraphs.length || !result.paragraphs.some(item => item.trim())) throw new Error('这一章暂时没有正文，可以重试或换一章。');
       if (controller.signal.aborted) return;
       const chapterText = result.paragraphs.join('\n');
+      setChapterLengths(previous=>({...previous,[index]:chapterText.length}));
+      adjacentContents.current.set(currentChapter.id,result);
       const target = targetRef.current;
       const offset = target.lastPage ? chapterText.length : target.fraction !== undefined ? target.fraction * chapterText.length : target.offset ?? 0;
       const safe = safeOffset(chapterText, offset);
@@ -139,7 +155,26 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
 
   async function refreshChapterStates() {
     setChapterStates(await library.chapterStates(book, chapters));
+    const candidates=chapters.length<=64?chapters:chapters.slice(Math.max(0,index-10),index+11);
+    const values=await Promise.all(candidates.map(async chapter=>{const cached=await library.getContent(book,chapter);return{chapter,cached};}));
+    if(paginationKeyRef.current!==paginationKey)return;
+    const lengths:Record<number,number>={},counts:Record<number,number>={};
+    for(const {chapter,cached} of values)if(cached){lengths[chapter.index]=cached.paragraphs.join('\n').length;if(Math.abs(chapter.index-index)<=1)adjacentContents.current.set(chapter.id,cached);}
+    for(const id of adjacentContents.current.keys())if(!chapters.slice(Math.max(0,index-1),index+2).some(chapter=>chapter.id===id))adjacentContents.current.delete(id);
+    const measure=measureRef.current,container=viewportRef.current;
+    if(measure&&container&&container.clientHeight>0){
+      const oldHeight=measure.style.height;measure.style.height='1px';
+      for(const {chapter,cached} of values)if(cached){
+        measure.replaceChildren(...cached.paragraphs.map(text=>{const p=document.createElement('p');p.textContent=text||'\u200b';return p;}));
+        counts[chapter.index]=Math.max(1,Math.ceil(measure.scrollHeight/container.clientHeight));
+      }
+      measure.style.height=oldHeight;
+      setEstimatedLayouts(previous=>({key:paginationKey,counts:{...(previous.key===paginationKey?previous.counts:{}),...counts}}));
+    }
+    setChapterLengths(previous=>({...previous,...lengths}));
   }
+
+  useEffect(()=>{if(content&&viewport.width>0)void refreshChapterStates();},[paginationKey]);
 
   useLayoutEffect(() => {
     const element = viewportRef.current;
@@ -170,6 +205,9 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
     const selected = pageForOffset(result, anchorRef.current);
     setPages(previous => previous.length === result.length && previous.every((value, i) => value.start === result[i].start && value.end === result[i].end) ? previous : result);
     setPage(selected);
+    setMeasuredPages(previous=>({key:paginationKey,counts:{...(previous.key===paginationKey?previous.counts:{}),[index]:result.length}}));
+    const fallback=Math.max(1,(container.clientWidth-settings.horizontalMargin*2)/settings.fontSize*container.clientHeight/(settings.fontSize+settings.lineSpacing));
+    setPageCapacity(result.length>1?result.at(-1)!.start/(result.length-1):Math.max(fallback,text.length));
     setLaidOutSignature(layoutSignature);
   }, [text, isScroll, layoutSignature]);
 
@@ -231,15 +269,18 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
 
   useEffect(() => { speech.current.update(settings.speechRate, settings.speechVoiceIdentifier); }, [settings.speechRate, settings.speechVoiceIdentifier]);
 
-  function changeChapter(next: number, target: { offset?: number; fraction?: number; lastPage?: boolean } = {}, keepSpeech = false) {
+  function changeChapter(next: number, target: { offset?: number; fraction?: number; lastPage?: boolean } = {}, keepSpeech = false, hideControls = true) {
     if (next < 0 || next >= chapters.length) return;
     continueSpeech.current = keepSpeech;
     targetRef.current = { chapterID: chapters[next].id, ...target };
     if (next === index && content) {
       const offset = target.fraction !== undefined ? target.fraction * text.length : target.offset ?? 0;
       moveToOffset(offset);
-    } else setIndex(next);
-    setPanel(null);
+    } else {
+      setTransition(`${settings.turnMode}-${next>index?'next':'previous'}`);
+      setIndex(next);
+    }
+    setPanel(null);if(hideControls)setControls(false);
   }
 
   function moveToOffset(offset: number) {
@@ -249,6 +290,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
 
   function turn(direction: number) {
     if (loading || layoutPendingRef.current || !content || panel) return;
+    setControls(false);
     if (isScroll) {
       const scroll = scrollRef.current;
       if (!scroll) return;
@@ -261,7 +303,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
     if (next < 0) { if (index > 0) changeChapter(index - 1, { lastPage: true }); return; }
     if (next >= pages.length) {
       setOffset(text.length);
-      if (index < chapters.length - 1) changeChapter(index + 1); else { setControls(true); setCacheNotice('已经读到全书末尾'); }
+      if (index < chapters.length - 1) changeChapter(index + 1); else setCacheNotice('已经读到全书末尾');
       return;
     }
     setTransition(`${settings.turnMode}-${direction > 0 ? 'next' : 'previous'}`);
@@ -292,9 +334,10 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
     const start = pointer.current; pointer.current = null;
     if (!start || panel) return;
     const dx = event.clientX - start.x; const dy = event.clientY - start.y;
-    if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    const direction=swipeTurn(dx,dy,performance.now()-start.time,viewport.width);
+    if (direction) {
       // Only an intentional gesture starting at the left edge dismisses the reader.
-      if (start.edge && dx > 90) close(); else if (!isScroll) turn(dx < 0 ? 1 : -1);
+      if (start.edge && dx > 90) close(); else if (!isScroll) turn(direction);
       return;
     }
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10 || performance.now() - start.time > 500) return;
@@ -319,6 +362,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   }
 
   function handleScroll() {
+    if(pointer.current)setControls(false);
     const container = scrollRef.current; if (!container || !content) return;
     if (container.scrollTop + container.clientHeight >= container.scrollHeight - 2) { setOffset(text.length); return; }
     const bounds = container.getBoundingClientRect();
@@ -390,7 +434,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
 
   return <div className={`reader-root reader-theme-${settings.isNightMode ? 'night' : settings.theme}`} style={style} role="dialog" aria-modal="true" aria-label={`正在阅读${book.title}`}>
     <div className="reader-running-head"><span>{currentChapter?.title || book.title}</span><span>{book.title}</span></div>
-    <main ref={viewportRef} className={`reader-viewport ${isScroll ? 'reader-scrolling' : ''}`} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerCancel={() => { pointer.current = null; }}>
+    <main ref={viewportRef} className={`reader-viewport ${isScroll ? 'reader-scrolling' : ''}`} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerMove={event=>{if(pointer.current&&(Math.abs(event.clientX-pointer.current.x)>12||(isScroll&&Math.abs(event.clientY-pointer.current.y)>12)))setControls(false);}} onPointerCancel={() => { pointer.current = null; }}>
       {loading || layoutPending ? <div className="reader-status"><LoaderCircle className="reader-spin"/><p>{loading ? '正在打开章节' : '正在排版'}</p><button onClick={close}>返回书架</button></div>
         : error ? <div className="reader-status" role="alert"><p>{error}</p><button onClick={() => { if (!chapters.length) setCatalogRetry(value => value + 1); else setRetry(value => value + 1); }}><RefreshCw size={16}/>重试</button><button onClick={close}>返回书架</button></div>
         : <div ref={scrollRef} className={`reader-text ${isScroll ? 'reader-scroll-text' : `reader-page reader-${transition}`}`} key={isScroll ? 'scroll' : `${currentChapter?.id}-${page}`} onAnimationEnd={() => setTransition('')} onScroll={isScroll ? handleScroll : undefined}>
@@ -399,13 +443,13 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
         </div>}
       <div ref={measureRef} className="reader-text reader-measure" aria-hidden="true" />
     </main>
-    <footer className="reader-running-foot"><span>{speechState.speaking ? speechState.paused ? '听书已暂停' : '听书中' : '清读'}</span><span aria-label="全书阅读进度">{(totalFraction * 100).toFixed(1)}%</span></footer>
+    <footer className="reader-running-foot"><span aria-label={`阅读进度，第 ${wholePage} 页，共 ${totalPages} 页`}>{wholePage} / {totalPages}</span><ReaderDeviceStatus/></footer>
 
     {controls && !panel && <>
       <header className="reader-toolbar reader-topbar"><button onClick={close} aria-label="返回书架"><ArrowLeft/></button><span>{book.title}</span><button onClick={() => { void cacheWholeBook(); }} aria-label={cacheBusy ? '停止缓存' : '缓存整本书'}>{cacheBusy ? <X/> : <Download/>}</button></header>
       <div className="reader-toolbar reader-bottom-controls">
-        <div className="reader-progress-label"><span>{currentChapter?.title}</span><span>{((sliderValue ?? totalFraction) * 100).toFixed(1)}%</span></div>
-        <div className="reader-progress-row"><button onClick={() => changeChapter(index - 1)} disabled={layoutPending || index === 0} aria-label="上一章"><ChevronLeft size={20}/></button><input aria-label="全书进度" type="range" min="0" max="1" step="0.0001" disabled={layoutPending} value={sliderValue ?? totalFraction} onChange={event => setSliderValue(Number(event.target.value))} onPointerUp={event => { if (layoutPendingRef.current) { setSliderValue(null); return; } const value = Number(event.currentTarget.value); const location = locationForBookFraction(value, chapters.length); changeChapter(location.index, { fraction: location.fraction }); setSliderValue(null); }} onKeyUp={event => { if (!layoutPendingRef.current && (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End')) { const location = locationForBookFraction(Number(event.currentTarget.value), chapters.length); changeChapter(location.index, { fraction: location.fraction }); setSliderValue(null); } }}/><button onClick={() => changeChapter(index + 1)} disabled={layoutPending || index === chapters.length - 1} aria-label="下一章"><ChevronRight size={20}/></button></div>
+        <div className="reader-progress-label"><span>{pageAtFraction(sliderValue??totalFraction,totalPages)} / {totalPages} 页</span><span>{((sliderValue ?? totalFraction) * 100).toFixed(1)}%</span></div>
+        <div className="reader-progress-row"><button onClick={() => changeChapter(index - 1)} disabled={layoutPending || index === 0} aria-label="上一章"><ChevronLeft size={20}/></button><input aria-label="阅读进度" type="range" min="0" max="1" step={1/Math.max(1,totalPages-1)} disabled={layoutPending} value={sliderValue ?? totalFraction} onChange={event => setSliderValue(Number(event.target.value))} onPointerUp={event => { if (layoutPendingRef.current) { setSliderValue(null); return; } const value = Number(event.currentTarget.value); const location = pageLocation(value, bookPages); changeChapter(location.index, location.index===index&&pages[location.pageIndex]?{offset:pages[location.pageIndex].start}:{ fraction: location.fraction },false,false); setSliderValue(null); }} onKeyUp={event => { if (!layoutPendingRef.current && (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End')) { const location = pageLocation(Number(event.currentTarget.value), bookPages); changeChapter(location.index, location.index===index&&pages[location.pageIndex]?{offset:pages[location.pageIndex].start}:{ fraction: location.fraction },false,false); setSliderValue(null); } }}/><button onClick={() => changeChapter(index + 1)} disabled={layoutPending || index === chapters.length - 1} aria-label="下一章"><ChevronRight size={20}/></button></div>
         <nav className="reader-tools"><button onClick={() => setPanel('catalog')}><List/><span>目录</span></button><button onClick={() => setPanel('speech')}><Headphones/><span>听书</span></button><button onClick={() => void library.updateSettings({ isNightMode: !settings.isNightMode })}>{settings.isNightMode ? <Sun/> : <Moon/>}<span>{settings.isNightMode ? '日间' : '夜间'}</span></button><button onClick={() => setPanel('settings')}><Settings2/><span>设置</span></button></nav>
       </div>
     </>}

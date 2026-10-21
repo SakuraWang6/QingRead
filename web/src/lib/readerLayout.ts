@@ -45,17 +45,6 @@ export function pageForOffset(pages: TextPage[], offset: number): number {
   return lo;
 }
 
-export function wholeBookFraction(chapterIndex: number, chapterFraction: number, chapterCount: number): number {
-  return chapterCount > 0 ? Math.max(0, Math.min(1, (chapterIndex + chapterFraction) / chapterCount)) : 0;
-}
-
-export function locationForBookFraction(fraction: number, chapterCount: number): { index: number; fraction: number } {
-  if (chapterCount <= 0) return { index: 0, fraction: 0 };
-  const scaled = Math.max(0, Math.min(1, fraction)) * chapterCount;
-  const index = Math.min(chapterCount - 1, Math.floor(scaled));
-  return { index, fraction: Math.min(1, scaled - index) };
-}
-
 export function safeOffset(text: string, offset: number): number {
   const value = Math.max(0, Math.min(text.length, Math.floor(offset)));
   const boundaries = graphemeBoundaries(text);

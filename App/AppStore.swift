@@ -252,6 +252,13 @@ final class AppStore: ObservableObject {
         return chapters
     }
 
+    func cachedContent(for chapter: Chapter, in book: Book) -> ChapterContent? {
+        if book.id == LocalSample.book.id { return LocalSample.content }
+        let url = importedBooks[book.id] != nil ? importedDirectory(book).appendingPathComponent("chapter-\(chapter.index).json") : contentURL(chapter: chapter, book: book)
+        guard let data = try? Data(contentsOf: url), let content = try? decoder.decode(ChapterContent.self, from: data), !content.paragraphs.isEmpty else { return nil }
+        return content
+    }
+
     func content(for chapter: Chapter, in book: Book) async throws -> ChapterContent {
         if book.id == LocalSample.book.id { return LocalSample.content }
         if importedBooks[book.id] != nil {

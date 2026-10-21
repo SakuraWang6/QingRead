@@ -25,6 +25,7 @@ struct ReaderBottomBar: View {
     let chapterIndex: Int
     let chapters: [Chapter]
     let bookFraction: Double
+    let pageCounts: [Int]
     let isLoading: Bool
     let isNight: Bool
     let theme: ReadingTheme
@@ -51,7 +52,7 @@ struct ReaderBottomBar: View {
                 Button("下一章", action: onNext).disabled(chapterIndex >= chapterCount - 1 || isLoading)
                     .accessibilityIdentifier("reader.nextChapter")
             }.font(.system(size: 13))
-            ReaderBookProgressControl(chapters: chapters, progress: bookFraction, theme: theme, onSeek: onSeek)
+            ReaderBookProgressControl(progress: bookFraction, pageCounts: pageCounts, theme: theme, onSeek: onSeek)
                 .disabled(chapters.isEmpty)
             HStack {
                 tool("目录", symbol: "list.bullet", id: "reader.catalog", action: onCatalog)
@@ -77,51 +78,36 @@ struct ReaderBottomBar: View {
 }
 
 private struct ReaderBookProgressControl: View {
-    let chapters: [Chapter]
     let progress: Double
+    let pageCounts: [Int]
     let theme: ReadingTheme
     let onSeek: (Double) -> Void
     @State private var draft = 0.0
     @State private var isDragging = false
-
     private var displayedProgress: Double { isDragging ? draft : progress }
-    private var destination: ReaderBookProgress.Destination? {
-        ReaderBookProgress.destination(for: displayedProgress, chapterCount: chapters.count)
-    }
-
+    private var total: Int { max(1, pageCounts.reduce(0, +)) }
+    private var page: Int { ReaderBookProgress.pageNumber(for: displayedProgress, totalPages: total) }
     var body: some View {
         VStack(spacing: 3) {
             HStack {
-                Text(isDragging ? previewTitle : "整书进度 · 基于章节估算")
-                    .lineLimit(1).accessibilityIdentifier("reader.bookProgress.description")
+                Text("\(page) / \(total) 页").monospacedDigit().accessibilityIdentifier("reader.bookProgress.description")
                 Spacer(minLength: 12)
-                Text(ReaderBookProgress.label(for: displayedProgress)).monospacedDigit()
-                    .accessibilityIdentifier("reader.bookProgress.value")
-            }.font(.system(size: 11)).foregroundStyle(theme.foreground.opacity(0.6))
+                Text(ReaderBookProgress.label(for: displayedProgress)).monospacedDigit().accessibilityIdentifier("reader.bookProgress.value")
+            }.font(.system(size: 12)).foregroundStyle(theme.foreground.opacity(0.6))
             Slider(value: Binding(get: { displayedProgress }, set: { draft = $0 }), in: 0...1) { editing in
-                if editing {
-                    isDragging = true
-                } else {
-                    onSeek(draft)
-                    isDragging = false
-                }
+                if editing { draft = progress; isDragging = true } else { onSeek(draft); isDragging = false }
             }
             .tint(Palette.cinnabar)
-            .accessibilityLabel("整书进度，基于章节估算")
-            .accessibilityValue(ReaderBookProgress.label(for: displayedProgress))
+            .accessibilityLabel("阅读进度")
+            .accessibilityValue("第 \(page) 页，共 \(total) 页")
             .accessibilityIdentifier("reader.bookProgress.slider")
             .accessibilityAdjustableAction { direction in
-                let step = direction == .increment ? 0.01 : -0.01
+                let step = (direction == .increment ? 1.0 : -1.0) / Double(max(1, total - 1))
                 onSeek(min(1, max(0, progress + step)))
             }
         }
         .onAppear { draft = progress }
         .onChange(of: progress) { value in if !isDragging { draft = value } }
-    }
-
-    private var previewTitle: String {
-        guard let destination, chapters.indices.contains(destination.chapterIndex) else { return "整书进度 · 基于章节估算" }
-        return "第 \(destination.chapterIndex + 1) 章 · \(chapters[destination.chapterIndex].title)"
     }
 }
 

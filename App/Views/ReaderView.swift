@@ -21,6 +21,14 @@ struct ReaderView: View {
     @State private var characterOffset = 0
     @State private var chapterFraction = 0.0
     @State private var chapterTextLength = 0
+    @State private var chapterPage = 1
+    @State private var chapterPageStarts: [Int] = []
+    @State private var chapterLengths: [Int: Int] = [:]
+    @State private var measuredPages: [Int: Int] = [:]
+    @State private var estimatedPages: [Int: Int] = [:]
+    @State private var pageSize = CGSize.zero
+    @State private var unitsPerPage = 350.0
+    @State private var chapterDirection = 0
     @State private var seek: ReaderSeekRequest?
     @State private var loadTask: Task<Void, Never>?
     @State private var loadGeneration = UUID()
@@ -51,7 +59,7 @@ struct ReaderView: View {
                 Spacer(minLength: 0)
                 if controlsVisible {
                     ReaderBottomBar(chapterTitle: content?.chapter.title ?? "正在打开", chapterIndex: index,
-                                    chapters: chapters, bookFraction: bookFraction,
+                                    chapters: chapters, bookFraction: bookFraction, pageCounts: bookPageCounts,
                                     isLoading: isLoading, isNight: store.settings.isNightMode, theme: theme,
                                     onPrevious: { moveChapter(-1) }, onNext: { moveChapter(1) },
                                     onCatalog: openCatalog, onSettings: { showSettings = true },
@@ -60,13 +68,13 @@ struct ReaderView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     HStack {
-                        Text(Date(), style: .time)
-                        Spacer()
-                        Text(ReaderBookProgress.label(for: bookFraction)).monospacedDigit()
-                            .accessibilityLabel("整书进度 \(ReaderBookProgress.label(for: bookFraction))，基于章节估算")
+                        Text("\(bookPageNumber) / \(totalBookPages)").monospacedDigit()
+                            .accessibilityLabel("阅读进度，第 \(bookPageNumber) 页，共 \(totalBookPages) 页")
                             .accessibilityIdentifier("reader.progress")
+                        Spacer()
+                        ReaderDeviceStatus()
                     }
-                    .font(.system(size: 10)).foregroundStyle(theme.foreground.opacity(0.42))
+                    .font(.system(size: 12)).foregroundStyle(theme.foreground.opacity(0.52))
                     .padding(.horizontal, store.settings.horizontalMargin).padding(.bottom, 6)
                     .allowsHitTesting(false)
                 }
@@ -93,6 +101,8 @@ struct ReaderView: View {
             if customBrightnessApplied, let initialBrightness { UIScreen.main.brightness = initialBrightness }
         }
         .onChange(of: scenePhase) { phase in if phase != .active { persistPosition() } }
+        .onChange(of: store.cacheRevision) { _ in refreshCachedLengths() }
+        .onChange(of: paginationKey) { _ in measuredPages = [:]; estimatedPages = [:]; refreshCachedLengths() }
         .onChange(of: store.settings) { updated in
             applyBrightness()
             speech.updateSettings(updated)
@@ -127,19 +137,46 @@ struct ReaderView: View {
                 Button("返回书架", action: exitReader)
             }.foregroundStyle(theme.foreground).padding(32)
         } else if let content {
-            ReaderCanvasView(content: content, settings: store.settings, initialOffset: characterOffset, seek: seek,
-                             onPosition: { offset, fraction, _, _, settled in
+            ReaderCanvasView(content: content, settings: store.settings, initialOffset: characterOffset, seek: seek, chapterDirection: chapterDirection,
+                             onPosition: { offset, fraction, page, count, settled in
                 guard !isLoading, self.content?.chapter.id == content.chapter.id else { return }
                 characterOffset = offset
                 chapterFraction = fraction
+                chapterPage = max(1, page)
+                measuredPages[index] = max(1, count)
                 if settled { persistPosition() }
-            }, onToggleControls: toggleControls, onBoundary: { moveChapter($0, fromPageBoundary: true) }, onExit: exitReader)
-                .id(content.chapter.id)
+            }, onPageLayout: { starts, capacity, size in
+                chapterPageStarts = starts; unitsPerPage = capacity
+                if pageSize != size { pageSize = size; estimatedPages = [:] }
+                refreshCachedLengths()
+            }, onTurn: hideControls, onToggleControls: toggleControls, onBoundary: { moveChapter($0, fromPageBoundary: true) }, onExit: exitReader)
+
         }
     }
 
-    private var bookFraction: Double {
-        ReaderBookProgress.fraction(chapterIndex: index, chapterFraction: chapterFraction, chapterCount: chapters.count)
+    private var paginationKey: String {
+        let s = store.settings
+        return "\(s.fontSize)|\(s.lineSpacing)|\(s.paragraphSpacing)|\(s.horizontalMargin)|\(s.font)|\(s.isBold)|\(s.turnMode)"
+    }
+    private var bookPageCounts: [Int] {
+        ReaderBookProgress.pageCounts(chapterCount: chapters.count, lengths: chapterLengths, measured: estimatedPages.merging(measuredPages) { _, actual in actual }, unitsPerPage: unitsPerPage)
+    }
+    private var totalBookPages: Int { max(1, bookPageCounts.reduce(0, +)) }
+    private var bookPageNumber: Int { ReaderBookProgress.pageNumber(chapterIndex: index, pageIndex: chapterPage - 1, pageCounts: bookPageCounts) }
+    private var bookFraction: Double { ReaderBookProgress.fraction(pageNumber: bookPageNumber, totalPages: totalBookPages) }
+    private func refreshCachedLengths() {
+        guard !chapters.isEmpty else { return }
+        let candidates = chapters.count <= 64 ? Array(chapters.indices) : Array(max(0, index - 10)...min(chapters.count - 1, index + 10))
+        for i in candidates where chapterLengths[i] == nil || estimatedPages[i] == nil {
+            if let cached = store.cachedContent(for: chapters[i], in: book) {
+                chapterLengths[i] = cached.paragraphs.joined(separator: "\n").utf16.count
+                if pageSize.width > 0, pageSize.height > 0 {
+                    let document = ReaderDocument(content: cached, settings: store.settings)
+                    let height = document.text.boundingRect(with: CGSize(width: pageSize.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height
+                    estimatedPages[i] = max(1, Int(ceil(height / pageSize.height)))
+                }
+            }
+        }
     }
 
     private var catalogDrawer: some View {
@@ -178,22 +215,24 @@ struct ReaderView: View {
     }
 
     private func seekBook(to fraction: Double) {
-        guard let target = ReaderBookProgress.destination(for: fraction, chapterCount: chapters.count) else { return }
+        guard let target = ReaderBookProgress.destination(for: fraction, pageCounts: bookPageCounts) else { return }
         persistPosition()
+        let targetFraction = Double(target.pageIndex) / Double(max(1, bookPageCounts[target.chapterIndex]))
         let shouldContinue = speech.wantsContinuation
         if target.chapterIndex == index, let content, !isLoading {
             let intent = speech.beginChapterTransition(autoplay: shouldContinue)
-            characterOffset = ReaderBookProgress.utf16Offset(for: target.chapterFraction, textLength: chapterTextLength)
-            chapterFraction = target.chapterFraction
+            characterOffset = chapterPageStarts.indices.contains(target.pageIndex) ? chapterPageStarts[target.pageIndex] : ReaderBookProgress.utf16Offset(for: targetFraction, textLength: chapterTextLength)
+            chapterFraction = Double(characterOffset) / Double(max(1, chapterTextLength))
             seek = ReaderSeekRequest(utf16Offset: characterOffset)
             speech.prepare(content: content, settings: store.settings, anchor: characterOffset, bookTitle: book.title,
                            autoplay: intent.map { speech.permitsAutoplay($0) } ?? false)
             persistPosition()
         } else {
-            beginLoadChapter(target.chapterIndex, restore: false, autoplay: shouldContinue, targetFraction: target.chapterFraction)
+            beginLoadChapter(target.chapterIndex, restore: false, autoplay: shouldContinue, targetFraction: targetFraction)
         }
     }
 
+    private func hideControls() { if controlsVisible { withAnimation(.easeOut(duration: 0.15)) { controlsVisible = false } } }
     private func toggleControls() { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
     private func toggleNight() {
         var updated = store.settings
@@ -278,9 +317,12 @@ struct ReaderView: View {
         guard chapters.indices.contains(requestedIndex) else { return }
         let generation = UUID()
         loadGeneration = generation
+        let cached = store.cachedContent(for: chapters[requestedIndex], in: book)
         index = requestedIndex
-        isLoading = true
-        content = nil
+        isLoading = cached == nil
+        if cached == nil { content = nil }
+        chapterPage = 1
+        chapterPageStarts = []
         errorMessage = nil
         characterOffset = 0
         chapterFraction = targetFraction ?? 0
@@ -292,10 +334,13 @@ struct ReaderView: View {
             chapterFraction = saved.chapterFraction
         }
         do {
-            let loaded = try await store.content(for: chapter, in: book)
+            let loaded: ChapterContent
+            if let cached { loaded = cached } else { loaded = try await store.content(for: chapter, in: book) }
             try Task.checkCancellation()
             guard isVisible, loadGeneration == generation else { return }
             chapterTextLength = ReaderDocument(content: loaded, settings: store.settings).text.length
+            chapterLengths[requestedIndex] = loaded.paragraphs.joined(separator: "\n").utf16.count
+            refreshCachedLengths()
             if let fraction = targetFraction ?? (startAtEnd ? 1 : nil) {
                 characterOffset = ReaderBookProgress.utf16Offset(for: fraction, textLength: chapterTextLength)
                 chapterFraction = fraction
@@ -323,6 +368,7 @@ struct ReaderView: View {
         persistPosition()
         if fromPageBoundary && delta > 0 { store.markChapterCompleted(chapters[index], in: book) }
         guard chapters.indices.contains(next) else { return }
+        hideControls(); chapterDirection = delta
         beginLoadChapter(next, restore: false, autoplay: speech.wantsContinuation, startAtEnd: fromPageBoundary && delta < 0)
     }
     private func persistPosition() {

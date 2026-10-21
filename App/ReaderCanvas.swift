@@ -12,7 +12,10 @@ struct ReaderCanvasView: UIViewRepresentable {
     let settings: ReaderSettings
     let initialOffset: Int
     var seek: ReaderSeekRequest?
+    var chapterDirection: Int = 0
     let onPosition: (Int, Double, Int, Int, Bool) -> Void
+    let onPageLayout: ([Int], Double, CGSize) -> Void
+    let onTurn: () -> Void
     let onToggleControls: () -> Void
     let onBoundary: (Int) -> Void
     let onExit: () -> Void
@@ -24,10 +27,12 @@ struct ReaderCanvasView: UIViewRepresentable {
     }
     func updateUIView(_ view: ReaderCanvas, context: Context) {
         view.onPosition = onPosition
+        view.onPageLayout = onPageLayout
+        view.onTurn = onTurn
         view.onToggleControls = onToggleControls
         view.onBoundary = onBoundary
         view.onExit = onExit
-        view.apply(content: content, settings: settings, initialOffset: initialOffset, seek: seek)
+        view.apply(content: content, settings: settings, initialOffset: initialOffset, seek: seek, chapterDirection: chapterDirection)
     }
 }
 
@@ -35,6 +40,8 @@ struct ReaderCanvasView: UIViewRepresentable {
 /// is truncated or re-flowed after slicing a page, including paragraph indents.
 final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegate {
     var onPosition: ((Int, Double, Int, Int, Bool) -> Void)?
+    var onPageLayout: (([Int], Double, CGSize) -> Void)?
+    var onTurn: (() -> Void)?
     var onToggleControls: (() -> Void)?
     var onBoundary: ((Int) -> Void)?
     var onExit: (() -> Void)?
@@ -59,6 +66,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     private var isUpdating = false
     private var isAnimating = false
     private var boundarySent = false
+    private var dragStartPage = 0
+    private var dragAtTop = false
+    private var dragAtBottom = false
     private var coverTarget: ReaderPageDrawing?
     private var coverDirection = 0
     private let insets = UIEdgeInsets(top: 22, left: 24, bottom: 34, right: 24)
@@ -105,9 +115,14 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func apply(content: ChapterContent, settings: ReaderSettings, initialOffset: Int, seek: ReaderSeekRequest?) {
+    func apply(content: ChapterContent, settings: ReaderSettings, initialOffset: Int, seek: ReaderSeekRequest?, chapterDirection: Int = 0) {
         let changed = chapterID != content.chapter.id || needsVisualUpdate(settings)
         if changed {
+            if chapterID != nil, chapterID != content.chapter.id, chapterDirection != 0 {
+                let transition = CATransition(); transition.type = .push
+                transition.subtype = chapterDirection > 0 ? .fromRight : .fromLeft
+                transition.duration = 0.18; layer.add(transition, forKey: "chapterTurn")
+            }
             if chapterID != content.chapter.id { anchor = initialOffset }
             else { anchor = currentUTF16() }
             chapterID = content.chapter.id
@@ -160,6 +175,8 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             vertical.textContainerInset = UIEdgeInsets(top: insets.top, left: settings.horizontalMargin, bottom: insets.bottom, right: settings.horizontalMargin)
             vertical.attributedText = document.text
             vertical.layoutManager.ensureLayout(for: vertical.textContainer)
+            let capacity = max(1, (Double(bounds.width) - settings.horizontalMargin * 2) / settings.fontSize * (Double(bounds.height) - 56) / (settings.fontSize + settings.lineSpacing))
+            publishPageLayout(starts: [], capacity: capacity)
             restoreAnchor()
             return
         }
@@ -197,7 +214,19 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             pageViews.append(view)
         }
         horizontal.contentSize = CGSize(width: bounds.width * CGFloat(pageRanges.count), height: bounds.height)
+        let fallback = max(1, (Double(bounds.width) - settings.horizontalMargin * 2) / settings.fontSize * (Double(bounds.height) - 56) / (settings.fontSize + settings.lineSpacing))
+        let capacity = pageRanges.count > 1 ? Double(pageRanges.dropLast().map(\.length).reduce(0, +)) / Double(pageRanges.count - 1) : max(Double(fallback), Double(document.text.length))
+        publishPageLayout(starts: pageRanges.map(\.location), capacity: capacity)
         restoreAnchor()
+    }
+
+    private func publishPageLayout(starts: [Int], capacity: Double) {
+        let generation = layoutGeneration
+        let size = CGSize(width: max(1, bounds.width - settings.horizontalMargin * 2), height: max(1, bounds.height - 56))
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.layoutGeneration == generation else { return }
+            self.onPageLayout?(starts, capacity, size)
+        }
     }
 
     private func makePage(_ index: Int) -> ReaderPageDrawing {
@@ -248,8 +277,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         let atEnd = settings.turnMode == .scroll && vertical.contentOffset.y >= max(0, vertical.contentSize.height - vertical.bounds.height) - 2
         let fraction = atEnd ? 1 : Double(anchor) / Double(max(1, document.text.length))
         let offset = anchor
-        let currentPage = settings.turnMode == .scroll ? 0 : pageIndex + 1
-        let count = pageRanges.count
+        let step = max(1, vertical.bounds.height)
+        let count = settings.turnMode == .scroll ? max(1, Int(ceil(vertical.contentSize.height / step))) : pageRanges.count
+        let currentPage = settings.turnMode == .scroll ? min(count, max(1, Int(max(0, vertical.contentOffset.y) / step) + 1)) : pageIndex + 1
         let chapter = chapterID
         DispatchQueue.main.async { [weak self] in
             guard let self, self.chapterID == chapter else { return }
@@ -272,6 +302,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
 
     private func turn(_ delta: Int) {
         guard !isAnimating else { return }
+        onTurn?()
         if settings.turnMode == .scroll {
             let target = vertical.contentOffset.y + CGFloat(delta) * (bounds.height - 70)
             let maximum = max(0, vertical.contentSize.height - bounds.height)
@@ -321,20 +352,32 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         }
         report(settled: false)
     }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { boundarySent = false }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        boundarySent = false; dragStartPage = pageIndex
+        dragAtTop = scrollView.contentOffset.y <= 2
+        dragAtBottom = scrollView.contentOffset.y >= max(0, scrollView.contentSize.height - scrollView.bounds.height) - 2
+        onTurn?()
+    }
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        let translation = scrollView.panGestureRecognizer.translation(in: scrollView)
+        let speed = scrollView.panGestureRecognizer.velocity(in: scrollView)
+        if scrollView === horizontal {
+            let direction = translation.x < 0 ? 1 : -1
+            guard ReaderTurnGesture.commits(distance: translation.x, velocity: speed.x, extent: bounds.width) else { targetContentOffset.pointee.x = CGFloat(dragStartPage) * bounds.width; return }
+            let next = dragStartPage + direction
+            if !pageRanges.indices.contains(next) {
+                boundarySent = true; targetContentOffset.pointee.x = CGFloat(dragStartPage) * bounds.width; onBoundary?(direction)
+            } else { targetContentOffset.pointee.x = CGFloat(next) * bounds.width }
+        } else if (translation.y < 0 && dragAtBottom) || (translation.y > 0 && dragAtTop) {
+            if ReaderTurnGesture.commits(distance: translation.y, velocity: speed.y, extent: bounds.height) {
+                boundarySent = true; onBoundary?(translation.y < 0 ? 1 : -1)
+            }
+        }
+    }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { report(settled: true) }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { report(settled: true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !boundarySent {
-            if scrollView === horizontal {
-                if horizontal.contentOffset.x < -55 { boundarySent = true; onBoundary?(-1) }
-                else if horizontal.contentOffset.x > max(0, horizontal.contentSize.width - bounds.width) + 55 { boundarySent = true; onBoundary?(1) }
-            } else {
-                if vertical.contentOffset.y < -75 { boundarySent = true; onBoundary?(-1) }
-                else if vertical.contentOffset.y > max(0, vertical.contentSize.height - bounds.height) + 75 { boundarySent = true; onBoundary?(1) }
-            }
-        }
-        if !decelerate { report(settled: true) }
+        if !decelerate && !boundarySent { report(settled: true) }
     }
 
     private func showCoverPage(_ index: Int) {
@@ -358,7 +401,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
     @objc private func coverPanned(_ pan: UIPanGestureRecognizer) {
         let translation = pan.translation(in: cover).x
-        if pan.state == .began { beginCover(pan.velocity(in: cover).x < 0 ? 1 : -1) }
+        if pan.state == .began { onTurn?(); beginCover(pan.velocity(in: cover).x < 0 ? 1 : -1) }
         if pan.state == .changed, let target = coverTarget {
             if coverDirection > 0 {
                 cover.subviews.last?.transform = CGAffineTransform(translationX: min(0, translation), y: 0)
@@ -366,11 +409,11 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         }
         if pan.state == .ended || pan.state == .cancelled {
             guard coverTarget != nil else {
-                if pan.state == .ended && abs(translation) > 65 { onBoundary?(coverDirection) }
+                if pan.state == .ended && (coverDirection > 0 ? translation < 0 : translation > 0) && ReaderTurnGesture.commits(distance: translation, velocity: pan.velocity(in: cover).x, extent: bounds.width) { onBoundary?(coverDirection) }
                 return
             }
             let correctDirection = coverDirection > 0 ? translation < 0 : translation > 0
-            finishCover(commit: pan.state == .ended && correctDirection && (abs(translation) > bounds.width * 0.22 || abs(pan.velocity(in: cover).x) > 550))
+            finishCover(commit: pan.state == .ended && correctDirection && ReaderTurnGesture.commits(distance: translation, velocity: pan.velocity(in: cover).x, extent: bounds.width))
         }
     }
     private func finishCover(commit: Bool) {

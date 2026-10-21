@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { graphemeBoundaries, locationForBookFraction, pageForOffset, paginateText, paragraphSlices, safeOffset, wholeBookFraction } from '../src/lib/readerLayout';
+import { graphemeBoundaries, pageForOffset, paginateText, paragraphSlices, safeOffset } from '../src/lib/readerLayout';
 
 describe('reader measured pagination and native position compatibility', () => {
   it('partitions every UTF-16 unit exactly once, using the provided measured fit', () => {
@@ -30,11 +30,5 @@ describe('reader measured pagination and native position compatibility', () => {
     ]);
     expect(safeOffset(text, 4)).toBe(3);
     expect(safeOffset('é中', 1)).toBe(0);
-  });
-  it('maps whole-book progress to chapters and treats the endpoint as the end of the final chapter', () => {
-    expect(wholeBookFraction(2, .5, 10)).toBe(.25);
-    expect(locationForBookFraction(.25, 10)).toEqual({ index: 2, fraction: .5 });
-    expect(locationForBookFraction(1, 10)).toEqual({ index: 9, fraction: 1 });
-    expect(locationForBookFraction(0, 0)).toEqual({ index: 0, fraction: 0 });
   });
 });

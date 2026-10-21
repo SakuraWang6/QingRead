@@ -154,8 +154,10 @@ private struct PDFBookReader: View {
                 HStack {
                     Button("目录") { showCatalog = true }
                     Slider(value: Binding(get: { Double(page) }, set: { seekPage = Int($0) }), in: 0...Double(max(1, pages - 1)), step: 1).disabled(pages <= 1)
-                    Text("\(page + 1) / \(pages)").font(.caption).monospacedDigit()
+
                 }.padding(16).tint(Palette.cinnabar)
+                HStack { Text("\(page + 1) / \(pages)").monospacedDigit(); Spacer(); ReaderDeviceStatus() }
+                    .font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 24).padding(.bottom, 8)
             }
             .background(Palette.paper).navigationTitle(book.title).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("返回") { dismiss() } } }
