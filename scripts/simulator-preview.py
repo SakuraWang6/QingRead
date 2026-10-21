@@ -46,9 +46,14 @@ def main():
         print(launch.strip())
         time.sleep(6)
         markers = {"library": ["QINGREAD_STORAGE_SELFTEST", "QINGREAD_COVER_SELFTEST", "QINGREAD_AI_MODEL_SELFTEST"],
-                   "reader": ["QINGREAD_SPEECH_SELFTEST", "QINGREAD_READER_SELFTEST"]}.get(screen, [])
+                   "reader": ["QINGREAD_SPEECH_SELFTEST", "QINGREAD_READER_SELFTEST",
+                              "QINGREAD_CHAPTER_TURN mode=cover direction=1"]}.get(screen, [])
         if markers:
             output = stdout.read_text() if stdout.exists() else ""
+            deadline = time.monotonic() + 30
+            while not all(marker in output for marker in markers) and time.monotonic() < deadline:
+                time.sleep(0.25)
+                output = stdout.read_text() if stdout.exists() else ""
             if not all(marker in output for marker in markers):
                 raise SystemExit(f"Missing diagnostics for {screen}; inspect {stdout} and {stderr}")
             print("Verified " + ", ".join(markers))

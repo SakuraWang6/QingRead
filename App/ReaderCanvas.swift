@@ -12,7 +12,8 @@ struct ReaderCanvasView: UIViewRepresentable {
     let settings: ReaderSettings
     let initialOffset: Int
     var seek: ReaderSeekRequest?
-    var chapterDirection: Int = 0
+    var previousContent: ChapterContent? = nil
+    var nextContent: ChapterContent? = nil
     let onPosition: (Int, Double, Int, Int, Bool) -> Void
     let onPageLayout: ([Int], Double, CGSize) -> Void
     let onTurn: () -> Void
@@ -32,8 +33,10 @@ struct ReaderCanvasView: UIViewRepresentable {
         view.onToggleControls = onToggleControls
         view.onBoundary = onBoundary
         view.onExit = onExit
-        view.apply(content: content, settings: settings, initialOffset: initialOffset, seek: seek, chapterDirection: chapterDirection)
+        view.apply(content: content, settings: settings, initialOffset: initialOffset, seek: seek,
+                   previousContent: previousContent, nextContent: nextContent)
     }
+    static func dismantleUIView(_ view: ReaderCanvas, coordinator: ()) { view.cancelPreparation() }
 }
 
 /// One continuous TextKit layout supplies both page ranges and drawings. No text
@@ -71,6 +74,15 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     private var dragAtBottom = false
     private var coverTarget: ReaderPageDrawing?
     private var coverDirection = 0
+    private var adjacentContents: [ChapterContent] = []
+    private var preparedLayouts: [String: ReaderChapterLayout] = [:]
+    private var prepareTask: Task<Void, Never>?
+    private var previousLayout: ReaderChapterLayout?
+    private var nextLayout: ReaderChapterLayout?
+    private var leadingPages: Int { previousLayout == nil ? 0 : 1 }
+    #if DEBUG
+    private var layoutBuilds = 0
+    #endif
     private let insets = UIEdgeInsets(top: 22, left: 24, bottom: 34, right: 24)
 
     override init(frame: CGRect) {
@@ -115,25 +127,31 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func apply(content: ChapterContent, settings: ReaderSettings, initialOffset: Int, seek: ReaderSeekRequest?, chapterDirection: Int = 0) {
+    func apply(content: ChapterContent, settings: ReaderSettings, initialOffset: Int, seek: ReaderSeekRequest?,
+               previousContent: ChapterContent? = nil, nextContent: ChapterContent? = nil) {
+        let visualChange = needsVisualUpdate(settings)
+        if visualChange { preparedLayouts.removeAll() }
         let changed = chapterID != content.chapter.id || needsVisualUpdate(settings)
         if changed {
-            if chapterID != nil, chapterID != content.chapter.id, chapterDirection != 0 {
-                let transition = CATransition(); transition.type = .push
-                transition.subtype = chapterDirection > 0 ? .fromRight : .fromLeft
-                transition.duration = 0.18; layer.add(transition, forKey: "chapterTurn")
-            }
+            prepareTask?.cancel()
             if chapterID != content.chapter.id { anchor = initialOffset }
             else { anchor = currentUTF16() }
             chapterID = content.chapter.id
             self.settings = settings
-            document = ReaderDocument(content: content, settings: settings)
+            document = preparedLayouts[content.chapter.id]?.document ?? ReaderDocument(content: content, settings: settings)
             needsPagination = true
             boundarySent = false
         }
         self.settings = settings
+        let adjacent = [previousContent, nextContent].compactMap { $0 }
+        let adjacencyChanged = adjacent.map(\.chapter.id) != adjacentContents.map(\.chapter.id)
+        adjacentContents = adjacent
+        let keep = Set(adjacent.map(\.chapter.id) + [content.chapter.id])
+        preparedLayouts = preparedLayouts.filter { keep.contains($0.key) }
+        if adjacencyChanged && !needsPagination { scheduleAdjacentLayouts() }
         if let seek, lastSeekID != seek.id {
             lastSeekID = seek.id
+            boundarySent = false
             anchor = seek.utf16Offset
             if !needsPagination { restoreAnchor(); return }
         }
@@ -148,6 +166,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             // never replace it with an offset from the previous document.
             if lastSize != .zero && !needsPagination { anchor = currentUTF16() }
             lastSize = bounds.size
+            preparedLayouts.removeAll()
             needsPagination = true
         }
         horizontal.frame = bounds
@@ -182,24 +201,11 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             restoreAnchor()
             return
         }
-        textStorage = NSTextStorage(attributedString: document.text)
-        layoutManager = NSLayoutManager()
-        textStorage.addLayoutManager(layoutManager)
         let size = CGSize(width: max(1, bounds.width - settings.horizontalMargin * 2), height: max(1, bounds.height - insets.top - insets.bottom))
-        pageRanges.removeAll()
-        glyphRanges.removeAll()
-        layoutManager.ensureGlyphs(forCharacterRange: NSRange(location: 0, length: textStorage.length))
-        var coveredGlyphs = 0
-        while coveredGlyphs < layoutManager.numberOfGlyphs {
-            let container = NSTextContainer(size: size)
-            container.lineFragmentPadding = 0
-            layoutManager.addTextContainer(container)
-            let range = layoutManager.glyphRange(for: container)
-            guard range.length > 0 else { break }
-            glyphRanges.append(range)
-            pageRanges.append(layoutManager.characterRange(forGlyphRange: range, actualGlyphRange: nil))
-            coveredGlyphs = NSMaxRange(range)
-        }
+        let layout = preparedLayouts[document.content.chapter.id] ?? prepareLayout(document, size: size)
+        preparedLayouts[document.content.chapter.id] = layout
+        textStorage = layout.storage; layoutManager = layout.manager
+        pageRanges = layout.characters; glyphRanges = layout.glyphs
         #if DEBUG
         var coveredCharacters = 0
         for range in pageRanges {
@@ -209,17 +215,82 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         assert(coveredCharacters == document.text.length, "Pagination must not discard text")
         print("QINGREAD_PAGINATION pages=\(pageRanges.count) utf16=\(document.text.length) covered=\(coveredCharacters) anchor=\(anchor)")
         #endif
-        for page in pageRanges.indices {
-            let view = makePage(page)
-            view.frame = CGRect(x: CGFloat(page) * bounds.width, y: 0, width: bounds.width, height: bounds.height)
-            horizontal.addSubview(view)
-            pageViews.append(view)
-        }
-        horizontal.contentSize = CGSize(width: bounds.width * CGFloat(pageRanges.count), height: bounds.height)
+        installHorizontalPages()
         let fallback = max(1, (Double(bounds.width) - settings.horizontalMargin * 2) / settings.fontSize * (Double(bounds.height) - 56) / (settings.fontSize + settings.lineSpacing))
         let capacity = pageRanges.count > 1 ? Double(pageRanges.dropLast().map(\.length).reduce(0, +)) / Double(pageRanges.count - 1) : max(Double(fallback), Double(document.text.length))
         publishPageLayout(starts: pageRanges.map(\.location), capacity: capacity)
         restoreAnchor()
+        scheduleAdjacentLayouts()
+    }
+
+    /// Prepare only the two neighbouring chapters, while the reader is idle.
+    /// Their edge pages become real scroll pages, so a chapter boundary uses
+    /// the same scroll animation and never performs TextKit layout mid-turn.
+    private func scheduleAdjacentLayouts() {
+        prepareTask?.cancel()
+        guard settings.turnMode != .scroll, !adjacentContents.isEmpty else { return }
+        let generation = layoutGeneration
+        prepareTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, !Task.isCancelled, self.layoutGeneration == generation else { return }
+            for content in self.adjacentContents {
+                while self.isAnimating || self.horizontal.isDragging || self.horizontal.isDecelerating {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard !Task.isCancelled, self.layoutGeneration == generation else { return }
+                }
+                guard !Task.isCancelled, self.layoutGeneration == generation else { return }
+                if self.preparedLayouts[content.chapter.id] == nil {
+                    let size = CGSize(width: max(1, self.bounds.width - self.settings.horizontalMargin * 2), height: max(1, self.bounds.height - self.insets.top - self.insets.bottom))
+                    self.preparedLayouts[content.chapter.id] = self.prepareLayout(ReaderDocument(content: content, settings: self.settings), size: size)
+                }
+                await Task.yield()
+            }
+            guard !Task.isCancelled, self.layoutGeneration == generation else { return }
+            while self.isAnimating || self.horizontal.isDragging || self.horizontal.isDecelerating {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard !Task.isCancelled, self.layoutGeneration == generation else { return }
+            }
+            self.isUpdating = true
+            self.installHorizontalPages()
+            self.horizontal.contentOffset.x = CGFloat(self.pageIndex + self.leadingPages) * self.bounds.width
+            self.isUpdating = false
+        }
+    }
+
+    func cancelPreparation() { prepareTask?.cancel(); prepareTask = nil }
+
+    private func prepareLayout(_ document: ReaderDocument, size: CGSize) -> ReaderChapterLayout {
+        #if DEBUG
+        layoutBuilds += 1
+        #endif
+        return ReaderChapterLayout(document: document, size: size)
+    }
+
+    private func installHorizontalPages() {
+        pageViews.forEach { $0.removeFromSuperview() }; pageViews.removeAll()
+        let chapterIndex = document?.content.chapter.index ?? 0
+        previousLayout = adjacentContents.first { $0.chapter.index < chapterIndex }.flatMap { preparedLayouts[$0.chapter.id] }
+        nextLayout = adjacentContents.first { $0.chapter.index > chapterIndex }.flatMap { preparedLayouts[$0.chapter.id] }
+        func append(_ view: ReaderPageDrawing) {
+            view.frame = CGRect(x: CGFloat(pageViews.count) * bounds.width, y: 0, width: bounds.width, height: bounds.height)
+            horizontal.addSubview(view); pageViews.append(view)
+        }
+        if let previousLayout { append(makePage(previousLayout, index: max(0, previousLayout.characters.count - 1))) }
+        for index in pageRanges.indices { append(makePage(index)) }
+        if let nextLayout { append(makePage(nextLayout, index: 0)) }
+        horizontal.contentSize = CGSize(width: bounds.width * CGFloat(pageViews.count), height: bounds.height)
+    }
+
+    private func makePage(_ layout: ReaderChapterLayout, index: Int) -> ReaderPageDrawing {
+        let page = ReaderPageDrawing()
+        page.backgroundColor = UIColor(settings.activeTheme.background)
+        page.manager = layout.manager
+        page.range = layout.glyphs[index]
+        page.origin = CGPoint(x: settings.horizontalMargin, y: insets.top)
+        page.isAccessibilityElement = true
+        page.accessibilityTraits = [.staticText]
+        page.accessibilityLabel = layout.document.text.attributedSubstring(from: layout.characters[index]).string
+        return page
     }
 
     private func publishPageLayout(starts: [Int], capacity: Double) {
@@ -255,7 +326,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             vertical.setContentOffset(CGPoint(x: 0, y: anchor == 0 ? 0 : min(maximum, rect.minY + vertical.textContainerInset.top)), animated: false)
         } else {
             pageIndex = pageRanges.lastIndex { $0.location <= anchor } ?? 0
-            horizontal.setContentOffset(CGPoint(x: CGFloat(pageIndex) * bounds.width, y: 0), animated: false)
+            horizontal.setContentOffset(CGPoint(x: CGFloat(pageIndex + leadingPages) * bounds.width, y: 0), animated: false)
             if settings.turnMode == .cover { showCoverPage(pageIndex) }
         }
         report(settled: true)
@@ -297,7 +368,10 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
 
     #if DEBUG
-    func debugTap(at x: CGFloat) { tapped(at: x, animated: false) }
+    func debugTap(at x: CGFloat, animated: Bool = false) { tapped(at: x, animated: animated) }
+    func debugAwaitPreparation() async { await prepareTask?.value }
+    var debugLayoutBuilds: Int { layoutBuilds }
+    var debugPreparedEdges: Int { (previousLayout == nil ? 0 : 1) + (nextLayout == nil ? 0 : 1) }
     func debugPagination() -> (ranges: [NSRange], visible: NSRange, utf16Count: Int) {
         (pageRanges, pageRanges.indices.contains(pageIndex) ? pageRanges[pageIndex] : NSRange(), document?.text.length ?? 0)
     }
@@ -305,6 +379,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
 
     private func turn(_ delta: Int, animated: Bool = true) {
         guard !isAnimating else { return }
+        boundarySent = false
         layoutIfNeeded()
         guard !needsPagination else { return }
         onTurn?()
@@ -315,15 +390,23 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             vertical.setContentOffset(CGPoint(x: 0, y: min(maximum, max(0, target))), animated: true)
         } else {
             let target = pageIndex + delta
-            guard pageRanges.indices.contains(target) else { onBoundary?(delta); return }
+            if !pageRanges.indices.contains(target) {
+                if animated && settings.turnMode == .slide && (delta < 0 ? previousLayout != nil : nextLayout != nil) {
+                    isAnimating = true
+                    horizontal.setContentOffset(CGPoint(x: CGFloat(target + leadingPages) * bounds.width, y: 0), animated: true)
+                } else if animated && settings.turnMode == .cover && (delta < 0 ? previousLayout != nil : nextLayout != nil) {
+                    beginCover(delta); finishCover(commit: true)
+                } else { sendBoundary(delta) }
+                return
+            }
             if !animated {
                 pageIndex = target
-                horizontal.setContentOffset(CGPoint(x: CGFloat(target) * bounds.width, y: 0), animated: false)
+                horizontal.setContentOffset(CGPoint(x: CGFloat(target + leadingPages) * bounds.width, y: 0), animated: false)
                 if settings.turnMode == .cover { showCoverPage(target) }
                 report(settled: true)
             } else if settings.turnMode == .slide {
                 isAnimating = true
-                horizontal.setContentOffset(CGPoint(x: CGFloat(target) * bounds.width, y: 0), animated: true)
+                horizontal.setContentOffset(CGPoint(x: CGFloat(target + leadingPages) * bounds.width, y: 0), animated: true)
             } else {
                 beginCover(delta)
                 finishCover(commit: true)
@@ -361,7 +444,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !isUpdating else { return }
         if scrollView === horizontal {
-            pageIndex = min(max(0, Int((horizontal.contentOffset.x / max(1, bounds.width)).rounded())), max(0, pageRanges.count - 1))
+            let next = min(max(0, Int((horizontal.contentOffset.x / max(1, bounds.width)).rounded()) - leadingPages), max(0, pageRanges.count - 1))
+            guard next != pageIndex else { return }
+            pageIndex = next
         }
         report(settled: false)
     }
@@ -377,21 +462,40 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         let speed = scrollView.panGestureRecognizer.velocity(in: scrollView)
         if scrollView === horizontal {
             let direction = translation.x < 0 ? 1 : -1
-            guard ReaderTurnGesture.commits(distance: translation.x, velocity: speed.x, extent: bounds.width) else { targetContentOffset.pointee.x = CGFloat(dragStartPage) * bounds.width; return }
+            guard ReaderTurnGesture.commits(distance: translation.x, velocity: speed.x, extent: bounds.width) else { targetContentOffset.pointee.x = CGFloat(dragStartPage + leadingPages) * bounds.width; return }
             let next = dragStartPage + direction
             if !pageRanges.indices.contains(next) {
-                boundarySent = true; targetContentOffset.pointee.x = CGFloat(dragStartPage) * bounds.width; onBoundary?(direction)
-            } else { targetContentOffset.pointee.x = CGFloat(next) * bounds.width }
+                if direction < 0 ? previousLayout != nil : nextLayout != nil {
+                    targetContentOffset.pointee.x = CGFloat(next + leadingPages) * bounds.width
+                } else {
+                    targetContentOffset.pointee.x = CGFloat(dragStartPage + leadingPages) * bounds.width
+                    sendBoundary(direction)
+                }
+            } else { targetContentOffset.pointee.x = CGFloat(next + leadingPages) * bounds.width }
         } else if (translation.y < 0 && dragAtBottom) || (translation.y > 0 && dragAtTop) {
             if ReaderTurnGesture.commits(distance: translation.y, velocity: speed.y, extent: bounds.height) {
                 boundarySent = true; onBoundary?(translation.y < 0 ? 1 : -1)
             }
         }
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { report(settled: true) }
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { isAnimating = false; report(settled: true) }
+    private func sendBoundary(_ delta: Int) {
+        guard !boundarySent else { return }
+        boundarySent = true
+        onBoundary?(delta)
+    }
+    private func finishScroll(_ scrollView: UIScrollView) {
+        isAnimating = false
+        if scrollView === horizontal {
+            let slot = Int((horizontal.contentOffset.x / max(1, bounds.width)).rounded()) - leadingPages
+            if slot < 0 { sendBoundary(-1); return }
+            if slot >= pageRanges.count { sendBoundary(1); return }
+        }
+        report(settled: true)
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { finishScroll(scrollView) }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { finishScroll(scrollView) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate && !boundarySent { report(settled: true) }
+        if !decelerate && !boundarySent { finishScroll(scrollView) }
     }
 
     private func showCoverPage(_ index: Int) {
@@ -404,8 +508,12 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     private func beginCover(_ delta: Int) {
         coverDirection = delta
         let targetIndex = pageIndex + delta
-        guard pageRanges.indices.contains(targetIndex), let current = cover.subviews.first else { return }
-        let target = makePage(targetIndex)
+        guard let current = cover.subviews.first else { return }
+        let target: ReaderPageDrawing
+        if pageRanges.indices.contains(targetIndex) { target = makePage(targetIndex) }
+        else if delta < 0, let previousLayout { target = makePage(previousLayout, index: previousLayout.characters.count - 1) }
+        else if delta > 0, let nextLayout { target = makePage(nextLayout, index: 0) }
+        else { return }
         target.frame = cover.bounds.offsetBy(dx: delta < 0 ? -bounds.width : 0, dy: 0)
         target.layer.shadowOpacity = 0.18
         target.layer.shadowRadius = 8
@@ -415,7 +523,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     }
     @objc private func coverPanned(_ pan: UIPanGestureRecognizer) {
         let translation = pan.translation(in: cover).x
-        if pan.state == .began { onTurn?(); beginCover(pan.velocity(in: cover).x < 0 ? 1 : -1) }
+        if pan.state == .began { boundarySent = false; onTurn?(); beginCover(pan.velocity(in: cover).x < 0 ? 1 : -1) }
         if pan.state == .changed, let target = coverTarget {
             if coverDirection > 0 {
                 cover.subviews.last?.transform = CGAffineTransform(translationX: min(0, translation), y: 0)
@@ -423,7 +531,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         }
         if pan.state == .ended || pan.state == .cancelled {
             guard coverTarget != nil else {
-                if pan.state == .ended && (coverDirection > 0 ? translation < 0 : translation > 0) && ReaderTurnGesture.commits(distance: translation, velocity: pan.velocity(in: cover).x, extent: bounds.width) { onBoundary?(coverDirection) }
+                if pan.state == .ended && (coverDirection > 0 ? translation < 0 : translation > 0) && ReaderTurnGesture.commits(distance: translation, velocity: pan.velocity(in: cover).x, extent: bounds.width) { sendBoundary(coverDirection) }
                 return
             }
             let correctDirection = coverDirection > 0 ? translation < 0 : translation > 0
@@ -440,11 +548,44 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             else { target.transform = CGAffineTransform(translationX: commit ? self.bounds.width : 0, y: 0) }
         } completion: { _ in
             guard self.layoutGeneration == generation else { return }
+            if commit && !self.pageRanges.indices.contains(self.pageIndex + direction) {
+                self.coverTarget = nil; self.isAnimating = false
+                self.sendBoundary(direction)
+                return
+            }
             if commit { self.pageIndex += direction }
             self.coverTarget = nil
             self.isAnimating = false
             self.showCoverPage(self.pageIndex)
             self.report(settled: true)
+        }
+    }
+}
+
+/// Retains TextKit's storage, containers and glyph ranges for three chapters at
+/// most. Prepared chapters can be installed without repeating text layout.
+private final class ReaderChapterLayout {
+    let document: ReaderDocument
+    let storage: NSTextStorage
+    let manager: NSLayoutManager
+    var characters: [NSRange] = []
+    var glyphs: [NSRange] = []
+    init(document: ReaderDocument, size: CGSize) {
+        self.document = document
+        storage = NSTextStorage(attributedString: document.text)
+        manager = NSLayoutManager()
+        storage.addLayoutManager(manager)
+        manager.ensureGlyphs(forCharacterRange: NSRange(location: 0, length: storage.length))
+        var covered = 0
+        while covered < manager.numberOfGlyphs {
+            let container = NSTextContainer(size: size)
+            container.lineFragmentPadding = 0
+            manager.addTextContainer(container)
+            let range = manager.glyphRange(for: container)
+            guard range.length > 0 else { break }
+            glyphs.append(range)
+            characters.append(manager.characterRange(forGlyphRange: range, actualGlyphRange: nil))
+            covered = NSMaxRange(range)
         }
     }
 }
