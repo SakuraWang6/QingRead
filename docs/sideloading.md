@@ -4,7 +4,7 @@
 
 本机已实际验证：在 iPhone 数据线拔掉、Mac 连接该 iPhone 个人热点的情况下，使用已登录的 Xcode 账号获取新签名，确认到期时间确实延后，校验代码签名后无线安装清读，并成功无线启动。没有额外安装手机 App，没有导出签名密钥或保存新的 Apple 密码。
 
-2026-10-20 已安装并加载后台任务，真实后台完整续期成功后，恢复每四小时检查、三天阈值；当前签名有效至 2026-10-27 19:05:20（北京时间）。
+已验证后台完整续期和无线安装。当前 iPhone 应用与独立续签副本为 0.8.2/build 10；签名有效期以设备和本机运行日志中的实际日期为准。后台任务每四小时检查，剩余三天以内才尝试续期。
 
 安装后台任务（先完成一次签名构建及手机安装；设备标识由使用者在本机传入）：
 
@@ -28,7 +28,7 @@ python3 scripts/install-refresh-agent.py --uninstall
 
 依据：[Apple 的 profile 缓存与重新请求规则](https://developer.apple.com/help/account/provisioning-profiles/edit-download-or-delete-profiles/)、[Personal Team 七天限制](https://developer.apple.com/help/account/basics/about-your-developer-account/)、[Device Hub 无线连接](https://developer.apple.com/documentation/xcode/managing-your-simulated-and-physical-devices-in-device-hub)。仅重复 build 并不能证明有效期延长；本工具核对实际 profile 日期后才安装。
 
-## AltStore 备选方案与本机排查
+## AltStore 备选方案
 
 使用 AltStore **Classic**，Mac 安装官方 [AltServer](https://altstore.io/)。不需要付费 Apple Developer 会员。免费签名依然只有 7 天，AltStore 会尝试在到期前刷新；iOS 的后台调度并不保证每次成功。
 
@@ -57,6 +57,4 @@ AltStore 会尝试后台刷新。可以偶尔打开 My Apps 检查剩余天数�
 - [AltServer 运行与同网要求](https://faq.altstore.io/altstore-classic/altserver)
 - [AltStore 后台刷新设置](https://faq.altstore.io/altstore-classic/your-altstore)
 
-本机已安装并验证官方 AltServer 的开发者签名；当时 AltStore 仍未成功配置，后来改用上面的 Xcode 自动续签方案。2026-10-20 项目整理时，已将不再使用的 AltServer 及配置移入 Mac 废纸篓，现有 Xcode 续签任务保留。
-
-2026-10-20 本机排查：官网通用下载地址最初返回 1.8，安装时报 `machineID` 缺失。升级官方 1.8.1 后，这一步通过，Apple 登录又返回 `-80045`，AltStore 仍未成功安装。官方仓库有同类[未解决报告](https://github.com/altstoreio/AltStore/issues/1828)；[PR 1834](https://github.com/altstoreio/AltStore/pull/1834) 尚未合并，不能视为已发布修复。此处仅记录 AltStore 路线的历史失败；当前采用前文已验证的 Xcode 后台续签。
+本项目当前维护的是前文的 Xcode 续签路径；本机没有保留运行中的 AltServer。AltStore 的安装与后台刷新应按其官方当前文档单独配置，不能将 Xcode 安装的应用视为已由 AltStore 接管。

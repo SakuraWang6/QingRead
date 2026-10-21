@@ -1,6 +1,8 @@
 # 离线 AI 朗读：Melo 与 Kokoro
 
-核对日期：2026-10-20。当前用途是个人自用的 iPhone 阅读器。
+依赖核对日期：2026-10-20；当前 iPhone 版本 0.8.2/build 10。Web/Android 使用系统语音，未集成本文的原生离线引擎。
+
+在 iPhone「设置」中管理 Melo/Kokoro 声库，在阅读页的听书面板选择引擎、音色和语速。Melo 提供一个中文音色；Kokoro 提供三个女声与三个男声。两套声库都需首次联网下载，通过校验后可离线使用。
 
 Melo 声库是可选下载。用户主动下载后，文字转语音在手机本地通过 ONNX Runtime CPU 推理，音频也在本地播放；合成不调用云端 API，不上传小说段落或生成音频。首次下载会访问 Hugging Face 的 HTTPS 文件服务。系统中文语音仍是独立选项。
 
@@ -127,7 +129,7 @@ let sampleRate = Double(audio.sampleRate)
 已收集的许可全文、版权声明及对应上游来源放在 `App/Resources/ThirdPartyNotices.txt`。这份说明记录工程事实和来源，不作最终的法律或分发合规结论。当前是个人自用开发；若未来向他人分发安装包，应以届时实际链接的库、构建方式和模型版本为准，复核相应许可证，保留要求的版权与许可声明，并准备适用许可证所要求的对应源码及构建信息。更换为自行裁剪的引擎时也应重新记录产物组成，不能沿用未经核对的依赖清单。
 
 
-## 0.4：Kokoro 中文男、女声
+## Kokoro 中文男、女声
 
 官方引擎说明：[kokoro-multi-lang-v1_1](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)。选择官方维护者的 [INT8 转换声库](https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/tree/155831f1b4ba23b1f5c058be6a61df90cefb2a37)，固定 revision `155831f1b4ba23b1f5c058be6a61df90cefb2a37`。v1.1 的音色编号与 v1.0 不同：中文女声 3–57，男声 58–102；界面提供女声 3/16/46、男声 58/76/93，名称保留上游编号，不虚构真人声线名称。
 

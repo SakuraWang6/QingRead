@@ -6,6 +6,45 @@
 
 [开始使用](#开始使用) · [自建服务器](web/deploy/README.md) · [文档](docs/README.md) · [反馈问题](https://github.com/SakuraWang6/QingRead/issues)
 
+## 界面预览
+
+iPhone 0.8.2 原生 App（模拟器）与 Web 0.8.1 移动视口的实际截图。
+
+<table>
+  <tr>
+    <th>iPhone · 书架</th>
+    <th>iPhone · 阅读</th>
+    <th>Web · 手机书架</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/previews/iphone-library.png" alt="iPhone 0.8.2 三列封面书架" width="230" /></td>
+    <td align="center"><img src="docs/previews/iphone-reader.png" alt="iPhone 0.8.2 沉浸阅读与底部页码" width="230" /></td>
+    <td align="center"><img src="docs/previews/web-mobile-library.jpg" alt="Web 0.8.1 手机宽度下的书架" width="230" /></td>
+  </tr>
+</table>
+
+<details>
+<summary>阅读菜单、目录与桌面 Web</summary>
+
+<table>
+  <tr>
+    <th>iPhone · 阅读菜单</th>
+    <th>iPhone · 侧边目录</th>
+    <th>Web · 阅读菜单</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/previews/iphone-controls.png" alt="iPhone 页数进度条与阅读设置入口" width="230" /></td>
+    <td align="center"><img src="docs/previews/iphone-catalog.png" alt="iPhone 左侧目录、逐章进度和缓存状态" width="230" /></td>
+    <td align="center"><img src="docs/previews/web-mobile-controls.jpg" alt="Web 手机阅读菜单与页数进度条" width="230" /></td>
+  </tr>
+</table>
+
+![Web 桌面阅读器](docs/previews/web-desktop-reader.jpg)
+
+[全部截图与版本信息](docs/previews/README.md)
+
+</details>
+
 ## 核心功能
 
 - **搜书与找书**：多来源搜索、按书源筛选、分类与推荐；单个来源失败时保留其他搜索结果。
@@ -25,13 +64,6 @@
 | Android | Capacitor App | 复用 Web 阅读器，接入系统返回键、安全区、电量与加密登录保存 |
 
 Web 与 Android 的听书取决于浏览器或 WebView 能力，尚未移植 iPhone 的离线 AI 引擎。Android 已通过构建与 lint，真机交互仍待验证。
-
-## 界面预览
-
-<p align="center">
-  <img src="docs/previews/library.png" alt="清读 iPhone 三列书架" width="240" />
-  <img src="docs/previews/search.png" alt="清读 iPhone 搜书结果" width="240" />
-</p>
 
 ## 开始使用
 
@@ -87,4 +119,4 @@ EPUB 当前按文本重新排版，复杂版式、图片与脚注跳转尚未完
 
 ## 许可
 
-本项目采用 [Polyform Strict 1.0.0](LICENSE)。历史版本及第三方依赖的许可见 [许可说明](docs/licensing.md)。
+本项目采用 [Polyform Strict 1.0.0](LICENSE)。第三方依赖与模型的许可见 [许可说明](docs/licensing.md)。

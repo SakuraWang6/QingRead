@@ -1,12 +1,12 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.8.1 / versionCode 6**，支持账号同步、Android KeyStore 加密登录保存与阅读页真实电量显示。本机无 Android SDK，尚未在模拟器或真机运行。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.8.1 / versionCode 6**，支持账号和原文件同步、Android KeyStore 加密登录保存，以及阅读页页码、时间与原生电量接口。本机无 Android SDK，尚未在模拟器或真机运行。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 
 ## 构建
 
-需要 Node 22+、JDK 21、Android SDK Platform 36 / Build Tools 36.0.0。可以用 Android Studio 2025.2.1+，或在 GitHub Actions 构建，无需先购买手机。
+需要 Node 24、JDK 21、Android SDK Platform 36 / Build Tools 36.0.0。可以用 Android Studio 2025.2.1+，或在 GitHub Actions 构建，无需先购买手机。
 
 ```sh
 cd web
@@ -31,6 +31,7 @@ cd android
 ## 安卓交互
 
 - 物理返回键依次关闭阅读设置/目录、阅读器、详情或设置面板，然后返回书架；已经在书架时将 App 放到后台。
+- 翻页时收起阅读控制栏，页码与进度条按当前排版估算；未缓存章节仍需联网加载。
 - 使用 Capacitor 8 的 SystemBars 原生安全区处理，适配状态栏、底部手势条及较旧 WebView 的安全区缺陷。
 - 听书仍通过系统 Web Speech 能力检测。部分 Android WebView 不提供该接口，会明确显示不可用；安卓原生听书、Kokoro 离线模型和锁屏持续播放尚未集成。
 - 文件选择、导出下载、系统返回手势、长时间阅读与后台行为仍需安卓模拟器/真机复核；CI 编译成功不等于这些交互已验证。

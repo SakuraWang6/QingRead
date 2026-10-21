@@ -1,6 +1,6 @@
 # Third-party notices
 
-QingRead's current independently authored code offering uses Polyform Strict License 1.0.0; see LICENSE and docs/licensing.md. This does not revoke earlier MIT grants. Third-party components below retain their original licenses, without additional QingRead restrictions.
+QingRead's current independently authored code offering uses Polyform Strict License 1.0.0; see LICENSE and docs/licensing.md. Third-party components below retain their original licenses, without additional QingRead restrictions.
 The following projects are dependencies or remote content sources, not copied competing applications.
 
 ## SwiftSoup

@@ -1,6 +1,6 @@
 # 本地维护与清理
 
-当前 Web / Android 使用已部署的 HTTPS 服务，免访问码直接连接。清理本机的构建缓存不会影响服务器；当前维护版本和运行参数见 [部署记录](../web/deploy/DEPLOYMENT.md)。
+Web/Android 可连接自建 HTTPS 服务；当前维护实例明确启用免访问码访问，个人同步仍需登录。清理本机的构建缓存不会影响服务器；当前维护版本和运行参数见 [部署记录](../web/deploy/DEPLOYMENT.md)。
 
 ## 必须保留
 
@@ -32,14 +32,14 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 部署时若需让 Mac 的 SSH 绕开本机 VPN 虚拟路由，可使用已保存的 `scripts/ssh-en0-connector.py` 作为 `ProxyCommand`；脚本仅用于当前 Mac 的物理 `en0` 接口连接，不会修改系统路由或服务器网络。
 
 
-## 开源后的签名与同步数据
+## 公开源码中的签名与同步数据
 
 公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，当前 iPhone 应用与后台续签副本均为 0.8.2/build 10。
 
 服务器 `app-data` 保存持久化账号、书架数据库和 `files` 原文件，清理时必须完整保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。只删除已成功加载且有原镜像可回滚的 incoming 安装归档和确认可重建的本机构建缓存。`.private/backups/phone-before-sync-06` 保存同步升级前的手机数据，不进入 Git。
 
 
-## 0.7 后的清理边界
+## 构建与交付件的清理边界
 
 - 可清理 `.build/out`、真机构建的 `Intermediates.noindex`、索引、日志和编译模块缓存；保留 `SourcePackages` 与当前 `Build/Products/Debug-iphoneos/QingRead.app`。
 - 语音推理依赖、`web/node_modules` 是仍在使用的开发依赖，不按临时下载处理。全局 Docker 构建缓存还被其他项目使用，不做全局清空。

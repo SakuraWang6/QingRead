@@ -1,6 +1,8 @@
 # 书源格式 v1
 
-本格式是清读首版的声明式配置，不是 Legado 完整兼容层。导入一次来源后，读者输入书名搜索即可，不需要逐本粘贴网址。
+[文档导航](README.md) · [服务端 API](../web/server/README.md)
+
+本格式用于 iPhone 的声明式书源配置，不是 Legado 完整兼容层。导入一次来源后，读者输入书名搜索即可，不需要逐本粘贴网址。Web/Android 使用服务端登记的来源，设置中的 JSON 检查不会向服务器安装来源。
 
 ## 内置来源
 
@@ -47,7 +49,7 @@ HTML 站点的格式如下。`example.com` 是说明占位符，不是可用小�
 
 | 字段 | 含义 |
 | --- | --- |
-| `searchURL` | 绝对地址或相对主页路径，必须有 `{query}` 占位符；首版为 GET 请求 |
+| `searchURL` | 绝对地址或相对主页路径，必须有 `{query}` 占位符；当前为 GET 请求 |
 | `encoding` | `utf8`（默认）、`gb18030` 或 `gbk`，用于搜索词编码及网页无有效声明时的解码后备值。网页的有效 `meta charset` 声明优先，支持 UTF-8、GBK/GB2312/GB18030、Big5；未知声明或按声明解码失败时回退到配置 |
 | `resultSelector` | 搜索结果中每本书的容器 |
 | `titleSelector` | 在每个结果容器内提取书名 |
@@ -59,7 +61,7 @@ HTML 站点的格式如下。`example.com` 是说明占位符，不是可用小�
 | `contentSelector` | 章节正文容器 |
 | `removeSelectors` | 从正文移除的节点，默认空数组；脚本和样式始终清理 |
 
-HTTP 来源受 iOS App Transport Security 限制。首版工程使用系统默认安全网络策略，实际使用请提供 HTTPS 来源。不会为导入规则全局关闭系统网络安全检查。
+HTTP 来源受 iOS App Transport Security 限制。工程使用系统默认安全网络策略，实际使用请提供 HTTPS 来源。不会为导入规则全局关闭系统网络安全检查。
 
 ## 实际来源验证（2026-10-20）
 
@@ -87,9 +89,9 @@ HTTP 来源受 iOS App Transport Security 限制。首版工程使用系统默�
 普通测试：`swift test`。显式联网复核：`QINGREAD_LIVE_SOURCES=1 swift test --filter liveSourcePipelines`，会对三个新增源以及维基文库的《三国演义》《桃花源记》走真实读取链路，并核对维基文库不会为《超神机械师》返回无关文书。联网测试需要网络，不作为默认离线 CI 的依赖；网站后续改版或下线需更新配置。
 
 
-## 整本书库（0.4）
+## 整本书库
 
-直接加入同一搜书流程，不要求用户找书的网址。下载在详情页显示进度，可取消；完成后加入书架并离线保存。EPUB/TXT 分为本地章节沿用阅读器和听书；PDF 使用 PDFKit 保留版面与图表，记录所在页，暂不提供 PDF 听书。EPUB 当前提取正文，未复现原始 CSS、内嵌插图和复杂脚注，数学/图表密集书籍应优先选 PDF。
+直接加入同一搜书流程，不要求用户找书的网址。下载在详情页显示进度，可取消；完成后加入书架并离线保存。EPUB/TXT 分为本地章节沿用阅读器和听书；iPhone 的 PDF 使用 PDFKit，Web/Android 使用 PDF.js，均保留版面与图表并记录所在页，暂不提供 PDF 听书。EPUB 当前提取正文，未复现原始 CSS、内嵌插图和复杂脚注，数学/图表密集书籍应优先选 PDF。
 
 | 官方书库 | 范围与格式 | 2026-10-20 实测 |
 |---|---|---|
@@ -97,7 +99,7 @@ HTTP 来源受 iOS App Transport Security 限制。首版工程使用系统默�
 | [Standard Ebooks](https://standardebooks.org/) | 精校英文文学，EPUB；跟随出版者下载中间页的 meta refresh | Tolstoy → 12 本，首本 The Power of Darkness 下载 686,454 bytes，解析 11 节 |
 | [OpenStax](https://openstax.org/subjects) | 主要为英文开放大学教材，PDF；支持统计、微积分、物理、经济等中文关键词映射 | 统计 → 5 本相关教材；首本 PDF 下载 106,819,604 bytes，文件头有效 |
 
-EPUB/ZIP 读取检查归档条目数、展开大小、读取大小、资源路径和符号链接；只在内存提取正文资源，不把归档路径写入文件系统。单本导入上限 250 MB，TXT 上限 20 MB；损坏、加密或纯图片 EPUB 会明确失败。整本文件保存在 ImportedBooks，清理网页章节缓存不会删除已导入文件，移出书架会删除该书本地文件。
+EPUB/ZIP 读取检查归档条目数、展开大小、读取大小、资源路径和符号链接；只在内存提取正文资源，不把归档路径写入文件系统。iPhone 单本导入上限 250 MB，TXT 上限 20 MB；损坏、加密或纯图片 EPUB 会明确失败。整本文件保存在 ImportedBooks，清理网页章节缓存不会删除已导入文件，移出书架会删除该书本地文件。
 
 ## Z-Library 的接入边界
 
@@ -107,7 +109,7 @@ Z-Library 属于整本电子书检索/文件下载一类服务，不能用一个
 
 ## 尚未支持
 
-首版不执行 JavaScript，不支持 XPath、JSONPath、带脚本的 Legado 规则、POST 搜索、自定义 Cookie 登录、验证码自动处理、目录翻页和正文跨页拼接。导入其他软件的复杂书源可能因格式不匹配而失败，需要为本站编写声明式规则。
+当前不执行 JavaScript，不支持 XPath、JSONPath、带脚本的 Legado 规则、POST 搜索、自定义 Cookie 登录、验证码自动处理、目录翻页和正文跨页拼接。导入其他软件的复杂书源可能因格式不匹配而失败，需要为本站编写声明式规则。
 
 ## 回归检查
 

@@ -1,6 +1,6 @@
 # 手动部署移动 Web 与安卓书源服务
 
-通用配置将网页与书源 API 放进一个 Node 24 容器，通过 HTTPS 反向代理访问。当前已经在 Ubuntu 的 `/srv/qingread` 部署独立生产 Compose，使用 [https://read.example.com](https://read.example.com)，原 80 服务保留；[实际配置、已测范围和回滚记录](DEPLOYMENT.md)。下面同时保留迁移到其他服务器或接入已有反向代理的手动步骤。
+通用配置将网页与书源 API 放进一个 Node 24 容器，通过 HTTPS 反向代理访问。维护实例已经在 Ubuntu 的 `/srv/qingread` 部署独立生产 Compose，原 80 服务保留；[实际配置、已测范围和回滚记录](DEPLOYMENT.md)。以下 `read.example.com` 为占位地址，需替换为自己的主机。下面同时保留迁移到其他服务器或接入已有反向代理的手动步骤。
 
 ## 独立 HTTPS 部署（保留现有 80 端口）
 
@@ -17,7 +17,7 @@ API 上限 384 MiB、0.75 CPU；HTTPS 上限 128 MiB、0.25 CPU，两者禁用�
 
 公网 IPv4 使用 Let's Encrypt `shortlived` 证书，通过 TCP 443 的 TLS-ALPN 验证，不接管 80。Caddy 持久化证书并自动续期；公网 443 必须一直放行。先使用 staging 端点与独立 data 目录验证，再切换正式配置，避免无效申请。没有有效证书时不要让用户跳过浏览器安全警告。
 
-部署验证应覆盖 `https://公网主机/api/health`、未授权接口 401、授权来源列表、网页搜索、安卓 Origin 预检及整本文件下载，再复查原服务健康、OOM 标记与内存。这是验证清单，不代表所有链路都已稳定通过；服务器到 Gutenberg 的部分整本下载存在连接重置，详见实际部署记录。回滚只在本项目目录执行 `docker compose -f compose.production.yaml down`，不加 `-v`，保留证书目录，不操作其他 Compose 项目。
+部署验证应覆盖 `https://公网主机/api/health`、来源列表、网页搜索、安卓 Origin 预检及整本文件下载，并检查未登录的同步/云文件请求返回 401。启用访问码时还需核对无访问码书源请求返回 401；免访问码模式下来源列表应可直接访问。最后复查原服务健康、OOM 标记与内存。这是验证清单，不代表所有链路都已稳定通过；服务器到 Gutenberg 的部分整本下载存在连接重置，详见实际部署记录。回滚时恢复私有 `.env` 中上一兼容镜像的 `QINGREAD_IMAGE`，执行 `docker compose -f compose.production.yaml up -d --no-deps qingread`；保留数据与证书目录，不操作其他 Compose 项目。
 
 依据：[Let's Encrypt 公网 IP 证书](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)、[Caddy TLS 配置](https://caddyserver.com/docs/caddyfile/directives/tls)。
 
@@ -60,9 +60,9 @@ location / {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_buffering off;
     proxy_request_buffering off;
-    proxy_read_timeout 200s;
-    proxy_send_timeout 200s;
-    client_max_body_size 128k;
+    proxy_read_timeout 660s;
+    proxy_send_timeout 660s;
+    client_max_body_size 250m;
 }
 ```
 
@@ -70,14 +70,14 @@ location / {
 
 先执行 `nginx -t` 检查，再按现有服务管理方式重载。网页必须通过 HTTPS 访问，PWA、浏览器存储与音频功能才能得到正常的安全上下文。源服务不信任客户端转发头做鉴权；在反向代理之后，限流会按代理地址合并计数，适合个人使用。
 
-验证 `https://read.example.com/api/health` 能正常返回，再打开网页的「设置 → 服务器」，输入访问令牌。网页与 API 部署在同域时，服务器地址可以留空；访问码默认只用于本次会话；用户可勾选“在此设备记住访问码”，并可在同一面板清除。访问码绑定完整服务地址，更换地址不会自动发送旧码。不要把令牌放进网址。
+验证 `https://read.example.com/api/health` 能正常返回，再打开网页的「设置 → 服务器连接」。仅当服务配置了访问码时填写同一个访问码。网页与 API 部署在同域时，服务器地址可以留空；访问码默认只用于本次会话；用户可勾选“在此设备记住访问码”，并可在同一面板清除。访问码绑定完整服务地址，更换地址不会自动发送旧码。不要把令牌放进网址。
 
 ## 安卓连接
 
-安卓 App 的「设置 → 服务器」填入 `https://read.example.com`（或带 `/api` 的地址），再输入同一个访问令牌。默认 CORS 已允许 Capacitor 的 `https://localhost`、`capacitor://localhost` 和 `http://localhost`，无需添加通配符。若将来修改了 App 的 WebView 主机或协议，需要把新的**完整 Origin**追加进 `QINGREAD_ALLOWED_ORIGINS`，然后重建容器环境：
+安卓 App 的「设置 → 服务器连接」填入 `https://read.example.com`（或带 `/api` 的地址）；服务配置了访问码时再填写同一个访问码。默认 CORS 已允许 Capacitor 的 `https://localhost`、`capacitor://localhost` 和 `http://localhost`，无需添加通配符。若将来修改了 App 的 WebView 主机或协议，需要把新的**完整 Origin**追加进 `QINGREAD_ALLOWED_ORIGINS`，然后重建容器环境：
 
 ```sh
-docker compose up -d --force-recreate
+docker compose up -d --no-deps --force-recreate qingread
 ```
 
 不要填写服务器的 `127.0.0.1` 作为手机地址，那会指向手机本身。安卓默认使用 HTTPS；不建议为公网服务开启明文 HTTP。
@@ -96,11 +96,11 @@ docker compose up -d
 docker compose ps
 ```
 
-移除这一套服务用 `docker compose down`，它不会删除客户端的书架或阅读文件。部署前后都请检查现有站点与服务器资源；本配置提供账号与跨设备同步；不提供远程来源导入，也不绕过原站的登录、验证码或 DRM。
+移除这一套服务用 `docker compose down`，不带 `-v` 时会保留服务端持久数据，也不会删除客户端的书架或阅读文件；重新启动需使用原数据目录。部署前后都请检查现有站点与服务器资源；本配置提供账号与跨设备同步；不提供远程来源导入，也不绕过原站的登录、验证码或 DRM。
 
 ## 本地验证状态
 
-2026-10-20 已在本机 OrbStack 完成 Node 24 多阶段镜像构建，以及临时 `127.0.0.1:8788` 容器验证：健康检查、静态首页与 PWA 清单、PDF worker、无令牌 401（含编码 API 路径）、授权获取 10 个书源、真实小说搜索均通过；请求全部 211 个静态文件之后，首次搜书仍成功，静态预缓存不会消耗 API 限额。实际进程 UID 为 1000，根目录只读、`/tmp` 可写，权限限制生效；一次搜索后的内存约 120 MiB，容器上限 384 MiB。临时容器已清理，镜像保留为 `qingread-web:local`。
+2026-10-20 已在本机 OrbStack 完成 Node 24 多阶段镜像构建，以及临时 `127.0.0.1:8788` 容器验证：健康检查、静态首页与 PWA 清单、PDF worker、无令牌 401（含编码 API 路径）、授权获取 10 个书源、真实小说搜索均通过；请求全部 211 个静态文件之后，首次搜书仍成功，静态预缓存不会消耗 API 限额。实际进程 UID 为 1000，根目录只读、`/tmp` 可写，权限限制生效；一次搜索后的内存约 120 MiB，容器上限 384 MiB。临时容器已清理；这项历史验证不代表本机仍保留当时的镜像。
 
 上述本机测试镜像是 ARM64，不能直接当作 x86_64 镜像运行。当前公网生产镜像已另行在开发机构建为 `linux/amd64`，上传至 Ubuntu 并部署；生产部署不在服务器上执行编译。依赖或代码发生变化后，应重新构建并复核健康与鉴权，具体以 [实际部署记录](DEPLOYMENT.md) 为准。
 
@@ -121,7 +121,7 @@ sudo install -d -o 1000 -g 1000 -m 700 app-data
 
 Compose 将 `app-data` 挂载到 `/data`，容器根文件系统继续只读。数据不会写进镜像或代码。健康响应 `syncEnabled: true` 表示同步已启动。只更新清读容器，不删除数据目录。
 
-用 SQLite 在线备份 API 生成一致快照，或只暂停清读容器后备份整个 `app-data`（数据库、WAL、SHM 必须一致），随后立即启动清读。备份包含私人书架和密码哈希，应限制为所有者可读，并加密异地保存。不能只复制运行中的主数据库文件；不要将备份上传 GitHub。保留原镜像、配置和迁移前数据快照，以便回滚。
+原文件与数据库需要同一份一致备份。低峰只暂停清读容器，备份整个 `app-data`（数据库、WAL、SHM 与 files），随后立即启动清读。SQLite 在线备份 API 可生成数据库快照，但单独的数据库快照不能替代完整原文件备份。备份包含私人书架和密码哈希，应限制为所有者可读，并加密异地保存。不能只复制运行中的主数据库文件；不要将备份上传 GitHub。保留原镜像、配置和迁移前数据快照，以便回滚。
 
 
-0.7 的 `app-data` 除 SQLite 外，还保存按账号分目录的原文件以及公共封面缓存。不能只备份 accounts.sqlite 而遗漏 files。最简单的一致备份方式是在低峰只暂停清读服务，备份整个 app-data 后立即启动清读；不要暂停其他 Compose 项目。还原也需还原同一份数据库与文件目录。目录 700、文件 600、当前身份校验和 SHA-256 验证均不因开启公共书源模式而取消。
+当前 `app-data` 除 SQLite 外，还保存按账号分目录的原文件以及公共封面缓存。不能只备份 accounts.sqlite 而遗漏 files。最简单的一致备份方式是在低峰只暂停清读服务，备份整个 app-data 后立即启动清读；不要暂停其他 Compose 项目。还原也需还原同一份数据库与文件目录。目录 700、文件 600、当前身份校验和 SHA-256 验证均不因开启公共书源模式而取消。

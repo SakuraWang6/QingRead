@@ -1,6 +1,6 @@
 # 清读书源服务
 
-Node 22.12+。在 `web/` 运行 `npm run dev:api`，默认仅监听 `127.0.0.1:8787`。Vite 将同源 `/api` 代理到此服务；生产 `npm run build && npm start` 同时提供 `dist/` 页面。
+需要 Node.js 24（使用内置 SQLite）。当前 API 版本为 0.8.1。在 `web/` 运行 `npm run dev:api`，默认仅监听 `127.0.0.1:8787`。Vite 将同源 `/api` 代理到此服务；生产 `npm run build && npm start` 同时提供 `dist/` 页面。
 
 服务器配置（环境变量）：
 
@@ -33,12 +33,12 @@ API：
 
 限流仅统计 `/api/`：每 IP 每分钟 180 请求，整本下载 12 次；网页、PWA 预缓存和 PDF 字体等静态资源不消耗 API 额度。默认 4 个并行来源连接和最多 32 个排队任务；排队等待超过 25 秒或队列已满返回 503。页面 8 MiB、封面 5 MiB、文件 250 MiB 上限，压缩内容按解压后字节计数；取消或超限会同时关闭解压流与上游响应。页面响应总时限 25 秒，整本文件总时限 10 分钟（跨重定向累计）；页面和文件的连接空闲时限分别为 18 / 30 秒，不会因为下载连续超过 30 秒而中断。解析数据缓存最多 32 MiB，封面缓存 40 MiB，不记录阅读正文。解析数据缓存仅在本进程内存，重启即清空；公共封面另有下文所述的持久缓存。
 
-书源可用性由原站决定。认证、验证码、DRM 和复杂客户端执行型来源不绕过；不支持的来源返回清楚错误。PDF 保留原版布局由客户端处理；EPUB / TXT 的导入与离线存储由客户端完成。当前 API 已在 Ubuntu `/srv/qingread` 通过 Caddy 2.11.7 的 443 HTTPS 入口部署，地址为 [https://read.example.com](https://read.example.com)，不公开容器 API 端口，原 80 服务保留。API 上限 384 MiB / 0.75 CPU，Caddy 上限 128 MiB / 0.25 CPU。当前明确开启免访问码模式，Web 与安卓直接连接；账号、密码哈希、会话哈希、书架和当前位置保存在独立 SQLite 数据目录；网站章节缓存不上传；EPUB/PDF/TXT 原文件按账号保存到私有目录。部分海外书源大文件传输会中断，按使用者要求暂不继续排查，完整状态见 [实际部署记录](../deploy/DEPLOYMENT.md)。
+书源可用性由原站决定。认证、验证码、DRM 和复杂客户端执行型来源不绕过；不支持的来源返回清楚错误。PDF 保留原版布局由客户端处理；EPUB / TXT 的导入与离线存储由客户端完成。维护实例在 Ubuntu `/srv/qingread` 通过 Caddy 2.11.7 的 443 HTTPS 入口部署，不公开容器 API 端口，原 80 服务保留。文档中的 `https://read.example.com` 是占位地址，部署时替换为自己的主机。API 上限 384 MiB / 0.75 CPU，Caddy 上限 128 MiB / 0.25 CPU。当前明确开启免访问码模式，Web 与安卓直接连接；账号、密码哈希、会话哈希、书架和当前位置保存在独立 SQLite 数据目录；网站章节缓存不上传；EPUB/PDF/TXT 原文件按账号保存到私有目录。部分海外书源大文件传输会中断，按使用者要求暂不继续排查，完整状态见 [实际部署记录](../deploy/DEPLOYMENT.md)。
 
 回归测试 `npm test -- tests/server.test.ts`；真实网络测试需显式运行 `QINGREAD_LIVE_TESTS=1 npm test -- tests/server-live.test.ts`。后者覆盖两本网文、Gutenberg 整本 HTTP 下载、推荐分类、GBK、静态古典、维基、Standard Ebooks 和 OpenStax PDF。
 
 
-## 账号同步（0.6）
+## 账号同步
 
 需要 Node.js 24。`QINGREAD_DATA_DIR` 指向可写私有目录，默认 `.data`；生产 Compose 挂载 `./app-data:/data`，UID/GID 1000，目录 700，数据库 600。`QINGREAD_MAX_USERS` 默认 100，仅限制新注册；不影响现有登录。
 
@@ -49,7 +49,7 @@ API：
 同步独立于可选的书源访问码；开放书源不等于开放个人数据。密码经独立随机盐的 scrypt 哈希；数据库仅保存会话令牌的 SHA-256。注册/登录每 IP 每路由每分钟 10 次，同时仅执行一次密码计算，避免小内存服务器被耗尽。每账号最多 1000 本书、每批 50 个操作。详见 [云同步](../../docs/cloud-sync.md)。
 
 
-## 私有云文件（0.7）
+## 私有云文件
 
 `GET /api/files` 返回当前账号可用文件、使用量和配额。`POST /api/files/:sha256?bookID=...&bytes=...` 使用 `application/octet-stream` 原始字节；`GET /api/files/:sha256` 下载。三者均要求当前账号的 Bearer 会话，不接受请求指定用户归属。书架资料必须先同步，文件必须与当前账号书籍的 SHA-256 和类型一致；原文件流式保存到私有 `app-data/files/<账号UUID>/<哈希>`，不开放静态文件 URL。
 

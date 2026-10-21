@@ -19,16 +19,18 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [当前架构](architecture.md) | 客户端、书源、阅读器、缓存与账号同步的职责 |
 | [开发与验证](development.md) | iPhone 工程生成、Swift、Web 与 Android 检查入口 |
 | [书源](sources.md) | 来源列表、声明式规则与真实链路验证 |
 | [服务端 API](../web/server/README.md) | 搜索、正文、账号与云文件接口 |
 | [本地维护](maintenance.md) | 可重建产物、签名材料与数据保留边界 |
 | [验证记录](verification.md) | 已测版本、设备与已知限制 |
+| [界面截图](previews/README.md) | 当前 iPhone 与 Web 截图、视口及版本 |
 | [问题反馈](../CONTRIBUTING.md) | 报错信息与提交前说明 |
 
 ## 背景与历史
 
 - [竞品研究](market-research.md)
-- [初期架构与决策](architecture.md)
+- [iPhone 0.1–0.7 验证归档](history/reader-0.1-0.7-verification.md)
 - [Web 0.5–0.6 验证归档](history/web-0.5-0.6-verification.md)
-- [许可与第三方依赖说明](licensing.md)
+- [当前许可与第三方依赖说明](licensing.md)
