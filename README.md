@@ -1,126 +1,90 @@
 # 清读 · QingRead
 
-**源码公开，限制商业使用。** 当前原创代码提供 [Polyform Strict 1.0.0](LICENSE) 许可：限条款列明的非商业用途，不授予修改或再分发许可。它属于 source-available，不是 OSI 认可的开源许可。旧 MIT 授权和第三方许可的边界见 [许可说明](docs/licensing.md)。
+面向 iPhone、Web 和 Android 的阅读器，支持多源搜书、EPUB / PDF / TXT、离线阅读与自建服务器同步。
 
-免费的 iPhone、移动 Web 与 Android 阅读器。多源搜书、离线阅读，使用自建服务器同步书架和进度。
+把喜欢的书放进书架，在手机或浏览器里打开；换个设备，接着上次的位置读。
 
-SwiftUI / React / Capacitor / 本地优先 / 可选账号同步 / 无广告 SDK / 无会员与内购。
+[开始使用](#开始使用) · [自建服务器](web/deploy/README.md) · [文档](docs/README.md) · [反馈问题](https://github.com/SakuraWang6/QingRead/issues)
 
-## 当前功能（0.8）
+## 核心功能
 
-- 用户名与密码自助注册；iPhone、Web 和 Android 使用同一账号同步书架、阅读位置和已导入的 EPUB/PDF/TXT 原文件，各账号数据分别保存。未登录仍可本地使用，已有书架需主动合并。
-- 多来源搜索，来源失败分别显示；可以启用、停用和导入书源。
-- 三列封面书架，点击直接继续阅读，长按查看详情或管理。
-- 推荐与六类书库，实时读取来源站书目，可打开目录、收藏和阅读。
-- 点击正文中央呼出菜单；左右滑动、覆盖翻页、上下滚动三种模式。
-- 五种背景、独立夜间模式、字号、行距、独立段距、页边距、字体、粗体及亮度设置。
-- 右下角显示整书百分比；中央菜单可拖动进度条跳转（按章节与章内文字位置估算）。
-- 左侧目录抽屉，逐章显示实际已读进度及缓存状态，支持搜索与定位当前章。
-- 阅读时自动预缓存后 10 章，共享正在加载的章节；退出取消后续队列。
-- 系统中文音色选择，优先已安装的增强音色；调整语速从当前词附近继续，暂停时不误播放。
-- 可选 Kokoro 多音色离线 AI：约 179 MB，三种中文男声、三种中文女声，在「设置 → 听书与离线音色」下载、切换、试听和删除。保留系统语音和 Melo。
-- 跨段落缓冲后三句，开始播放前预备下一句；生成的音频在本地缓存（上限 128 MB）。首次仍有准备时间，高倍速与较慢设备仍可能等待。
-- 可选 Melo 离线 AI 听书：在 App 内主动下载约 61 MB 声库，之后在手机本地合成，无 API key、无额外 App；单一中文音色。语速直接调整播放器，保持当前声音位置。
-- 封面内存与磁盘缓存、480 像素缩略图、图片防盗链来源头；搜索未提供封面时尝试书籍详情页，来源仍缺图时保留书名封面。
-- 按章节缓存正文，已缓存章节可离线打开；清除缓存保留书架与进度。从屏幕左右边缘向内滑动退出阅读。
-- Gutenberg、Standard Ebooks 文学整本 EPUB，OpenStax 开放教材整本 PDF，直接在搜书页搜索、下载到书架。支持「文件」导入及从其他 App 打开 EPUB / PDF / TXT；去重并保存阅读位置。EPUB 是文字阅读，PDF 保留图表原版面，PDF 暂不接听书。
-- 内置《桃花源记》离线样例，便于在网络不可用时体验阅读器。
+- **搜书与找书**：多来源搜索、按书源筛选、分类与推荐；单个来源失败时保留其他搜索结果。
+- **自己的书架**：三列封面、最近阅读、排序与管理，打开书籍即可继续阅读。
+- **自由调整阅读**：滑动、覆盖、上下滚动，配合夜间模式、背景、字体、字号、行距和独立段距设置。
+- **目录与离线缓存**：侧边目录显示逐章进度和缓存状态，阅读时自动预读后续章节，已缓存正文可离线打开。
+- **电子书导入**：支持 EPUB、PDF、TXT，也可从已接入的整本书库下载；EPUB / TXT 重新排版，PDF 保留原始页面与图表。
+- **跨设备续读**：通过自建服务同步书架、阅读位置与导入原文件，每个账号单独保存数据；不登录也能在本地阅读。
+- **听书**：系统语音与语速调整；iPhone 可额外下载 Kokoro / Melo 离线 AI 声库，在设备上合成，无需 API key。
 
-内置 10 个来源（5 个网络小说站点、2 个经典文本来源、3 个整本书库）；已针对《超神机械师》《这游戏也太真实了》核实站内搜索、目录和首章。各新增来源的实测记录见[书源说明](docs/sources.md)。站点可用性与内容质量仍需持续验证，**不承诺全网覆盖或每一章均已核对**。通用网站来源通过声明式 CSS 规则扩展，本地样例不插入联网搜索结果。推荐与分类当前来自笔趣阁，停用该来源后不会继续请求。
+## 平台
 
-## 开发和运行
+| 平台 | 使用方式 | 说明 |
+| --- | --- | --- |
+| iPhone | SwiftUI 原生 App | 支持本地阅读、云同步及可选离线 AI 听书；通过 Xcode 构建安装 |
+| Web | 手机或桌面浏览器 | 适配移动端，可自建服务；支持 PWA 离线资源 |
+| Android | Capacitor App | 复用 Web 阅读器，接入系统返回键、安全区、电量与加密登录保存 |
 
-以下步骤供许可范围内的非商业运行使用；修改源码或再分发前须另取得相应权利人的书面授权。
+Web 与 Android 的听书取决于浏览器或 WebView 能力，尚未移植 iPhone 的离线 AI 引擎。Android 已通过构建与 lint，真机交互仍待验证。
 
-需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
+## 界面预览
 
-1. 打开 `QingRead.xcodeproj`，选择 `QingRead` scheme。
-2. 先选择 iPhone 模拟器运行，无需付费开发者账号。
-3. 真机运行时，在 Signing & Capabilities 中选择自己的 Team，并将 Bundle Identifier 改成唯一值。
-4. 连接 iPhone，按系统提示信任设备并启用开发者模式，然后运行。
+<p align="center">
+  <img src="docs/previews/library.png" alt="清读 iPhone 三列书架" width="240" />
+  <img src="docs/previews/search.png" alt="清读 iPhone 搜书结果" width="240" />
+</p>
 
-本机签名设置也可以保存在 `Config/local.xcconfig`，工程会自动读取，该文件已被 Git 忽略：
+## 开始使用
 
-```xcconfig
-DEVELOPMENT_TEAM = 你的TeamID
-```
+### 本地运行 Web
 
-若默认 Bundle Identifier 已被占用，也可在同一文件覆盖 `PRODUCT_BUNDLE_IDENTIFIER`。
-
-普通 Apple 账号可以安装自用，签名有效期为 7 天。付费 Developer Program 可使用更长有效期的签名。项目不包含签名证书、账号凭据或开发团队标识。
-
-本机已通过官方 Xcode 工具完成真正的无线续期：新签发时间和到期时间均延后，严格校验签名后无线安装成功。提供 Mac 用户后台任务，每四小时检查、剩余三天内尝试续签，不需要 AltStore。Mac 需登录 Xcode 账号并能通过网络连接手机；本次校园网无法互通，个人热点实测可用。安装、停止和日志见[无线续签](docs/sideloading.md)。免费签名仍为 7 天，断网、Mac 关机或账号需要重新验证时可能刷新失败。
-
-当前校园网条件下，这套任务仍需要可达网络和手机解锁，不是保证免操作的续签服务。SideStore 是另一套需额外安装 SideStore 与 LocalDevVPN 的手机方案，本次按用户希望减少额外软件的偏好未切换。
-
-重新生成工程（新增或删除 App Swift 文件后运行）：
+需要 Node.js 24 与 npm：
 
 ```sh
-python3 scripts/generate-project.py
+git clone https://github.com/SakuraWang6/QingRead.git
+cd QingRead/web
+npm ci
+npm run dev
 ```
 
-核心测试与真实网络检查：
+打开 <http://127.0.0.1:5173>。命令会同时启动网页和书源服务；书架内置《桃花源记》，可直接体验阅读。
 
-```sh
-swift test
-swift run reading-probe 三國演義
-swift run reading-probe --source biequgei 这游戏也太真实了
-swift run reading-probe --discovery
-```
+完整命令与浏览器说明见 [Web 指南](web/README.md)。
 
-本机只有 Command Line Tools 时，使用 `bash scripts/verify-core.sh`；脚本会为该环境配置 Swift Testing 的框架搜索路径，所有缓存保留在仓库 `.build` 中。
+### 安装到手机
 
-`reading-probe` 会真正访问来源，并依次验证搜索、目录和第一章；网络或解析失败会返回非零退出码，不回退为示例数据。`--source` 可限定内置来源的 ID；`--discovery` 会验证推荐、六类书目和推荐首本书的目录与正文。
+- **iPhone**：用 Xcode 打开 `QingRead.xcodeproj`，选择模拟器运行；真机安装需配置自己的 Apple Team。见 [iPhone 构建](docs/development.md#iphone) 与 [签名和续签](docs/sideloading.md)。
+- **Android**：按 [Android 指南](web/android/README.md) 构建 APK，或使用仓库的 Android debug APK 工作流。长期分发需自行保管固定签名。
 
-无签名模拟器构建：
+### 开启跨设备同步
 
-```sh
-xcodebuild build -project QingRead.xcodeproj -scheme QingRead \
-  -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath .build/xcode ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
-```
+按 [部署指南](web/deploy/README.md) 自建 HTTPS 服务，让各设备连接同一服务器并登录同一账号。书架、当前位置与 EPUB / PDF / TXT 原文件会同步，朋友使用独立账号即可分别保存数据。同步范围、冲突处理及备份见 [云同步说明](docs/cloud-sync.md)。
 
-Debug 构建支持 `--qingread-preview search|sources|reader|recommendations|categories`；`reader` 打开真实的本地公版样例。可追加 `--reader-mode slide|cover|scroll`、`--reader-controls`、`--reader-settings`、`--reader-catalog`、`--reader-audio`、`--reader-night`、`--reader-listen`、`--reader-ai`。`--reader-self-test` 验证排版和语音状态；`--storage-self-test`、`--cover-self-test` 验证隔离存储与图片缓存；`--kokoro-self-test` 验证 Kokoro 男、女声合成与跨段播放；`--ai-self-test` 验证声库校验及已有模型的真实合成，显式附加 `--download-ai-model` 才会为诊断下载声库。Release 不包含这些入口。`scripts/simulator-preview.py` 运行确定性诊断并保存九张真实界面截图。
+项目不预设公共共享服务器；不登录时，书架和文件保存在当前设备。
 
-## 仓库结构
+## 书源与文件
 
-| 目录 | 职责 |
+内置来源涵盖网络小说、经典文本、公版电子书与开放教材。来源列表、规则格式和验证范围见 [书源说明](docs/sources.md)。原站改版、限流或网络问题可能影响搜索与下载；已缓存正文仍可继续阅读。
+
+EPUB 当前按文本重新排版，复杂版式、图片与脚注跳转尚未完整还原；PDF 按原始页面阅读，暂不支持听书。加密或 DRM 文件不在当前支持范围内。
+
+## 项目结构与文档
+
+| 路径 | 内容 |
 | --- | --- |
-| `App/` | SwiftUI 界面、阅读进度、书架与本机缓存 |
-| `Sources/ReadingCore/` | 来源模型、网络请求、并发搜索和正文解析 |
-| `Sources/ReadingProbe/` | 真实网络端到端检查工具 |
-| `Tests/ReadingCoreTests/` | 确定性解析与搜索行为测试 |
-| `docs/` | 竞品研究、架构、书源格式与验证记录 |
+| `App/` | iPhone 原生界面、阅读器、书架与听书 |
+| `Sources/ReadingCore/` | 书源模型、网络请求、搜索与正文解析 |
+| `Sources/ReadingProbe/` | 实际书源链路检查工具 |
+| `Tests/` | Swift 核心回归测试 |
+| `web/` | Web 界面、API、账号同步与 Android 工程 |
+| `scripts/` | 工程生成、诊断、签名与维护工具 |
+| `docs/` | 使用、开发、部署及验证文档 |
 
-## 书源和限制
+- [文档导航](docs/README.md)
+- [开发与验证](docs/development.md)
+- [已测范围与已知限制](docs/verification.md)
+- [本地维护与清理](docs/maintenance.md)
+- [问题反馈](CONTRIBUTING.md)
 
-第一版使用自己的声明式书源格式；不能宣称完整兼容安卓阅读／Legado 的 JSON 与 JavaScript 引擎。已有阅读书源通常需要改写，复杂登录、动态网页、验证码与多页目录还需要后续适配。
+## 许可
 
-Z-Library 当前未接入在线搜书或章节阅读；它属于整本电子书检索和文件下载服务，本轮没有确认可信的匿名章节接口，未添加空配置。
-
-来源的可访问性取决于网络，网站改版可能使规则失效。首版优先让失败原因可见，并保留已经缓存的章节。软件许可与各来源文本的许可是两回事，原始出处始终保留在作品资料中。
-
-## 研究和验证
-
-- [竞品研究](docs/market-research.md)
-- [架构与首版决策](docs/architecture.md)
-- [书源格式](docs/sources.md)
-- [验证记录](docs/verification.md)
-- [无线续签](docs/sideloading.md)
-- [离线 AI 声库、版本与依赖许可](docs/offline-voice.md)
-
-实际 iPhone 模拟器截图：[书架](docs/previews/library.png) · [搜书](docs/previews/search.png) · [书源](docs/previews/sources.png) · [阅读器](docs/previews/reader.png)。阅读器截图使用随包提供的公版样例，不是虚构网络结果。
-
-本地 iPhone 17 已验证两本用户书单的搜索、目录、首章及重启后继续阅读，见[本地书架截图](docs/previews/local-library.png)。
-
-独立实现，参考竞品的产品行为，没有复制竞品客户端源码。当前原创代码按 Polyform Strict 1.0.0 提供；依赖与模型保留各自许可。预编译 iOS 语音库包含 GPL 等组件，不能将这类组合二进制概括为本项目的限制性许可，也不公开分发此类 iOS 安装包。旧 MIT 授权不因本次换证撤销。实际依赖记录见离线语音文档，完整声明随 App 打包，可在「书源 → 开源许可」查看。
-
-## Web 与 Android
-
-移动端 Web 位于 [`web/`](web/README.md)，包含三列书架、多源搜书、分类推荐、离线缓存、EPUB / PDF / TXT 导入、沉浸阅读设置与系统听书。运行 `cd web && npm ci && npm run dev` 后打开 `http://127.0.0.1:5173`。
-
-Android 工程位于 `web/android`，复用 Web 阅读器，接入返回键、系统安全区和 Android KeyStore 加密登录保存。当前版本 0.8.1 / versionCode 6，尚未在安卓真机运行；离线 AI 语音尚未移植。公开 CI 构建普通调试包，个人固定签名只在私有环境保管，见 [Android 说明](web/android/README.md)。
-
-服务端使用 Node.js 24 与 SQLite，提供可选账号同步。按 [部署说明](web/deploy/README.md) 自建服务器；项目没有默认的公共共享服务器，也不提供邮箱验证或密码找回。iPhone 的同步地址可在「设置 → 账号与同步」填写，Web 与 Android 在「设置 → 服务器连接」配置。详细范围、文件匹配、冲突处理和备份见 [云同步](docs/cloud-sync.md)。
-
-本机构建产物与下载整理、签名数据保留及重建说明见[本地维护](docs/maintenance.md)。
+本项目采用 [Polyform Strict 1.0.0](LICENSE)。历史版本及第三方依赖的许可见 [许可说明](docs/licensing.md)。

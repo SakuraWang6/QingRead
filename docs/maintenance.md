@@ -34,7 +34,7 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 
 ## 开源后的签名与同步数据
 
-公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，已安装后台续签副本已更新至 0.7。
+公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，当前 iPhone 应用与后台续签副本均为 0.8.2/build 10。
 
 服务器 `app-data` 保存持久化账号、书架数据库和 `files` 原文件，清理时必须完整保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。只删除已成功加载且有原镜像可回滚的 incoming 安装归档和确认可重建的本机构建缓存。`.private/backups/phone-before-sync-06` 保存同步升级前的手机数据，不进入 Git。
 
@@ -46,3 +46,7 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 - 临时页面、封面测速副本、设备枚举和一次性部署脚本完成任务后移除；验证结论保留在 [验证记录](verification.md)。
 - 当前交付件保留在工作区 outputs；较早截图、试听和旧版 APK 归档，服务器连接参数和设备日志进入私有目录。
 - `.private` 目录权限应为 700，签名配置与密钥文件为 600。整理后仍需检查当前 App 严格签名校验与后台续签任务。
+
+## 阅读修复后的整理（2026-10-21）
+
+Web/API 与 Android 为 0.8.1，iPhone 为 0.8.2/build 10。本轮专用模拟器的重复构建目录（约 1.2 GB）、未签名 APK、传输归档与临时测试数据库已清理，本地 8791 测试服务已停止；当前设备构建、独立续签副本、固定签名与手机数据备份保留。诊断日志位于忽略的 `.private/audit/reader-08`，旧安装包和截图保留在工作区归档中。
