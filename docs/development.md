@@ -6,7 +6,7 @@
 
 以下 iPhone 和 Swift 命令均在仓库根目录执行。Web 与 Android 的命令分别见本文后续入口。
 
-当前 iPhone 版本为 0.8.2/build 10。需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
+当前 iPhone 版本为 0.9.0/build 11。需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
 
 1. 打开 `QingRead.xcodeproj`，选择 `QingRead` scheme。
 2. 先选择 iPhone 模拟器运行，无需付费开发者账号。

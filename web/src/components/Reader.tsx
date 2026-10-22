@@ -7,6 +7,7 @@ import { pageForOffset, paginateText, paragraphSlices, safeOffset, type TextPage
 import { bookPageNumber, estimateBookPages, pageAtFraction, pageFraction, pageLocation, swipeTurn } from '../lib/bookProgress';
 import { ReaderDeviceStatus } from './ReaderDeviceStatus';
 import { ReaderSpeech } from '../lib/speech';
+import { canManageChapters, DownloadManager, DownloadOptions, SourcePicker } from './ReadingWorkflows';
 import { useAndroidBack } from '../lib/android';
 import './Reader.css';
 
@@ -47,6 +48,8 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [controls, setControls] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
+  const [workflow, setWorkflow] = useState<'source'|'download'|'manager'|null>(null);
+  const checkingEnd = useRef(false);
   const [pages, setPages] = useState<TextPage[]>([]);
   const pagesRef = useRef(pages); pagesRef.current = pages;
   const [page, setPage] = useState(0);
@@ -63,7 +66,6 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   const [chapterStates, setChapterStates] = useState<Record<string, { cached: boolean; progress?: number }>>({});
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [speechState, setSpeechState] = useState({ speaking: false, paused: false });
-  const [cacheBusy, setCacheBusy] = useState(false);
   const [cacheNotice, setCacheNotice] = useState('');
   const [sliderValue, setSliderValue] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -74,7 +76,6 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   const pointer = useRef<{ x: number; y: number; time: number; edge: boolean } | null>(null);
   const speech = useRef(new ReaderSpeech());
   const continueSpeech = useRef(false);
-  const cacheController = useRef<AbortController | null>(null);
   const layoutFrame = useRef<number | null>(null);
   const layoutEpoch = useRef(0);
   const text = content?.paragraphs.join('\n') ?? '';
@@ -97,12 +98,12 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
     const offset = safeOffset(textRef.current, value);
     anchorRef.current = offset; setAnchor(offset);
   }, []);
-  useAndroidBack(() => { if (panel) setPanel(null); else close(); return true; }, 300);
+  useAndroidBack(() => { if (workflow) { setWorkflow(null); return true; } if (panel) setPanel(null); else close(); return true; }, 300);
 
   useEffect(() => {
     const original = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = original; speech.current.stop(); cacheController.current?.abort(); };
+    return () => { document.body.style.overflow = original; speech.current.stop(); };
   }, []);
 
   useEffect(() => {
@@ -289,12 +290,12 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   }
 
   function turn(direction: number) {
-    if (loading || layoutPendingRef.current || !content || panel) return;
+    if (loading || layoutPendingRef.current || !content || panel || workflow) return;
     setControls(false);
     if (isScroll) {
       const scroll = scrollRef.current;
       if (!scroll) return;
-      if (direction > 0 && scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 4) changeChapter(index + 1);
+      if (direction > 0 && scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 4) { if (index < chapters.length - 1) changeChapter(index + 1); else void checkAtEnd(); }
       else if (direction < 0 && scroll.scrollTop <= 1) changeChapter(index - 1, { lastPage: true });
       else scroll.scrollBy({ top: direction * viewport.height * .88, behavior: 'smooth' });
       return;
@@ -303,7 +304,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
     if (next < 0) { if (index > 0) changeChapter(index - 1, { lastPage: true }); return; }
     if (next >= pages.length) {
       setOffset(text.length);
-      if (index < chapters.length - 1) changeChapter(index + 1); else setCacheNotice('已经读到全书末尾');
+      if (index < chapters.length - 1) changeChapter(index + 1); else void checkAtEnd();
       return;
     }
     setTransition(`${settings.turnMode}-${direction > 0 ? 'next' : 'previous'}`);
@@ -312,7 +313,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement).matches('input,select,textarea')) return;
+      if (workflow || (event.target as HTMLElement).closest('.workflow-sheet') || (event.target as HTMLElement).matches('input,select,textarea')) return;
       if (event.key === 'Escape') { if (panel) setPanel(null); else close(); }
       if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); turn(1); }
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turn(-1); }
@@ -404,23 +405,37 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
   }, [currentChapter?.id]);
   useEffect(() => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = speechState.speaking ? speechState.paused ? 'paused' : 'playing' : 'none'; }, [speechState]);
 
-  async function cacheWholeBook() {
-    if (cacheBusy) { cacheController.current?.abort(); return; }
-    const controller = new AbortController(); cacheController.current = controller;
-    setCacheBusy(true); setCacheNotice('');
-    let successes = 0; let failures = 0;
-    try {
-      for (const chapter of chapters) {
-        if (controller.signal.aborted) return;
-        if (await library.hasContent(book, chapter)) { successes++; continue; }
-        try { await library.loadContent(book, chapter, controller.signal); successes++; }
-        catch { if (controller.signal.aborted) return; failures++; }
-        setCacheNotice(`缓存中 ${successes + failures}/${chapters.length}`);
-      }
-      await refreshChapterStates(); setCacheNotice(`已缓存 ${successes} 章${failures ? `，${failures} 章未成功，可稍后重试` : '，断网也能读'}`);
-    } catch (reason) { if (!controller.signal.aborted) setCacheNotice(message(reason)); }
-    finally { setCacheBusy(false); cacheController.current = null; }
+  function openWorkflow(value: 'source'|'download'|'manager') {
+    speech.current.pause(); setPanel(null); setControls(false); setWorkflow(value);
   }
+  async function checkAtEnd() {
+    if (!canManageChapters(book)) { setCacheNotice('已读到末尾'); return; }
+    if (checkingEnd.current) return;
+    checkingEnd.current = true;
+    const owner = library;
+    try {
+      const result = await owner.checkForUpdates(book, { force: true });
+      if (library !== owner) return;
+      const items = await owner.getChapters(book);
+      const current = items?.findIndex(chapter => chapter.id === currentChapter?.id) ?? -1;
+      if (items && current >= 0 && current < items.length - 1) {
+        targetRef.current = { chapterID: items[current + 1].id, offset: 0 };
+        setChapters(items); setIndex(current + 1);
+      } else setCacheNotice(result.failures.length ? '暂未能检查更新，稍后重试' : '已读到最新章节');
+    } catch (reason) { if (library === owner) setCacheNotice(message(reason)); }
+    finally { checkingEnd.current = false; }
+  }
+  useEffect(() => {
+    const owner = library;
+    let live = true;
+    if (checkingEnd.current || !state.updates[book.id]?.checkedAt) return;
+    void owner.getChapters(book).then(items => {
+      if (!live || library !== owner || !items?.length || items.map(item => item.id).join('\0') === chapters.map(item => item.id).join('\0')) return;
+      const current = items.findIndex(item => item.id === currentChapter?.id);
+      if (current >= 0) { targetRef.current = { chapterID: items[current].id, offset: anchorRef.current }; setChapters(items); setIndex(current); }
+    });
+    return () => { live = false; };
+  }, [state.updates[book.id]?.checkedAt]);
 
   const style: CSSProperties = {
     '--reader-font-size': `${settings.fontSize}px`, '--reader-line-height': `${settings.fontSize + settings.lineSpacing}px`,
@@ -439,17 +454,17 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
         : error ? <div className="reader-status" role="alert"><p>{error}</p><button onClick={() => { if (!chapters.length) setCatalogRetry(value => value + 1); else setRetry(value => value + 1); }}><RefreshCw size={16}/>重试</button><button onClick={close}>返回书架</button></div>
         : <div ref={scrollRef} className={`reader-text ${isScroll ? 'reader-scroll-text' : `reader-page reader-${transition}`}`} key={isScroll ? 'scroll' : `${currentChapter?.id}-${page}`} onAnimationEnd={() => setTransition('')} onScroll={isScroll ? handleScroll : undefined}>
           {visibleText.map(part => <p key={part.start} data-start={part.start} className={part.continuation ? 'reader-continuation' : undefined}>{part.text || '\u200b'}</p>)}
-          {isScroll && <div className="reader-chapter-actions"><button disabled={index === 0} onClick={() => changeChapter(index - 1)}>上一章</button><button disabled={index === chapters.length - 1} onClick={() => changeChapter(index + 1)}>下一章</button></div>}
+          {isScroll && <div className="reader-chapter-actions"><button disabled={index === 0} onClick={() => changeChapter(index - 1)}>上一章</button><button onClick={() => { if (index < chapters.length - 1) changeChapter(index + 1); else void checkAtEnd(); }}>下一章</button></div>}
         </div>}
       <div ref={measureRef} className="reader-text reader-measure" aria-hidden="true" />
     </main>
     <footer className="reader-running-foot"><span aria-label={`阅读进度，第 ${wholePage} 页，共 ${totalPages} 页`}>{wholePage} / {totalPages}</span><ReaderDeviceStatus/></footer>
 
     {controls && !panel && <>
-      <header className="reader-toolbar reader-topbar"><button onClick={close} aria-label="返回书架"><ArrowLeft/></button><span>{book.title}</span><button onClick={() => { void cacheWholeBook(); }} aria-label={cacheBusy ? '停止缓存' : '缓存整本书'}>{cacheBusy ? <X/> : <Download/>}</button></header>
+      <header className="reader-toolbar reader-topbar"><button onClick={close} aria-label="返回书架"><ArrowLeft/></button><span>{book.title}</span>{canManageChapters(book) ? <div className="reader-top-actions"><button onClick={() => openWorkflow('source')} aria-label="换源"><RefreshCw size={20}/></button><button onClick={() => openWorkflow('download')} aria-label="下载章节"><Download size={20}/></button></div> : <span/>}</header>
       <div className="reader-toolbar reader-bottom-controls">
         <div className="reader-progress-label"><span>{pageAtFraction(sliderValue??totalFraction,totalPages)} / {totalPages} 页</span><span>{((sliderValue ?? totalFraction) * 100).toFixed(1)}%</span></div>
-        <div className="reader-progress-row"><button onClick={() => changeChapter(index - 1)} disabled={layoutPending || index === 0} aria-label="上一章"><ChevronLeft size={20}/></button><input aria-label="阅读进度" type="range" min="0" max="1" step={1/Math.max(1,totalPages-1)} disabled={layoutPending} value={sliderValue ?? totalFraction} onChange={event => setSliderValue(Number(event.target.value))} onPointerUp={event => { if (layoutPendingRef.current) { setSliderValue(null); return; } const value = Number(event.currentTarget.value); const location = pageLocation(value, bookPages); changeChapter(location.index, location.index===index&&pages[location.pageIndex]?{offset:pages[location.pageIndex].start}:{ fraction: location.fraction },false,false); setSliderValue(null); }} onKeyUp={event => { if (!layoutPendingRef.current && (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End')) { const location = pageLocation(Number(event.currentTarget.value), bookPages); changeChapter(location.index, location.index===index&&pages[location.pageIndex]?{offset:pages[location.pageIndex].start}:{ fraction: location.fraction },false,false); setSliderValue(null); } }}/><button onClick={() => changeChapter(index + 1)} disabled={layoutPending || index === chapters.length - 1} aria-label="下一章"><ChevronRight size={20}/></button></div>
+        <div className="reader-progress-row"><button onClick={() => changeChapter(index - 1)} disabled={layoutPending || index === 0} aria-label="上一章"><ChevronLeft size={20}/></button><input aria-label="阅读进度" type="range" min="0" max="1" step={1/Math.max(1,totalPages-1)} disabled={layoutPending} value={sliderValue ?? totalFraction} onChange={event => setSliderValue(Number(event.target.value))} onPointerUp={event => { if (layoutPendingRef.current) { setSliderValue(null); return; } const value = Number(event.currentTarget.value); const location = pageLocation(value, bookPages); changeChapter(location.index, location.index===index&&pages[location.pageIndex]?{offset:pages[location.pageIndex].start}:{ fraction: location.fraction },false,false); setSliderValue(null); }} onKeyUp={event => { if (!layoutPendingRef.current && (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End')) { const location = pageLocation(Number(event.currentTarget.value), bookPages); changeChapter(location.index, location.index===index&&pages[location.pageIndex]?{offset:pages[location.pageIndex].start}:{ fraction: location.fraction },false,false); setSliderValue(null); } }}/><button onClick={() => { if (index < chapters.length - 1) changeChapter(index + 1); else void checkAtEnd(); }} disabled={layoutPending} aria-label="下一章"><ChevronRight size={20}/></button></div>
         <nav className="reader-tools"><button onClick={() => setPanel('catalog')}><List/><span>目录</span></button><button onClick={() => setPanel('speech')}><Headphones/><span>听书</span></button><button onClick={() => void library.updateSettings({ isNightMode: !settings.isNightMode })}>{settings.isNightMode ? <Sun/> : <Moon/>}<span>{settings.isNightMode ? '日间' : '夜间'}</span></button><button onClick={() => setPanel('settings')}><Settings2/><span>设置</span></button></nav>
       </div>
     </>}
@@ -461,7 +476,7 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
           <div className="reader-catalog-summary"><strong>{book.title}</strong><span>共 {chapters.length} 章 · 已缓存 {Object.values(chapterStates).filter(item => item.cached).length} 章</span></div>
           <label className="reader-catalog-search"><Search size={17}/><input placeholder="搜索章节" value={query} onChange={event => setQuery(event.target.value)}/></label>
           <div className="reader-catalog-list">{visibleChapters.map(chapter => { const status = chapterStates[chapter.id]; const selected = chapter.id === currentChapter?.id; return <button key={chapter.id} className={selected ? 'reader-current-chapter' : ''} onClick={() => changeChapter(chapters.findIndex(item => item.id === chapter.id))}><span>{chapter.title}</span><small>{selected ? `读至 ${Math.round(fraction * 100)}%` : status?.progress !== undefined ? `读过 ${Math.round(status.progress * 100)}%` : '未读'}<i>·</i>{status?.cached ? '已缓存' : '未缓存'}</small></button>; })}{!visibleChapters.length && <p className="reader-empty">没有找到章节</p>}</div>
-          <button className="reader-cache-all" onClick={() => void cacheWholeBook()}>{cacheBusy ? <X size={17}/> : <Download size={17}/>} {cacheBusy ? '停止缓存' : '缓存整本书'}</button>
+          {canManageChapters(book) && <div className="reader-download-actions"><button className="reader-cache-all" onClick={() => openWorkflow('download')}><Download size={17}/>下载章节</button><button className="reader-cache-all" onClick={() => openWorkflow('manager')}>下载管理</button></div>}
         </> : panel === 'settings' ? <ReaderSettingsControls settings={settings}/> : <div className="reader-speech-controls">
           <p className="reader-muted">使用浏览器系统音色。可用音色和离线能力由设备决定；锁屏与后台播放受浏览器限制。</p>
           <label>音色<select value={settings.speechVoiceIdentifier} onChange={event => void library.updateSettings({ speechVoiceIdentifier: event.target.value })}><option value="">系统默认中文</option>{voices.map(voice => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}{voice.localService ? ' · 本机' : ''}</option>)}</select></label>
@@ -472,6 +487,9 @@ function TextReader({ book, onClose, initialChapterID }: ReaderProps) {
         </div>}
       </section>
     </div>}
+    {workflow === 'source' && <SourcePicker book={book} onClose={() => setWorkflow(null)} onChanged={() => setWorkflow(null)}/>}
+    {workflow === 'download' && <DownloadOptions book={book} chapters={chapters} onClose={() => setWorkflow(null)} onQueued={() => setWorkflow('manager')}/>}
+    {workflow === 'manager' && <DownloadManager onClose={() => setWorkflow(null)}/>}
     {cacheNotice && <div className="reader-toast" role="status" onClick={() => setCacheNotice('')}>{cacheNotice}<button aria-label="关闭提示"><X size={14}/></button></div>}
   </div>;
 }

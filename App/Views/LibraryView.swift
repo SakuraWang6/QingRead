@@ -53,6 +53,8 @@ struct LibraryView: View {
             }.padding(.horizontal, 20).padding(.bottom, 28)
         }
         .background(Palette.paper)
+        .refreshable { await store.checkShelfUpdates(force: true) }
+        .task { await store.checkShelfUpdates() }
         .navigationTitle("书架").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -60,6 +62,9 @@ struct LibraryView: View {
                     .accessibilityLabel("搜索小说")
                 PublicationImportButton(iconOnly: true) { readingBook = $0 }
                 Menu {
+                    Button { Task { await store.checkShelfUpdates(force: true) } } label: { Label(store.checkingUpdates ? "检查中…" : "检查更新", systemImage: "arrow.clockwise") }
+                        .disabled(store.checkingUpdates)
+                    NavigationLink { DownloadManagerView() } label: { Label("下载管理", systemImage: "arrow.down.circle") }
                     Button { readingBook = LocalSample.book } label: { Label("本地阅读示例", systemImage: "doc.text") }
                     if !store.shelf.isEmpty {
                         Button { isManaging.toggle() } label: { Label(isManaging ? "完成管理" : "管理书架", systemImage: "square.grid.3x3") }
@@ -90,6 +95,14 @@ struct LibraryView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 7) {
                     BookCoverView(book: entry.book)
+                        .overlay(alignment: .topTrailing) {
+                            if store.newChapterCount(for: entry.book) > 0 {
+                                Text("更新 \(store.newChapterCount(for: entry.book)) 章")
+                                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.white)
+                                    .padding(.horizontal, 6).padding(.vertical, 4)
+                                    .background(Palette.cinnabar, in: RoundedRectangle(cornerRadius: 4)).padding(4)
+                            }
+                        }
                     Text(entry.book.title).font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Palette.ink).lineLimit(2, reservesSpace: true)
                         .frame(maxWidth: .infinity, alignment: .leading)

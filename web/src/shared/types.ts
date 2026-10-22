@@ -37,5 +37,24 @@ export const defaultSettings: ReaderSettings = {
   turnMode:'slide', font:'song', isBold:false, horizontalMargin:24,
   speechRate:1, speechVoiceIdentifier:'', speechEngine:'system', kokoroVoiceID:46,
 };
-export interface LibraryState { ready: boolean; shelf: ShelfEntry[]; settings: ReaderSettings; sources: SourceDefinition[]; disabledSourceIDs: string[]; storageError?: string }
+export interface LibraryState { ready: boolean; shelf: ShelfEntry[]; settings: ReaderSettings; sources: SourceDefinition[]; disabledSourceIDs: string[]; updates: Record<string, BookUpdateState>; checkingUpdates: boolean; downloads: ChapterDownloadJob[]; storageError?: string }
 export interface LocalPublication { book: Book; chapters: Chapter[]; contents: ChapterContent[]; file?: Blob; cover?: Blob }
+
+/** Account-local metadata. It is intentionally absent from the cloud sync schema. */
+export interface BookUpdateState {
+  knownChapterCount: number; lastKnownChapterID?: string; lastKnownChapterTitle?: string;
+  unreadChapterIDs: string[]; checkedAt?: string; checking?: boolean; error?: string;
+}
+export interface UpdateCheckResult { checked: number; updated: number; failures: string[] }
+export type ChapterDownloadStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export interface ChapterDownloadJob {
+  id: string; bookID: string; bookTitle: string; sourceID: string; sourceURL: string;
+  status: ChapterDownloadStatus; chapterIDs: string[]; total: number; completed: number;
+  completedChapterIDs: string[]; failedChapterIDs: string[]; error?: string;
+  createdAt: string; updatedAt: string;
+}
+export type ChapterDownloadSelection = { kind: 'next'; count: 50 | 100 } | { kind: 'all' } | { kind: 'range'; from: number; to: number };
+export interface SourceSwitchPlan {
+  bookID: string; originalSourceID: string; originalURL: string; candidate: Book; chapters: Chapter[];
+  position?: ReadingPosition; matchedChapterID?: string; match: 'title' | 'number' | 'manual';
+}

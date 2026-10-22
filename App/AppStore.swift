@@ -18,8 +18,17 @@ final class AppStore: ObservableObject {
     @Published private(set) var disabledSourceIDs: Set<String> = []
     @Published private(set) var settings = ReaderSettings()
     @Published private(set) var cacheRevision = 0
+    @Published private(set) var profileRevision = 0
     @Published private(set) var importedBooks: [String: ImportedBookRecord] = [:]
     @Published var storageMessage: String?
+    @Published private(set) var updateTracking: [String: BookUpdateTracking] = [:]
+    @Published private(set) var checkingUpdates = false
+    @Published private(set) var downloads: [ChapterDownloadTask] = []
+    private var updateCheckTask: Task<Void, Never>?
+    private var downloadWorker: Task<Void, Never>?
+    private var downloadWorkerID: UUID?
+    private var workflowGeneration = UUID()
+    private var endCheckTimes: [String: Date] = [:]
 
     lazy var cloud = NativeCloudSync(store: self)
 
@@ -34,6 +43,7 @@ final class AppStore: ObservableObject {
         let id: UUID
         let bookID: String
         let task: Task<ChapterContent, Error>
+        var downloadOnly: Bool
     }
     private var contentRequests: [String: ContentRequest] = [:]
     private var prefetchTask: Task<Void, Never>?
@@ -53,6 +63,7 @@ final class AppStore: ObservableObject {
     }
 
     private func loadProfileStorage() {
+        updateTracking=[:];downloads=[];checkingUpdates=false;
         shelf=[];importedBooks=[:];importedSources=[];disabledSourceIDs=[];chapterProgresses=[:];settings=ReaderSettings();sources=SourceDefinition.builtIn
         do {
             try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
@@ -69,6 +80,10 @@ final class AppStore: ObservableObject {
             }
             settings = try read(ReaderSettings.self, name: "reader-settings.json") ?? ReaderSettings()
             chapterProgresses = try read([String: [String: Double]].self, name: "chapter-progress.json") ?? [:]
+            updateTracking = try read([String: BookUpdateTracking].self, name: "update-tracking.json") ?? [:]
+            downloads = try read([ChapterDownloadTask].self, name: "chapter-downloads.json") ?? []
+            for index in downloads.indices where [.running, .queued].contains(downloads[index].status) { downloads[index].status = .paused }
+            persistDownloads()
             // A legacy position proves only that specific chapter was visited.
             for entry in shelf {
                 if let position = entry.position, chapterProgresses[entry.id]?[position.chapterID] == nil {
@@ -83,7 +98,8 @@ final class AppStore: ObservableObject {
     }
 
     func selectCloudProfile(_ key: String?) throws {
-        cacheGeneration=UUID();prefetchTask?.cancel();cancelContentRequests()
+        profileRevision += 1
+        stopProfileWorkflows();cacheGeneration=UUID();prefetchTask?.cancel();cancelContentRequests()
         root=key.map { guestRoot.appendingPathComponent("Accounts/"+stableKey($0),isDirectory:true) } ?? guestRoot
         cacheRoot=root.appendingPathComponent("ChapterCache",isDirectory:true)
         try FileManager.default.createDirectory(at:cacheRoot,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
@@ -93,6 +109,11 @@ final class AppStore: ObservableObject {
     func saveCloudState(_ value: NativeCloudLocalState) throws { try encoder.encode(value).write(to:root.appendingPathComponent("cloud-state.json"),options:.atomic) }
     func replaceCloudShelf(_ value: [ShelfEntry]) throws {
         try encoder.encode(value).write(to:root.appendingPathComponent("library.json"),options:.atomic)
+        for old in shelf {
+            if let incoming = value.first(where: { $0.id == old.id }) {
+                if sourceFingerprint(old.book) != sourceFingerprint(incoming.book) { invalidateSourceCache(old.book) }
+            } else { invalidateSourceCache(old.book) }
+        }
         shelf=value
         for entry in value { if let p=entry.position { chapterProgresses[entry.id,default:[:]][p.chapterID]=max(chapterProgresses[entry.id]?[p.chapterID] ?? 0,p.chapterFraction) } }
         persist(chapterProgresses,name:"chapter-progress.json")
@@ -150,6 +171,8 @@ final class AppStore: ObservableObject {
     }
 
     func remove(_ book: Book) {
+        cancelDownloads(for: book.id)
+        updateTracking.removeValue(forKey: book.id); persist(updateTracking, name: "update-tracking.json")
         bookCacheGenerations[book.id] = UUID()
         cancelPrefetch(for: book)
         cancelContentRequests(for: book.id)
@@ -170,6 +193,7 @@ final class AppStore: ObservableObject {
     }
 
     func savePosition(book: Book, chapter: Chapter, index: Int, characterOffset: Int, fraction: Double) {
+        if let current = shelf.first(where: { $0.id == book.id }), sourceFingerprint(current.book) != sourceFingerprint(book) { return }
         let position = ReadingPosition(chapterID: chapter.id, chapterIndex: index,
                                        characterOffset: max(0, characterOffset),
                                        chapterFraction: min(1, max(0, fraction)), updatedAt: Date())
@@ -183,6 +207,7 @@ final class AppStore: ObservableObject {
         let furthest = max(chapterProgresses[book.id]?[chapter.id] ?? 0, position.chapterFraction)
         chapterProgresses[book.id, default: [:]][chapter.id] = furthest
         persist(chapterProgresses, name: "chapter-progress.json")
+        acknowledgeUpdates(book: book, through: index)
     }
 
     func chapterProgress(for chapter: Chapter, in book: Book) -> Double? { chapterProgresses[book.id]?[chapter.id] }
@@ -199,7 +224,10 @@ final class AppStore: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool, source: SourceDefinition) {
-        if enabled { disabledSourceIDs.remove(source.id) } else { disabledSourceIDs.insert(source.id) }
+        if enabled { disabledSourceIDs.remove(source.id) } else {
+            disabledSourceIDs.insert(source.id)
+            for id in downloads.filter({ $0.book.sourceID == source.id && [.queued, .running].contains($0.status) }).map(\.id) { pauseDownload(id) }
+        }
         persistSources()
     }
 
@@ -223,6 +251,7 @@ final class AppStore: ObservableObject {
 
     func removeSource(_ source: SourceDefinition) {
         guard !isBuiltIn(source) else { return }
+        for id in downloads.filter({ $0.book.sourceID == source.id && [.queued, .running].contains($0.status) }).map(\.id) { pauseDownload(id) }
         importedSources.removeAll { $0.id == source.id }
         disabledSourceIDs.remove(source.id)
         rebuildSources()
@@ -242,11 +271,18 @@ final class AppStore: ObservableObject {
         }
         let cache = bookCacheDirectory(book).appendingPathComponent("catalog.json")
         if !refresh, let chapters = try? decoder.decode([Chapter].self, from: Data(contentsOf: cache)), !chapters.isEmpty { return chapters }
+        let previous = try? decoder.decode([Chapter].self, from: Data(contentsOf: cache))
         let generation = cacheGeneration
         let bookGeneration = bookCacheGenerations[book.id]
         let chapters = try await ReadingService(sources: sources, client: contentClient).chapters(for: book)
         try Task.checkCancellation()
-        guard cacheGeneration == generation, bookCacheGenerations[book.id] == bookGeneration else { return chapters }
+        guard cacheGeneration == generation, bookCacheGenerations[book.id] == bookGeneration else { throw CancellationError() }
+        guard !chapters.isEmpty else { throw AppError.message("来源没有返回可读章节。") }
+        if isSaved(book), book.publicationFormat == nil {
+            var tracking = updateTracking[book.id] ?? BookUpdateTracking()
+            tracking.refreshed(chapters, previous: previous, readIndex: position(for: book)?.chapterIndex)
+            updateTracking[book.id] = tracking; persist(updateTracking, name: "update-tracking.json")
+        }
         do { try writeCache(chapters, to: cache) }
         catch { storageMessage = "目录已获取，但离线保存失败：\(error.localizedDescription)" }
         return chapters
@@ -259,7 +295,7 @@ final class AppStore: ObservableObject {
         return content
     }
 
-    func content(for chapter: Chapter, in book: Book) async throws -> ChapterContent {
+    func content(for chapter: Chapter, in book: Book, forDownload: Bool = false) async throws -> ChapterContent {
         if book.id == LocalSample.book.id { return LocalSample.content }
         if importedBooks[book.id] != nil {
             return try decoder.decode(ChapterContent.self, from: Data(contentsOf: importedDirectory(book).appendingPathComponent("chapter-\(chapter.index).json")))
@@ -268,12 +304,14 @@ final class AppStore: ObservableObject {
         if let content = try? decoder.decode(ChapterContent.self, from: Data(contentsOf: cache)), !content.paragraphs.isEmpty { return content }
         let key = cache.path
         if let existing = contentRequests[key] {
+            if !forDownload { contentRequests[key]?.downloadOnly = false }
             let result = try await existing.task.value
             try Task.checkCancellation()
             return result
         }
         let id = UUID()
         let service = ReadingService(sources: sources, client: contentClient)
+        let generation = cacheGeneration, bookGeneration = bookCacheGenerations[book.id]
         let task = Task { @MainActor [weak self] () throws -> ChapterContent in
             defer {
                 if self?.contentRequests[key]?.id == id {
@@ -283,14 +321,14 @@ final class AppStore: ObservableObject {
             }
             let content = try await service.content(for: chapter, in: book)
             try Task.checkCancellation()
-            guard let self else { throw CancellationError() }
+            guard let self, self.cacheGeneration == generation, self.bookCacheGenerations[book.id] == bookGeneration else { throw CancellationError() }
             do {
                 try self.writeCache(content, to: cache)
                 self.cacheRevision += 1
             } catch { self.storageMessage = "正文已获取，但离线保存失败：\(error.localizedDescription)" }
             return content
         }
-        contentRequests[key] = ContentRequest(id: id, bookID: book.id, task: task)
+        contentRequests[key] = ContentRequest(id: id, bookID: book.id, task: task, downloadOnly: forDownload)
         cacheRevision += 1
         let content = try await task.value
         try Task.checkCancellation()
@@ -348,6 +386,8 @@ final class AppStore: ObservableObject {
     }
 
     func clearCache() {
+        stopAllDownloads()
+        updateCheckTask?.cancel(); updateCheckTask = nil; checkingUpdates = false
         cacheGeneration = UUID()
         prefetchTask?.cancel()
         prefetchTask = nil
@@ -530,4 +570,256 @@ enum LocalSample {
         "既出，得其船，便扶向路，处处志之。及郡下，诣太守，说如此。太守即遣人随其往，寻向所志，遂迷，不复得路。",
         "南阳刘子骥，高尚士也，闻之，欣然规往。未果，寻病终。后遂无问津者。"
     ])
+}
+
+struct SourceSwitchPlan {
+    let book: Book
+    let candidate: Book
+    let chapters: [Chapter]
+    let matchedIndex: Int?
+    let fraction: Double
+    fileprivate let profileGeneration: UUID
+    fileprivate let cacheGeneration: UUID
+    fileprivate let sourceFingerprint: String
+    fileprivate let requiresSavedBook: Bool
+    fileprivate let bookGeneration: UUID?
+}
+
+extension AppStore {
+    func sourceFingerprint(_ book: Book) -> String { book.sourceID + "|" + book.url.absoluteString }
+    func currentBook(_ book: Book) -> Book { shelf.first(where: { $0.id == book.id })?.book ?? book }
+    func cachedChapters(for book: Book) -> [Chapter]? {
+        try? decoder.decode([Chapter].self, from: Data(contentsOf: bookCacheDirectory(book).appendingPathComponent("catalog.json")))
+    }
+    func newChapterCount(for book: Book) -> Int { updateTracking[book.id]?.newChapterIDs.count ?? 0 }
+    private func acknowledgeUpdates(book: Book, through index: Int) {
+        guard var tracking = updateTracking[book.id], !tracking.newChapterIDs.isEmpty else { return }
+        let consumed = Set(tracking.chapterIDs.prefix(max(0, index + 1)))
+        tracking.newChapterIDs.removeAll { consumed.contains($0) }
+        updateTracking[book.id] = tracking; persist(updateTracking, name: "update-tracking.json")
+    }
+    func checkShelfUpdates(force: Bool = false) async {
+        if let updateCheckTask { await updateCheckTask.value; return }
+        let generation = workflowGeneration
+        checkingUpdates = true
+        let work = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let books = self.shelf.map(\.book).filter { $0.publicationFormat == nil && $0.fileDownloadURL == nil && self.enabledSourceIDs.contains($0.sourceID) }
+            for book in books {
+                guard !Task.isCancelled, self.workflowGeneration == generation else { return }
+                let cooldown: TimeInterval = force ? 60 : 15 * 60
+                if let last = self.updateTracking[book.id]?.lastAttemptAt ?? self.updateTracking[book.id]?.checkedAt, Date().timeIntervalSince(last) < cooldown { continue }
+                var tracking = self.updateTracking[book.id] ?? BookUpdateTracking()
+                tracking.lastAttemptAt = Date(); self.updateTracking[book.id] = tracking
+                self.persist(self.updateTracking, name: "update-tracking.json")
+                do { _ = try await self.chapters(for: book, refresh: true) }
+                catch is CancellationError { return }
+                catch { /* Keep the last successful catalog and badge. */ }
+            }
+        }
+        updateCheckTask = work
+        await work.value
+        if generation == workflowGeneration { updateCheckTask = nil; checkingUpdates = false }
+    }
+    func refreshedEndCatalog(for book: Book) async throws -> [Chapter] {
+        if let date = endCheckTimes[book.id], Date().timeIntervalSince(date) < 60, let cached = cachedChapters(for: book) { return cached }
+        endCheckTimes[book.id] = Date()
+        return try await chapters(for: book, refresh: true)
+    }
+    private func stopProfileWorkflows() {
+        workflowGeneration = UUID(); endCheckTimes = [:]
+        updateCheckTask?.cancel(); updateCheckTask = nil; checkingUpdates = false
+        stopAllDownloads()
+    }
+    private func invalidateSourceCache(_ book: Book) {
+        bookCacheGenerations[book.id] = UUID()
+        cancelPrefetch(for: book); cancelContentRequests(for: book.id); cancelDownloads(for: book.id)
+        try? FileManager.default.removeItem(at: bookCacheDirectory(book))
+        chapterProgresses.removeValue(forKey: book.id)
+        updateTracking.removeValue(forKey: book.id)
+        persist(chapterProgresses, name: "chapter-progress.json"); persist(updateTracking, name: "update-tracking.json")
+        cacheRevision += 1
+    }
+    func sourceCandidates(for book: Book) async -> [Book] {
+        guard book.publicationFormat == nil, book.fileDownloadURL == nil else { return [] }
+        let response = await search(book.title)
+        return response.books.filter { enabledSourceIDs.contains($0.sourceID) && SourceProgressMatcher.isCandidate($0, for: book) }
+    }
+    func prepareSourceSwitch(from book: Book, to candidate: Book, currentChapters: [Chapter]? = nil) async throws -> SourceSwitchPlan {
+        guard enabledSourceIDs.contains(candidate.sourceID), SourceProgressMatcher.isCandidate(candidate, for: book) else { throw AppError.message("此来源不适合当前书籍。") }
+        let profile = workflowGeneration, generation = cacheGeneration, fingerprint = sourceFingerprint(book)
+        let saved = position(for: book), wasSaved = isSaved(book), bookGeneration = bookCacheGenerations[book.id]
+        let old = currentChapters ?? cachedChapters(for: book) ?? []
+        let current = saved.flatMap { position in old.first(where: { $0.id == position.chapterID }) ?? (old.indices.contains(position.chapterIndex) ? old[position.chapterIndex] : nil) }
+        let chapters = try await ReadingService(sources: sources, client: contentClient).chapters(for: candidate)
+        try Task.checkCancellation()
+        guard profile == workflowGeneration, generation == cacheGeneration, !chapters.isEmpty else { throw CancellationError() }
+        let matched = current.flatMap { SourceProgressMatcher.matchedIndex(title: $0.title, in: chapters) }
+        return SourceSwitchPlan(book: book, candidate: candidate, chapters: chapters, matchedIndex: saved == nil ? 0 : matched,
+                                fraction: saved?.chapterFraction ?? 0, profileGeneration: profile, cacheGeneration: generation,
+                                sourceFingerprint: fingerprint, requiresSavedBook: wasSaved, bookGeneration: bookGeneration)
+    }
+    private func validate(_ plan: SourceSwitchPlan) throws {
+        guard plan.profileGeneration == workflowGeneration, plan.cacheGeneration == cacheGeneration,
+              enabledSourceIDs.contains(plan.candidate.sourceID), (!plan.requiresSavedBook || isSaved(plan.book)),
+              sourceFingerprint(currentBook(plan.book)) == plan.sourceFingerprint,
+              bookCacheGenerations[plan.book.id] == plan.bookGeneration else { throw CancellationError() }
+    }
+    func commitSourceSwitch(_ plan: SourceSwitchPlan, chapterIndex: Int) async throws -> Book {
+        try validate(plan)
+        guard plan.chapters.indices.contains(chapterIndex) else { throw AppError.message("请选择章节。") }
+        let chapter = plan.chapters[chapterIndex]
+        let content = try await ReadingService(sources: sources, client: contentClient).content(for: chapter, in: plan.candidate)
+        try Task.checkCancellation(); try validate(plan)
+        guard !content.paragraphs.isEmpty else { throw AppError.message("此来源没有返回正文。") }
+        let candidate = plan.candidate
+        let replacement = Book(id: plan.book.id, title: candidate.title, author: candidate.author.isEmpty ? plan.book.author : candidate.author,
+                               summary: candidate.summary, coverURL: candidate.coverURL, sourceID: candidate.sourceID, sourceName: candidate.sourceName, url: candidate.url)
+        let destination = bookCacheDirectory(plan.book)
+        let stage = cacheRoot.appendingPathComponent(".source-" + UUID().uuidString, isDirectory: true)
+        let backup = cacheRoot.appendingPathComponent(".previous-" + UUID().uuidString, isDirectory: true)
+        var removeBackup = false
+        defer { try? FileManager.default.removeItem(at: stage); if removeBackup { try? FileManager.default.removeItem(at: backup) } }
+        try writeCache(plan.chapters, to: stage.appendingPathComponent("catalog.json"))
+        try writeCache(content, to: stage.appendingPathComponent(contentURL(chapter: chapter, book: replacement).lastPathComponent))
+        bookCacheGenerations[plan.book.id] = UUID(); cancelPrefetch(for: plan.book); cancelContentRequests(for: plan.book.id)
+        cancelDownloads(for: plan.book.id)
+        let exists = FileManager.default.fileExists(atPath: destination.path)
+        if exists { try FileManager.default.moveItem(at: destination, to: backup) }
+        do { try FileManager.default.moveItem(at: stage, to: destination) }
+        catch { if exists { try? FileManager.default.moveItem(at: backup, to: destination) }; throw error }
+        let fraction = min(1, max(0, plan.fraction))
+        let position = ReadingPosition(chapterID: chapter.id, chapterIndex: chapterIndex,
+                                       characterOffset: SourceProgressMatcher.utf16Offset(fraction: fraction, content: content), chapterFraction: fraction, updatedAt: Date())
+        let oldEntry = shelf.first { $0.id == plan.book.id }
+        var updatedShelf = shelf.filter { $0.id != plan.book.id }
+        updatedShelf.append(ShelfEntry(book: replacement, position: position, addedAt: oldEntry?.addedAt ?? Date()))
+        do {
+            try encoder.encode(updatedShelf).write(to: root.appendingPathComponent("library.json"), options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            if exists { try? FileManager.default.moveItem(at: backup, to: destination) }
+            throw error
+        }
+        removeBackup = true
+        shelf = updatedShelf
+        chapterProgresses[plan.book.id] = [chapter.id: fraction]
+        var tracking = BookUpdateTracking(chapterIDs: plan.chapters.map(\.id), checkedAt: Date())
+        tracking.lastChapterTitle = plan.chapters.last?.title; updateTracking[plan.book.id] = tracking
+        persist(chapterProgresses, name: "chapter-progress.json"); persist(updateTracking, name: "update-tracking.json")
+        cloud.localChanged(.add, book: replacement); cacheRevision += 1
+        return replacement
+    }
+    private func persistDownloads() {
+        let ended: Set<ChapterDownloadStatus> = [.completed, .cancelled, .failed]
+        let retained = Set(downloads.filter { ended.contains($0.status) }.sorted { $0.createdAt > $1.createdAt }.prefix(20).map(\.id))
+        downloads.removeAll { ended.contains($0.status) && !retained.contains($0.id) }
+        persist(downloads, name: "chapter-downloads.json")
+    }
+    func pauseDownloadsForBackground() { stopAllDownloads() }
+    private func cancelDownloadRequests(for bookID: String? = nil) {
+        var cancelled = false
+        for (key, request) in contentRequests where request.downloadOnly && (bookID == nil || request.bookID == bookID) {
+            request.task.cancel(); contentRequests.removeValue(forKey: key); cancelled = true
+        }
+        if cancelled { cacheRevision += 1 }
+    }
+    func enqueueDownload(book: Book, chapters: [Chapter], range: ClosedRange<Int>) {
+        guard book.publicationFormat == nil, enabledSourceIDs.contains(book.sourceID), !chapters.isEmpty,
+              sourceFingerprint(currentBook(book)) == sourceFingerprint(book) else { return }
+        let selected = chapters.enumerated().filter { range.contains($0.offset + 1) }.map(\.element)
+        guard !selected.isEmpty else { return }
+        let chapterIDs = selected.map(\.id)
+        if let duplicate = downloads.first(where: {
+            $0.book.id == book.id && sourceFingerprint($0.book) == sourceFingerprint(book)
+                && [.queued, .running, .paused].contains($0.status) && $0.chapters.map(\.id) == chapterIDs
+        }) {
+            if duplicate.status == .paused { resumeDownload(duplicate.id) }
+            return
+        }
+        add(book)
+        var job = ChapterDownloadTask(book: book, chapters: selected)
+        job.completedIDs = Set(selected.filter { hasCachedContent(for: $0, in: book) }.map(\.id))
+        downloads.append(job); persistDownloads(); startDownloadWorker()
+    }
+    func pauseDownload(_ id: UUID) {
+        guard let index = downloads.firstIndex(where: { $0.id == id }), [.queued, .running].contains(downloads[index].status) else { return }
+        let running = downloads[index].status == .running, bookID = downloads[index].book.id
+        downloads[index].status = .paused; persistDownloads()
+        if running { downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil; cancelDownloadRequests(for: bookID); startDownloadWorker() }
+    }
+    func resumeDownload(_ id: UUID) {
+        guard let index = downloads.firstIndex(where: { $0.id == id }), [.paused, .failed].contains(downloads[index].status),
+              isSaved(downloads[index].book), enabledSourceIDs.contains(downloads[index].book.sourceID), sourceFingerprint(currentBook(downloads[index].book)) == sourceFingerprint(downloads[index].book) else { return }
+        downloads[index].status = .queued; downloads[index].failedIDs = []; downloads[index].lastError = nil
+        persistDownloads(); startDownloadWorker()
+    }
+    func cancelDownload(_ id: UUID) {
+        guard let index = downloads.firstIndex(where: { $0.id == id }) else { return }
+        let running = downloads[index].status == .running, bookID = downloads[index].book.id
+        downloads[index].status = .cancelled; persistDownloads()
+        if running { downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil; cancelDownloadRequests(for: bookID); startDownloadWorker() }
+    }
+    func dismissDownload(_ id: UUID) {
+        cancelDownload(id); downloads.removeAll { $0.id == id }; persistDownloads()
+    }
+    private func cancelDownloads(for bookID: String) {
+        let ids = downloads.filter { $0.book.id == bookID && [.queued, .running, .paused].contains($0.status) }.map(\.id)
+        ids.forEach(cancelDownload)
+    }
+    private func stopAllDownloads() {
+        downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil
+        cancelDownloadRequests()
+        for index in downloads.indices where [.queued, .running].contains(downloads[index].status) { downloads[index].status = .paused }
+        persistDownloads()
+    }
+    private func startDownloadWorker() {
+        guard downloadWorker == nil, let next = downloads.first(where: { $0.status == .queued }) else { return }
+        let worker = UUID(), profile = workflowGeneration
+        downloadWorkerID = worker
+        downloadWorker = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.downloadWorkerID == worker {
+                    self.downloadWorker = nil; self.downloadWorkerID = nil; self.startDownloadWorker()
+                }
+            }
+            // A queued worker may not run until after Pause, Cancel, cache clearing
+            // or a profile switch. Revalidate before its first state write.
+            guard !Task.isCancelled, profile == self.workflowGeneration, self.downloadWorkerID == worker,
+                  let i = self.downloads.firstIndex(where: { $0.id == next.id }), self.downloads[i].status == .queued else { return }
+            self.downloads[i].status = .running; self.persistDownloads()
+            for chapter in next.chapters {
+                guard !Task.isCancelled, profile == self.workflowGeneration, self.downloadWorkerID == worker,
+                      let index = self.downloads.firstIndex(where: { $0.id == next.id }), self.downloads[index].status == .running,
+                      self.enabledSourceIDs.contains(next.book.sourceID) else { return }
+                var failure: Error?
+                if !self.hasCachedContent(for: chapter, in: next.book) {
+                    for attempt in 0..<3 {
+                        do {
+                            _ = try await self.content(for: chapter, in: next.book, forDownload: true)
+                            try Task.checkCancellation()
+                            guard self.hasCachedContent(for: chapter, in: next.book) else { throw AppError.message("章节未能保存。") }
+                            failure = nil; break
+                        } catch is CancellationError { return }
+                        catch {
+                            failure = error
+                            if attempt < 2 { try? await Task.sleep(nanoseconds: UInt64(attempt + 1) * 1_000_000_000) }
+                            if Task.isCancelled { return }
+                        }
+                    }
+                }
+                guard !Task.isCancelled, profile == self.workflowGeneration, self.downloadWorkerID == worker,
+                      let index = self.downloads.firstIndex(where: { $0.id == next.id }), self.downloads[index].status == .running,
+                      self.enabledSourceIDs.contains(next.book.sourceID) else { return }
+                if let failure { self.downloads[index].failedIDs.insert(chapter.id); self.downloads[index].lastError = failure.localizedDescription }
+                else { self.downloads[index].completedIDs.insert(chapter.id); self.downloads[index].failedIDs.remove(chapter.id) }
+                self.persistDownloads()
+            }
+            guard profile == self.workflowGeneration, self.downloadWorkerID == worker,
+                  let index = self.downloads.firstIndex(where: { $0.id == next.id }) else { return }
+            self.downloads[index].status = self.downloads[index].failedIDs.isEmpty ? .completed : .failed
+            self.persistDownloads()
+        }
+    }
 }

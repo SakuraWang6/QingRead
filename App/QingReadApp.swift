@@ -12,7 +12,16 @@ struct QingReadApp: App {
             RootView()
                 .environmentObject(store)
                 .task { await store.cloud.start() }
-                .onChange(of: scenePhase) { _ in Task { await store.cloud.sync() } }
+                .onChange(of: scenePhase) { phase in
+                    if phase == .background { store.pauseDownloadsForBackground() }
+                    if phase == .active {
+                        Task {
+                            await store.cloud.sync()
+                            guard UIApplication.shared.applicationState == .active else { return }
+                            await store.checkShelfUpdates()
+                        }
+                    }
+                }
                 .tint(Palette.cinnabar)
         }
     }

@@ -12,25 +12,23 @@ struct BookDetailView: View {
     @State private var showCatalog = false
     @State private var catalogSelection: String?
     @State private var showOtherSources = false
-    @State private var cacheTask: Task<Void, Never>?
-    @State private var isCaching = false
-    @State private var cachedProgress = 0
-    @State private var cacheMessage: String?
+    @State private var showDownload = false
+    private var currentBook: Book { store.currentBook(book) }
     @State private var showsFullSummary = false
 
     @ViewBuilder var body: some View {
-        if book.publicationFormat != nil { FileBookDetailView(book: book) }
+        if book.publicationFormat != nil { FileBookDetailView(book: currentBook) }
         else { webBookBody }
     }
     private var webBookBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top, spacing: 18) {
-                    BookSpine(book: book)
+                    BookSpine(book: currentBook)
                     VStack(alignment: .leading, spacing: 10) {
                         Text(book.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.ink)
                         Text(book.author.isEmpty ? "作者未标注" : book.author).font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                        Text(book.sourceName).font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                        Text(currentBook.sourceName).font(.system(size: 12)).foregroundStyle(Palette.secondary)
                         if book.url.scheme == "https" || book.url.scheme == "http" {
                             Link(destination: book.url) {
                                 Label("原网页", systemImage: "arrow.up.right").font(.system(size: 12))
@@ -45,20 +43,20 @@ struct BookDetailView: View {
                         selectedChapterID = nil
                         showReader = true
                     } label: {
-                        Label(store.position(for: book) == nil ? "开始阅读" : "继续阅读", systemImage: "book")
+                        Label(store.position(for: currentBook) == nil ? "开始阅读" : "继续阅读", systemImage: "book")
                     }.buttonStyle(PrimaryButtonStyle()).disabled(chapters.isEmpty)
                     Button {
-                        if store.isSaved(book) { store.remove(book) } else { store.add(book) }
+                        if store.isSaved(currentBook) { store.remove(currentBook) } else { store.add(currentBook) }
                     } label: {
-                        Image(systemName: store.isSaved(book) ? "bookmark.fill" : "bookmark")
+                        Image(systemName: store.isSaved(currentBook) ? "bookmark.fill" : "bookmark")
                             .font(.system(size: 18)).foregroundStyle(Palette.cinnabar)
                             .frame(width: 52, height: 50)
                             .background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.rule, lineWidth: 0.5))
-                    }.accessibilityLabel(store.isSaved(book) ? "从书架移除并删除该书缓存" : "加入书架")
+                    }.accessibilityLabel(store.isSaved(currentBook) ? "从书架移除并删除该书缓存" : "加入书架")
                 }
                 HStack {
-                    Text("当前书源：\(book.sourceName)").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(1)
+                    Text("当前书源：\(currentBook.sourceName)").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(1)
                     Spacer(minLength: 8)
                     Button { showOtherSources = true } label: {
                         Label("换源", systemImage: "arrow.triangle.swap")
@@ -111,24 +109,11 @@ struct BookDetailView: View {
                         HStack {
                             Text("离线缓存").font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
                             Spacer()
-                            Text("\(store.cachedCount(for: book)) / \(chapters.count) 章")
+                            Text("\(store.cachedCount(for: currentBook)) / \(chapters.count) 章")
                                 .font(.caption.monospacedDigit()).foregroundStyle(Palette.secondary)
                         }
-                        if book.id == LocalSample.book.id {
-                            Text("本地示例已随应用保存，离线也可以阅读。")
-                                .font(.footnote).foregroundStyle(Palette.secondary)
-                        } else {
-                            Text("阅读时自动缓存。下载中离开此页会停止，已完成的章节会保留。")
-                                .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(4)
-                            Button {
-                                if isCaching { cacheTask?.cancel() } else { cacheAllChapters() }
-                            } label: {
-                                Label(isCaching ? "停止缓存（\(cachedProgress) / \(chapters.count)）" : "缓存全书", systemImage: isCaching ? "stop.circle" : "arrow.down.circle")
-                                    .font(.subheadline)
-                            }
-                            if isCaching { ProgressView(value: Double(cachedProgress), total: Double(chapters.count)).tint(Palette.cinnabar) }
-                        }
-                        if let cacheMessage { InlineNotice(message: cacheMessage) }
+                        Button { showDownload = true } label: { Label("下载章节", systemImage: "arrow.down.circle") }
+                        NavigationLink("下载管理") { DownloadManagerView() }
                     }
                 }
             }.padding(.horizontal, 20).padding(.bottom, 28)
@@ -136,17 +121,11 @@ struct BookDetailView: View {
         .background(Palette.paper)
         .navigationTitle("书籍").navigationBarTitleDisplayMode(.inline)
         .task { await loadChapters() }
-        .onDisappear { cacheTask?.cancel() }
+        .onChange(of: store.sourceFingerprint(currentBook)) { _ in Task { await loadChapters() } }
+        .sheet(isPresented: $showDownload) { DownloadSelectionView(book: currentBook, chapters: chapters) }
         .refreshable { await loadChapters(refresh: true) }
-        .fullScreenCover(isPresented: $showReader) { ReaderView(book: book, initialChapterID: selectedChapterID) }
-        .sheet(isPresented: $showOtherSources) {
-            NavigationStack {
-                SearchView(initialQuery: book.title)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("关闭") { showOtherSources = false } }
-                    }
-            }
-        }
+        .fullScreenCover(isPresented: $showReader) { ReaderView(book: currentBook, initialChapterID: selectedChapterID) }
+        .sheet(isPresented: $showOtherSources) { SourceSwitchView(book: currentBook, currentChapters: chapters) }
         .sheet(isPresented: $showCatalog, onDismiss: {
             if let catalogSelection {
                 selectedChapterID = catalogSelection
@@ -187,42 +166,10 @@ struct BookDetailView: View {
     private func loadChapters(refresh: Bool = false) async {
         isLoading = true
         errorMessage = nil
-        do { chapters = try await store.chapters(for: book, refresh: refresh) }
+        do { chapters = try await store.chapters(for: currentBook, refresh: refresh) }
         catch is CancellationError { }
         catch { errorMessage = "目录获取失败：\(error.localizedDescription)" }
         isLoading = false
     }
 
-    private func cacheAllChapters() {
-        isCaching = true
-        cachedProgress = 0
-        cacheMessage = nil
-        cacheTask = Task {
-            var failed = 0
-            var lastFailure = ""
-            for chapter in chapters {
-                if Task.isCancelled { break }
-                do {
-                    _ = try await store.content(for: chapter, in: book)
-                    guard store.hasCachedContent(for: chapter, in: book) else {
-                        throw AppError.message("章节已获取，但未能保存到本机。请检查可用储存空间。")
-                    }
-                    cachedProgress += 1
-                } catch is CancellationError { break }
-                catch {
-                    if Task.isCancelled { break }
-                    failed += 1
-                    lastFailure = error.localizedDescription
-                }
-            }
-            if Task.isCancelled {
-                cacheMessage = "已停止。当前有 \(store.cachedCount(for: book)) 章可离线阅读。"
-            } else if failed > 0 {
-                cacheMessage = "完成 \(cachedProgress) 章，\(failed) 章未能下载：\(lastFailure)"
-            } else {
-                cacheMessage = "全书 \(chapters.count) 章已缓存，可以离线阅读。"
-            }
-            isCaching = false
-        }
-    }
 }

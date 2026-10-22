@@ -5,6 +5,8 @@ struct ReaderTopBar: View {
     let title: String
     let theme: ReadingTheme
     let onClose: () -> Void
+    var onSource: (() -> Void)? = nil
+    var onDownload: (() -> Void)? = nil
     var body: some View {
         HStack(spacing: 14) {
             Button(action: onClose) {
@@ -12,7 +14,13 @@ struct ReaderTopBar: View {
             }.accessibilityLabel("关闭阅读器").accessibilityIdentifier("reader.close")
             Text(title).font(.system(size: 16, weight: .medium)).lineLimit(1)
             Spacer(minLength: 0)
-            Text("清读").font(.system(size: 12)).opacity(0.45)
+            if onSource != nil || onDownload != nil {
+                Menu {
+                    if let onSource { Button(action: onSource) { Label("换源", systemImage: "arrow.triangle.swap") } }
+                    if let onDownload { Button(action: onDownload) { Label("下载章节", systemImage: "arrow.down.circle") } }
+                } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }
+                    .accessibilityLabel("书籍选项")
+            }
         }
         .foregroundStyle(theme.foreground).padding(.horizontal, 12).padding(.vertical, 8)
         .background(theme.background.opacity(0.98))
@@ -49,7 +57,7 @@ struct ReaderBottomBar: View {
                     Text("第 \(chapterIndex + 1) / \(max(1, chapterCount)) 章")
                         .font(.system(size: 10)).opacity(0.5).monospacedDigit()
                 }.frame(maxWidth: .infinity)
-                Button("下一章", action: onNext).disabled(chapterIndex >= chapterCount - 1 || isLoading)
+                Button("下一章", action: onNext).disabled(chapterCount == 0 || isLoading)
                     .accessibilityIdentifier("reader.nextChapter")
             }.font(.system(size: 13))
             ReaderBookProgressControl(progress: bookFraction, pageCounts: pageCounts, theme: theme, onSeek: onSeek)

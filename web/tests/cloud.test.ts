@@ -6,6 +6,7 @@ import { createApp } from '../server/app';
 import { CloudDatabase } from '../server/cloud';
 import { anchorFormat } from '../src/shared/sync';
 import { sampleBook } from '../src/lib/sample';
+import type { ShelfEntry } from '../src/shared/types';
 import { fileURLToPath } from 'node:url';
 
 const apps:Awaited<ReturnType<typeof createApp>>[]=[];
@@ -44,6 +45,89 @@ describe('account cloud synchronization',()=>{
     const replay=(await sync(app,a.token,[mutation('progress-add-001','add',{entry:withPosition(1,base+20000)})])).json();
     expect(replay.records[0].entry.position.chapterFraction).toBe(.2);
     expect(replay.cursor).toBe(second.cursor);
+  });
+  it('accepts same-source progress without replacing cloud book metadata or file identity',async()=>{
+    const app=await setup(),a=await register(app,'progress_metadata_reader'),base=Date.now()-60000;
+    const original:ShelfEntry={...entry(),book:{...sampleBook,title:'云端书名',publicationFormat:'txt',fileHash:'a'.repeat(64)},position:{chapterID:'same-chapter',chapterIndex:2,characterOffset:20,chapterFraction:.2,updatedAt:new Date(base).toISOString()}};
+    const first=(await sync(app,a.token,[mutation('metadata-add-001','add',{entry:original})])).json();
+    const incoming={...original,book:{...sampleBook,title:'旧设备书名',fileHash:'b'.repeat(64)},position:{...original.position!,characterOffset:70,chapterFraction:.7,updatedAt:new Date(base+10000).toISOString()}};
+    const next=(await sync(app,a.token,[mutation('metadata-progress-002','progress',{baseRevision:first.cursor,entry:incoming})],first.cursor)).json();
+    expect(next.records[0].entry.book).toEqual(original.book);
+    expect(next.records[0].entry.position.characterOffset).toBe(70);
+    expect(next.records[0].entry.addedAt).toBe(original.addedAt);
+  });
+  it('replaces source-specific fields and anchors while retaining logical identity and shelf date',async()=>{
+    const app=await setup(),a=await register(app,'switch_anchor_reader'),base=Date.now()-60000;
+    const original:ShelfEntry={...entry(),addedAt:new Date(base).toISOString(),book:{...sampleBook,publicationFormat:'txt',fileHash:'a'.repeat(64),fileDownloadURL:'https://old.example/book.txt'},position:{chapterID:'old-chapter',chapterIndex:7,characterOffset:900,chapterFraction:.9,updatedAt:new Date(base+20000).toISOString()}};
+    const first=(await sync(app,a.token,[mutation('switch-add-001','add',{entry:original})])).json();
+    const switched:ShelfEntry={book:{...sampleBook,sourceID:'new-source',sourceName:'新来源',url:'https://new.example/book/'},addedAt:new Date(base+30000).toISOString(),position:{chapterID:'new-chapter',chapterIndex:6,characterOffset:400,chapterFraction:.4,updatedAt:new Date(base+10000).toISOString()}};
+    const next=(await sync(app,a.token,[mutation('switch-source-002','add',{baseRevision:first.cursor,changedAt:new Date(base+30000).toISOString(),entry:switched})],first.cursor)).json();
+    expect(next.rejected).toEqual([]);
+    expect(next.records[0].entry.book).toEqual(switched.book);
+    expect(next.records[0].entry.position).toEqual(switched.position);
+    expect(next.records[0].entry.addedAt).toBe(original.addedAt);
+    const replay=(await sync(app,a.token,[mutation('switch-source-002','add',{baseRevision:first.cursor,entry:original})],next.cursor)).json();
+    expect(replay.cursor).toBe(next.cursor);
+    expect(replay.records[0].entry.book).toEqual(switched.book);
+  });
+  it('rejects an old-source progress upload and returns the authoritative switch for reconciliation',async()=>{
+    const app=await setup(),a=await register(app,'stale_progress_reader'),base=Date.now()-60000;
+    const original:ShelfEntry={...entry(),position:{chapterID:'old-chapter',chapterIndex:2,characterOffset:20,chapterFraction:.2,updatedAt:new Date(base).toISOString()}};
+    const first=(await sync(app,a.token,[mutation('stale-source-add-001','add',{entry:original})])).json();
+    const switched:ShelfEntry={...original,book:{...sampleBook,sourceID:'new-source',url:'https://new.example/book/'},position:{...original.position!,chapterID:'new-chapter',characterOffset:40,chapterFraction:.4,updatedAt:new Date(base+10000).toISOString()}};
+    const next=(await sync(app,a.token,[mutation('stale-source-switch-002','add',{baseRevision:first.cursor,entry:switched})],first.cursor)).json();
+    const stale={...original,position:{...original.position!,characterOffset:90,chapterFraction:.9,updatedAt:new Date(base+20000).toISOString()}};
+    const response=(await sync(app,a.token,[mutation('stale-source-progress-003','progress',{baseRevision:first.cursor,entry:stale})],next.cursor)).json();
+    expect(response.acknowledged).toContain('stale-source-progress-003');
+    expect(response.rejected).toEqual([{id:'stale-source-progress-003',reason:'source-changed'}]);
+    expect(response.cursor).toBe(next.cursor);
+    expect(response.records[0].entry).toEqual(switched);
+  });
+  it('requires the current revision for a competing source switch, including a forged future revision',async()=>{
+    const app=await setup(),a=await register(app,'competing_switch_reader');
+    const first=(await sync(app,a.token,[mutation('competing-add-001')])).json();
+    const switched={...entry(),book:{...sampleBook,sourceID:'source-b',url:'https://b.example/book/'}};
+    const next=(await sync(app,a.token,[mutation('competing-switch-002','add',{baseRevision:first.cursor,entry:switched})],first.cursor)).json();
+    const other={...entry(),book:{...sampleBook,sourceID:'source-c',url:'https://c.example/book/'}};
+    const stale=(await sync(app,a.token,[mutation('competing-stale-003','add',{baseRevision:first.cursor,entry:other})],next.cursor)).json();
+    expect(stale.rejected[0].reason).toBe('source-changed');
+    expect(stale.records[0].entry.book).toEqual(switched.book);
+    const future=(await sync(app,a.token,[mutation('competing-future-004','add',{baseRevision:next.cursor+100,entry:other})],next.cursor)).json();
+    expect(future.rejected[0].reason).toBe('source-changed');
+    expect(future.cursor).toBe(next.cursor);
+    const refreshed=(await sync(app,a.token,[mutation('competing-current-005','add',{baseRevision:next.cursor,entry:other})],next.cursor)).json();
+    expect(refreshed.rejected).toEqual([]);
+    expect(refreshed.records[0].entry.book).toEqual(other.book);
+  });
+  it('recognizes a changed book URL within one source and does not retain an unmapped old anchor',async()=>{
+    const app=await setup(),a=await register(app,'switch_url_reader');
+    const original={...entry(),position:{chapterID:'old-chapter',chapterIndex:8,characterOffset:80,chapterFraction:.8,updatedAt:new Date().toISOString()}};
+    const first=(await sync(app,a.token,[mutation('url-add-001','add',{entry:original})])).json();
+    const switched={...entry(),book:{...sampleBook,url:'https://same-source.example/new-book/'}};
+    const next=(await sync(app,a.token,[mutation('url-switch-002','add',{baseRevision:first.cursor,entry:switched})],first.cursor)).json();
+    expect(next.rejected).toEqual([]);
+    expect(next.records[0].entry.book.url).toBe(switched.book.url);
+    expect(next.records[0].entry.position).toBeUndefined();
+  });
+  it('preserves an existing file hash when a same-source add omits it',async()=>{
+    const app=await setup(),a=await register(app,'same_source_add_reader');
+    const original={...entry(),book:{...sampleBook,publicationFormat:'txt',fileHash:'a'.repeat(64)}};
+    const first=(await sync(app,a.token,[mutation('same-add-001','add',{entry:original})])).json();
+    const next=(await sync(app,a.token,[mutation('same-add-stale-002','add',{baseRevision:0,entry:{...entry(),book:{...sampleBook,title:'更新书名'}}})],first.cursor)).json();
+    expect(next.rejected).toEqual([]);
+    expect(next.records[0].entry.book.fileHash).toBe(original.book.fileHash);
+    expect(next.records[0].entry.book.publicationFormat).toBe('txt');
+    expect(next.records[0].entry.book.title).toBe('更新书名');
+  });
+  it('treats a source switch as a library change so an older offline removal cannot erase it',async()=>{
+    const app=await setup(),a=await register(app,'switch_membership_reader'),base=Date.now()-60000;
+    const first=(await sync(app,a.token,[mutation('membership-add-001','add',{changedAt:new Date(base).toISOString()})])).json();
+    const switched={...entry(),book:{...sampleBook,sourceID:'new-source',url:'https://new.example/book/'}};
+    const next=(await sync(app,a.token,[mutation('membership-switch-002','add',{baseRevision:first.cursor,changedAt:new Date(base+20000).toISOString(),entry:switched})],first.cursor)).json();
+    const stale=(await sync(app,a.token,[mutation('membership-remove-003','remove',{baseRevision:first.cursor,changedAt:new Date(base+10000).toISOString()})],next.cursor)).json();
+    expect(stale.rejected).toEqual([{id:'membership-remove-003',reason:'newer-library-change'}]);
+    expect(stale.records[0].entry.book).toEqual(switched.book);
+    expect(stale.cursor).toBe(next.cursor);
   });
   it('retains tombstones so stale offline devices cannot resurrect removed books',async()=>{
     const app=await setup(),a=await register(app,'offline_reader');

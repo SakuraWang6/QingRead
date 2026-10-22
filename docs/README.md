@@ -34,3 +34,5 @@
 - [iPhone 0.1–0.7 验证归档](history/reader-0.1-0.7-verification.md)
 - [Web 0.5–0.6 验证归档](history/web-0.5-0.6-verification.md)
 - [当前许可与第三方依赖说明](licensing.md)
+
+- [追更、换源与下载](reading-workflows.md)：0.9 三端工作流、进度保护与离线任务。

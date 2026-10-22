@@ -1,11 +1,12 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { useSyncExternalStore } from 'react';
-import type { Book, Chapter, ChapterContent, LibraryState, ReaderSettings, ShelfEntry, SourceDefinition, LocalPublication, ReadingPosition } from '../shared/types';
+import type { Book, Chapter, ChapterContent, LibraryState, ReaderSettings, ShelfEntry, SourceDefinition, LocalPublication, ReadingPosition, BookUpdateState, ChapterDownloadJob, ChapterDownloadSelection, SourceSwitchPlan, UpdateCheckResult } from '../shared/types';
 import { defaultSettings } from '../shared/types';
 import { sampleBook, sampleChapter, sampleContent } from './sample';
 import { parsePublication } from './importPublication';
 import { api } from './api';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { appendedChapters, isChapterBook, matchChapter, remappedPosition, sameEditionTitle } from './readingWorkflows';
 import type { CloudMutation, CloudRecord, CloudSnapshot } from '../shared/sync';
 
 const contentKey=(book:Book,chapter:Chapter)=>`${book.id}\0${chapter.id}`;
@@ -52,20 +53,31 @@ export function normalizeSettings(input:Partial<ReaderSettings>):ReaderSettings 
     theme:['paper','dusk','mint','gray','rose','night'].includes(s.theme)?s.theme:'paper',turnMode:['slide','cover','scroll'].includes(s.turnMode)?s.turnMode:'slide',font:['song','system','rounded'].includes(s.font)?s.font:'song',speechEngine:s.speechEngine==='kokoro'?'kokoro':'system',isBold:s.isBold===true,isNightMode:s.isNightMode===true,speechVoiceIdentifier:typeof s.speechVoiceIdentifier==='string'?s.speechVoiceIdentifier:'',kokoroVoiceID:bounded(s.kokoroVoiceID,3,102,46)};
 }
 export class BrowserLibrary {
-  private state:LibraryState={ready:false,shelf:[],settings:defaultSettings,sources:[],disabledSourceIDs:[]};
+  private state:LibraryState={ready:false,shelf:[],settings:defaultSettings,sources:[],disabledSourceIDs:[],updates:{},checkingUpdates:false,downloads:[]};
   private listeners=new Set<()=>void>();
   private db:Promise<IDBPDatabase>;
   private writing=Promise.resolve();
-  private requests=new Map<string,Promise<ChapterContent>>();
+  private requests=new Map<string,{promise:Promise<ChapterContent>;controller:AbortController;readers:number}>();
   private generation=0;
   private progress:Record<string,Record<string,number>>=Object.create(null);
   private coverURLs=new Map<string,string>();
   private persistenceBlocked=false;
+  private active=true;
+  private downloadRunner?:Promise<void>;
+  private downloadAbort?:AbortController;
+  private updateAbort?:AbortController;
+  private switchPlans=new WeakMap<SourceSwitchPlan,number>();
+  private switchCommits=new Map<string,Promise<Book>>();
+  private workflowGeneration=0;
+  private invalidatingBooks=new Set<string>();
+  private sourceCommitBarrier?:Promise<void>;
+  private removedBooks=new Set<string>();
   private cloud={cursor:0,revisions:{} as Record<string,number>,pending:[] as CloudMutation[],deferred:{} as Record<string,CloudRecord>};
   readonly initialized:Promise<void>;
   constructor(name='qingread-web-v1',private cloudEnabled=false){
     this.db=openDB(name,2,{upgrade(db){for(const store of ['meta','chapters','contents','imports','files','covers','localContents'])if(!db.objectStoreNames.contains(store))db.createObjectStore(store);}});
     this.initialized=this.hydrate();
+    if(typeof document!=='undefined')document.addEventListener('visibilitychange',()=>{if(document.hidden){this.updateAbort?.abort();void this.pauseDownloadsForBackground();}});
   }
   subscribe=(listener:()=>void)=>{this.listeners.add(listener);return()=>this.listeners.delete(listener);};
   getSnapshot=()=>this.state;
@@ -86,6 +98,17 @@ export class BrowserLibrary {
         await db.put('meta',{savedAt:new Date().toISOString(),state:raw},'quarantined-state');
       }
       this.progress=progressRecords(await db.get('meta','progress'));
+      const workflows=await db.get('meta','workflows');
+      const updates:Record<string,BookUpdateState>={},downloads:ChapterDownloadJob[]=[];
+      if(record(workflows)){
+        if(record(workflows.updates))for(const [id,value]of Object.entries(workflows.updates))if(safeID(id)&&record(value)&&Number.isSafeInteger(value.knownChapterCount)&&Array.isArray(value.unreadChapterIDs))updates[id]={knownChapterCount:Number(value.knownChapterCount),lastKnownChapterID:typeof value.lastKnownChapterID==='string'?value.lastKnownChapterID:undefined,lastKnownChapterTitle:typeof value.lastKnownChapterTitle==='string'?value.lastKnownChapterTitle:undefined,unreadChapterIDs:value.unreadChapterIDs.filter(safeID),checkedAt:validDate(value.checkedAt)?value.checkedAt:undefined};
+        if(Array.isArray(workflows.downloads))for(const value of workflows.downloads)if(record(value)&&safeID(value.id)&&safeID(value.bookID)&&typeof value.bookTitle==='string'&&typeof value.sourceID==='string'&&typeof value.sourceURL==='string'&&Array.isArray(value.chapterIDs)&&Array.isArray(value.completedChapterIDs)&&Array.isArray(value.failedChapterIDs)&&validDate(value.createdAt)&&validDate(value.updatedAt)){
+          const status=value.status==='running'||value.status==='queued'?'paused':value.status;
+          if(!['paused','completed','failed','cancelled'].includes(String(status)))continue;
+          const chapterIDs=value.chapterIDs.filter(safeID),completedChapterIDs=value.completedChapterIDs.filter(safeID);
+          downloads.push({...value,status,chapterIDs,completedChapterIDs,failedChapterIDs:value.failedChapterIDs.filter(safeID),total:status==='completed'||status==='cancelled'?bounded(Number(value.total),0,100000,chapterIDs.length):chapterIDs.length,completed:status==='completed'||status==='cancelled'?bounded(Number(value.completed),0,Number(value.total)||chapterIDs.length,0):completedChapterIDs.length}as unknown as ChapterDownloadJob);
+        }
+      }
       const cloud=await db.get('meta','cloud');
       if(record(cloud)&&Number.isSafeInteger(cloud.cursor)&&Array.isArray(cloud.pending)&&record(cloud.revisions))this.cloud=cloud as typeof this.cloud;
       const warnings:string[]=isolated?[`已隔离 ${isolated} 条异常书架记录，原始快照已保留。`]:[];
@@ -106,7 +129,8 @@ export class BrowserLibrary {
         if(!record(source)||!safeID(source.id)||['name','summary','homeURL'].some(key=>typeof source[key]!=='string'))return false;
         try{return new URL(source.homeURL as string).protocol==='https:';}catch{return false;}
       }):[];
-      this.state={ready:true,shelf,settings:normalizeSettings(record(saved?.settings)?saved.settings:{}),sources,disabledSourceIDs:sourceIDs(saved?.disabledSourceIDs),storageError:warnings.length?[...new Set(warnings)].join(' '):undefined};
+      this.state={ready:true,shelf,settings:normalizeSettings(record(saved?.settings)?saved.settings:{}),sources,disabledSourceIDs:sourceIDs(saved?.disabledSourceIDs),updates,checkingUpdates:false,downloads,storageError:warnings.length?[...new Set(warnings)].join(' '):undefined};
+      this.compactDownloadHistory();
     } catch(error){
       // A transient IndexedDB read failure must not replace a real library with
       // the sample shelf when the asynchronous API source refresh completes.
@@ -115,11 +139,12 @@ export class BrowserLibrary {
     }
     this.emit();
   }
-  private persist(){
+  private persist():Promise<void>{
+    if(this.sourceCommitBarrier){this.emit();return this.sourceCommitBarrier.then(()=>this.persist());}
     if(this.persistenceBlocked){this.emit();return this.writing;}
-    const saved={...this.state,shelf:this.state.shelf.map(e=>({...e,book:{...e.book,coverURL:e.book.coverURL?.startsWith('blob:')?undefined:e.book.coverURL}}))};
-    const progress=structuredClone(this.progress),cloud=structuredClone(this.cloud);
-    this.writing=this.writing.catch(()=>{}).then(async()=>{const db=await this.db,tx=db.transaction('meta','readwrite');await tx.store.put(saved,'state');await tx.store.put(progress,'progress');await tx.store.put(cloud,'cloud');await tx.done;}).catch(e=>this.report(e));
+    const saved={...this.state,updates:undefined,downloads:undefined,checkingUpdates:undefined,shelf:this.state.shelf.map(e=>({...e,book:{...e.book,coverURL:e.book.coverURL?.startsWith('blob:')?undefined:e.book.coverURL}}))};
+    const progress=structuredClone(this.progress),cloud=structuredClone(this.cloud),workflows=structuredClone({updates:this.state.updates,downloads:this.state.downloads});
+    this.writing=this.writing.catch(()=>{}).then(async()=>{const db=await this.db,tx=db.transaction('meta','readwrite');await tx.store.put(saved,'state');await tx.store.put(progress,'progress');await tx.store.put(cloud,'cloud');await tx.store.put(workflows,'workflows');await tx.done;}).catch(e=>this.report(e));
     this.emit();return this.writing;
   }
   private enqueue(action:CloudMutation['action'],bookID:string,entry?:ShelfEntry){
@@ -128,9 +153,9 @@ export class BrowserLibrary {
     const mutation:CloudMutation={id:crypto.randomUUID(),action:action==='progress'&&previous?.action==='add'?'add':action,bookID,baseRevision:this.cloud.revisions[bookID]??0,changedAt:new Date().toISOString(),...(entry?{entry:{...entry,book:{...entry.book,coverURL:entry.book.coverURL?.startsWith('blob:')?undefined:entry.book.coverURL}}}:{})};
     this.cloud.pending=[...this.cloud.pending.filter(m=>m.bookID!==bookID),mutation];
   }
-  async add(book:Book){await this.initialized;if(this.state.shelf.some(e=>e.book.id===book.id))return;const entry={book,addedAt:new Date().toISOString()};this.state={...this.state,shelf:[...this.state.shelf,entry]};this.enqueue('add',book.id,entry);await this.persist();}
+  async add(book:Book){await this.initialized;this.removedBooks.delete(book.id);if(this.state.shelf.some(e=>e.book.id===book.id))return;const entry={book,addedAt:new Date().toISOString()};this.state={...this.state,shelf:[...this.state.shelf,entry]};this.enqueue('add',book.id,entry);await this.persist();}
   async remove(book:Book){
-    await this.initialized;if(this.persistenceBlocked)return;this.generation++;
+    await this.initialized;await this.switchCommits.get(book.id)?.catch(()=>{});if(this.persistenceBlocked)return;this.generation++;this.removedBooks.add(book.id);this.cancelBookDownloads(book.id);delete this.state.updates[book.id];
     this.state={...this.state,shelf:this.state.shelf.filter(e=>e.book.id!==book.id)};delete this.progress[book.id];
     this.enqueue('remove',book.id);
     await this.persist();
@@ -142,16 +167,18 @@ export class BrowserLibrary {
   }
   async savePosition(book:Book,chapter:Chapter,fraction:number,characterOffset:number){
     await this.initialized;
-    const value=bounded(fraction,0,1,0), position:ReadingPosition={chapterID:chapter.id,chapterIndex:chapter.index,chapterFraction:value,characterOffset:Math.max(0,Math.floor(characterOffset)||0),updatedAt:new Date().toISOString()};
-    const existing=this.state.shelf.find(e=>e.book.id===book.id);
-    this.state={...this.state,shelf:[...this.state.shelf.filter(e=>e.book.id!==book.id),{book:existing?.book||book,position,addedAt:existing?.addedAt||new Date().toISOString()}]};
+    const generation=this.generation,tracking=this.state.updates[book.id];
+    const chapters=tracking?.unreadChapterIDs.length?await this.getChapters(book):undefined;
+    const existing=this.state.shelf.find(entry=>entry.book.id===book.id);
+    if(!this.active||generation!==this.generation||this.removedBooks.has(book.id)||this.invalidatingBooks.has(book.id)||this.switchCommits.has(book.id)||(existing&&(existing.book.sourceID!==book.sourceID||existing.book.url!==book.url)))return;
+    const value=bounded(fraction,0,1,0),position:ReadingPosition={chapterID:chapter.id,chapterIndex:chapter.index,chapterFraction:value,characterOffset:Math.max(0,Math.floor(characterOffset)||0),updatedAt:new Date().toISOString()};
+    this.state={...this.state,shelf:[...this.state.shelf.filter(entry=>entry.book.id!==book.id),{book:existing?.book||book,position,addedAt:existing?.addedAt||new Date().toISOString()}]};
+    if(tracking?.unreadChapterIDs.length&&chapters){const readIndex=chapters.findIndex(item=>item.id===chapter.id);if(readIndex>=0)this.state={...this.state,updates:{...this.state.updates,[book.id]:{...tracking,unreadChapterIDs:tracking.unreadChapterIDs.filter(id=>chapters.findIndex(item=>item.id===id)>readIndex)}}};}
     this.progress[book.id]??=Object.create(null);this.progress[book.id][chapter.id]=Math.max(this.progress[book.id][chapter.id]??0,value);
-    this.enqueue(existing?'progress':'add',book.id,this.state.shelf.find(e=>e.book.id===book.id));
-    await this.persist();
-    if(!this.persistenceBlocked)try{await(await this.db).put('meta',this.progress,'progress');}catch(e){this.report(e);}
+    this.enqueue(existing?'progress':'add',book.id,this.state.shelf.find(entry=>entry.book.id===book.id));await this.persist();
   }
   async updateSettings(settings:Partial<ReaderSettings>){await this.initialized;this.state={...this.state,settings:normalizeSettings({...this.state.settings,...settings})};await this.persist();}
-  async toggleSource(id:string){await this.initialized;const ids=new Set(this.state.disabledSourceIDs);ids.has(id)?ids.delete(id):ids.add(id);this.state={...this.state,disabledSourceIDs:[...ids]};await this.persist();}
+  async toggleSource(id:string){await this.initialized;const ids=new Set(this.state.disabledSourceIDs);ids.has(id)?ids.delete(id):ids.add(id);this.state={...this.state,disabledSourceIDs:[...ids]};if(ids.has(id))for(const job of this.state.downloads)if(job.sourceID===id&&['queued','running'].includes(job.status))this.patchDownload(job.id,{status:'paused'});await this.persist();}
   async initializeSources(sources:SourceDefinition[]){await this.initialized;this.state={...this.state,sources};await this.persist();}
   async getChapters(book:Book):Promise<Chapter[]|undefined>{
     if(book.id===sampleBook.id)return[sampleChapter];
@@ -164,8 +191,8 @@ export class BrowserLibrary {
     if(publication)return await db.get('localContents',contentKey(book,chapter));
     return await db.get('contents',contentKey(book,chapter));
   }
-  async cacheChapters(book:Book,chapters:Chapter[]){try{await(await this.db).put('chapters',chapters,book.id);}catch(e){this.report(e);}}
-  async cacheContent(book:Book,content:ChapterContent){if(!content.paragraphs.length)return;try{await(await this.db).put('contents',content,contentKey(book,content.chapter));}catch(e){this.report(e);}}
+  async cacheChapters(book:Book,chapters:Chapter[]){try{const db=await this.db,current=this.state.shelf.find(entry=>entry.book.id===book.id)?.book;if(this.invalidatingBooks.has(book.id)||this.removedBooks.has(book.id)||(current&&(current.sourceID!==book.sourceID||current.url!==book.url)))return;await db.put('chapters',chapters,book.id);}catch(e){this.report(e);}}
+  async cacheContent(book:Book,content:ChapterContent){if(!content.paragraphs.length)return;try{const db=await this.db,current=this.state.shelf.find(entry=>entry.book.id===book.id)?.book;if(this.invalidatingBooks.has(book.id)||this.removedBooks.has(book.id)||(current&&(current.sourceID!==book.sourceID||current.url!==book.url)))return;await db.put('contents',content,contentKey(book,content.chapter));}catch(e){this.report(e);}}
   async chapterProgress(book:Book,chapter:Chapter){await this.initialized;return this.progress[book.id]?.[chapter.id];}
   async hasContent(book:Book,chapter:Chapter){
     if(book.id===sampleBook.id)return true;const db=await this.db,key=contentKey(book,chapter);
@@ -179,13 +206,23 @@ export class BrowserLibrary {
   async loadContent(book:Book,chapter:Chapter,signal?:AbortSignal):Promise<ChapterContent>{
     const cached=await this.getContent(book,chapter);if(cached)return cached;
     if(signal?.aborted)throw new DOMException('已取消','AbortError');
-    const generation=this.generation,key=contentKey(book,chapter);
+    const generation=this.generation,key=contentKey(book,chapter)+'\0'+book.sourceID+'\0'+book.url+'\0'+generation;
     let pending=this.requests.get(key);
-    if(!pending){pending=api.content(book,chapter).finally(()=>this.requests.delete(key));this.requests.set(key,pending);}
-    const content=await pending;
-    if(signal?.aborted)throw new DOMException('已取消','AbortError');
-    if(generation===this.generation)await this.cacheContent(book,content);
-    return content;
+    if(!pending){
+      const controller=new AbortController(),request={controller,readers:0,promise:undefined as unknown as Promise<ChapterContent>};
+      request.promise=api.content(book,chapter,controller.signal).finally(()=>{if(this.requests.get(key)===request)this.requests.delete(key);});
+      pending=request;this.requests.set(key,request);
+    }
+    pending.readers++;
+    let onAbort:(()=>void)|undefined;
+    try{
+      const content=signal?await Promise.race([pending.promise,new Promise<never>((_resolve,reject)=>{onAbort=()=>reject(new DOMException('已取消','AbortError'));if(signal.aborted)onAbort();else signal.addEventListener('abort',onAbort,{once:true});})]):await pending.promise;
+      if(signal?.aborted||generation!==this.generation)throw new DOMException('书籍或缓存已变更','AbortError');
+      await this.cacheContent(book,content);return content;
+    }finally{
+      if(onAbort)signal?.removeEventListener('abort',onAbort);pending.readers--;
+      if(!pending.readers&&signal?.aborted){pending.controller.abort();if(this.requests.get(key)===pending)this.requests.delete(key);}
+    }
   }
   async prefetch(book:Book,chapters:Chapter[],index:number,signal?:AbortSignal){
     const generation=this.generation;
@@ -213,7 +250,7 @@ export class BrowserLibrary {
     }
     await this.add(publication.book);return publication.book;
   }
-  async clearCache(){this.generation++;const db=await this.db,tx=db.transaction(['chapters','contents'],'readwrite');await Promise.all([tx.objectStore('chapters').clear(),tx.objectStore('contents').clear()]);await tx.done;this.emit();}
+  async clearCache(){this.generation++;await this.pauseDownloadsForBackground();const db=await this.db,tx=db.transaction(['chapters','contents'],'readwrite');await Promise.all([tx.objectStore('chapters').clear(),tx.objectStore('contents').clear()]);await tx.done;this.emit();}
   async cacheStats(){const db=await this.db;const contents=await db.getAll('contents') as ChapterContent[];const imports=await db.getAll('imports') as {chapters:Chapter[];fileSize:number}[];return{chapters:contents.length+imports.reduce((n,p)=>n+p.chapters.length,0),bytes:contents.reduce((n,c)=>n+new TextEncoder().encode(JSON.stringify(c)).byteLength,0)+imports.reduce((n,p)=>n+p.fileSize,0)};}
   async exportBackup(){await this.initialized;if(this.persistenceBlocked)throw new Error('本地数据尚未安全加载，请刷新后再导出');await this.writing;return new Blob([JSON.stringify({format:'qingread-backup',version:1,anchorFormat:'body-utf16-v1',exportedAt:new Date().toISOString(),shelf:this.state.shelf.map(e=>({...e,book:{...e.book,coverURL:e.book.coverURL?.startsWith('blob:')?undefined:e.book.coverURL}})),settings:this.state.settings,disabledSourceIDs:this.state.disabledSourceIDs,progress:this.progress},null,2)],{type:'application/json'});}
   async importBackup(file:File){
@@ -238,10 +275,172 @@ export class BrowserLibrary {
     for(const entry of shelf)this.enqueue('add',entry.book.id,this.state.shelf.find(e=>e.book.id===entry.book.id));
     await this.persist();
   }
+  /** Refresh directories serially. Automatic checks have a 15-minute per-book cooldown. */
+  async checkForUpdates(book?:Book,options:{force?:boolean}={}):Promise<UpdateCheckResult>{
+    await this.initialized;
+    const result:UpdateCheckResult={checked:0,updated:0,failures:[]};
+    if(!this.active||this.persistenceBlocked||this.state.checkingUpdates)return result;
+    const controller=new AbortController(),generation=this.workflowGeneration;this.updateAbort=controller;
+    const targets=(book?[book]:this.state.shelf.map(entry=>entry.book)).filter(value=>isChapterBook(value)&&!this.state.disabledSourceIDs.includes(value.sourceID));
+    this.state={...this.state,checkingUpdates:true};this.emit();
+    try{for(const target of targets){
+      if(controller.signal.aborted||generation!==this.workflowGeneration||!this.active)break;
+      const current=this.state.shelf.find(entry=>entry.book.id===target.id)?.book;
+      if(!current||current.sourceID!==target.sourceID||current.url!==target.url)continue;
+      const tracking=this.state.updates[target.id],cooldown=options.force?60_000:15*60_000;
+      if(tracking?.checkedAt&&Date.now()-Date.parse(tracking.checkedAt)<cooldown)continue;
+      const previous=await this.getChapters(target),last=previous?.at(-1);
+      const baseline:BookUpdateState=tracking??{knownChapterCount:previous?.length??0,lastKnownChapterID:last?.id,lastKnownChapterTitle:last?.title,unreadChapterIDs:[]};
+      this.state={...this.state,updates:{...this.state.updates,[target.id]:{...baseline,checkedAt:new Date().toISOString(),checking:true,error:undefined}}};await this.persist();
+      try{
+        const chapters=await api.chapters(target,controller.signal);
+        if(!chapters.length)throw new Error('目录为空');
+        const latest=this.state.shelf.find(entry=>entry.book.id===target.id);
+        if(controller.signal.aborted||generation!==this.workflowGeneration||!latest||latest.book.sourceID!==target.sourceID||latest.book.url!==target.url)break;
+        const appended=appendedChapters(baseline,chapters),readIndex=chapters.findIndex(chapter=>chapter.id===latest.position?.chapterID);
+        const unread=new Set([...baseline.unreadChapterIDs,...appended.map(chapter=>chapter.id)]);
+        const unreadChapterIDs=chapters.filter((chapter,index)=>unread.has(chapter.id)&&index>readIndex).map(chapter=>chapter.id);
+        await this.cacheChapters(target,chapters);
+        const end=chapters.at(-1)!;
+        this.state={...this.state,updates:{...this.state.updates,[target.id]:{knownChapterCount:chapters.length,lastKnownChapterID:end.id,lastKnownChapterTitle:end.title,unreadChapterIDs,checkedAt:new Date().toISOString()}}};
+        result.checked++;if(appended.length)result.updated++;
+      }catch(error){
+        if(controller.signal.aborted)break;
+        const message=error instanceof Error?error.message:'检查失败';result.failures.push(`${target.title}：${message}`);
+        this.state={...this.state,updates:{...this.state.updates,[target.id]:{...baseline,checkedAt:new Date().toISOString(),error:message}}};
+      }
+      await this.persist();
+    }}finally{
+      const updates=Object.fromEntries(Object.entries(this.state.updates).map(([id,value])=>[id,{...value,checking:false}]));
+      this.state={...this.state,checkingUpdates:false,updates};if(this.updateAbort===controller)this.updateAbort=undefined;await this.persist();
+    }
+    return result;
+  }
+  async findSourceCandidates(book:Book,signal?:AbortSignal):Promise<Book[]>{
+    await this.initialized;if(!this.active||!isChapterBook(book))return[];const generation=this.workflowGeneration;
+    const sourceIDs=this.state.sources.filter(source=>!this.state.disabledSourceIDs.includes(source.id)).map(source=>source.id);
+    if(!sourceIDs.length)return[];
+    const response=await api.search(book.title,sourceIDs,signal);
+    if(!this.active||generation!==this.workflowGeneration||signal?.aborted)return[];
+    if(!response.books.length&&response.failures.length>=sourceIDs.length)throw new Error('书源暂时无法连接，请稍后重试');
+    return response.books.filter(candidate=>sameEditionTitle(book,candidate)&&!this.state.disabledSourceIDs.includes(candidate.sourceID)&&(candidate.sourceID!==book.sourceID||candidate.url!==book.url));
+  }
+  async prepareSourceSwitch(book:Book,candidate:Book,signal?:AbortSignal):Promise<SourceSwitchPlan>{
+    await this.initialized;const generation=this.generation;
+    const original=this.state.shelf.find(entry=>entry.book.id===book.id);
+    if(!this.active||!original||original.book.sourceID!==book.sourceID||original.book.url!==book.url)throw new Error('书籍已变更，请重新选择');
+    if(!isChapterBook(book)||!sameEditionTitle(book,candidate)||this.state.disabledSourceIDs.includes(candidate.sourceID)||(candidate.sourceID===book.sourceID&&candidate.url===book.url))throw new Error('无法使用此书源');
+    const oldChapters=await this.getChapters(book)??await api.chapters(book,signal);
+    const chapters=await api.chapters(candidate,signal);if(!chapters.length)throw new Error('新书源目录为空');
+    if(signal?.aborted||generation!==this.generation||!this.active)throw new Error('操作已取消');
+    const matched=original.position?matchChapter(oldChapters.find(chapter=>chapter.id===original.position?.chapterID),chapters):{matchedChapterID:chapters[0].id,match:'title' as const};
+    const plan:SourceSwitchPlan={bookID:book.id,originalSourceID:book.sourceID,originalURL:book.url,candidate,chapters,position:original.position?{...original.position}:undefined,...matched};
+    this.switchPlans.set(plan,generation);return plan;
+  }
+  async commitSourceSwitch(plan:SourceSwitchPlan,chapterID?:string,signal?:AbortSignal):Promise<Book>{
+    if(this.switchCommits.has(plan.bookID))throw new Error('正在切换书源');
+    const pending=this.performSourceSwitch(plan,chapterID,signal);this.switchCommits.set(plan.bookID,pending);
+    try{return await pending;}catch(error){if(signal?.aborted){this.switchPlans.delete(plan);throw new DOMException('已取消','AbortError');}throw error;}finally{this.switchCommits.delete(plan.bookID);}
+  }
+  private async performSourceSwitch(plan:SourceSwitchPlan,chapterID?:string,signal?:AbortSignal):Promise<Book>{
+    await this.initialized;
+    const generation=this.switchPlans.get(plan);
+    const valid=()=>!signal?.aborted&&this.active&&generation!==undefined&&generation===this.generation&&!this.state.disabledSourceIDs.includes(plan.candidate.sourceID)&&this.state.shelf.some(entry=>entry.book.id===plan.bookID&&entry.book.sourceID===plan.originalSourceID&&entry.book.url===plan.originalURL&&(entry.position?.chapterID===plan.position?.chapterID));
+    if(!valid())throw new Error('书籍或账号已变更，请重新选择书源');
+    const chapter=plan.chapters.find(value=>value.id===(chapterID??plan.matchedChapterID));
+    if(!chapter)throw new Error('请选择对应章节');
+    const downloaded=await api.content(plan.candidate,chapter,signal);if(!downloaded.paragraphs.length)throw new Error('新书源正文为空');
+    await this.writing;const db=await this.db;if(!valid())throw new Error('书籍或账号已变更，请重新选择书源');
+    const existing=this.state.shelf.find(entry=>entry.book.id===plan.bookID)!;
+    const book:Book={...plan.candidate,id:plan.bookID},content:ChapterContent={...downloaded,chapter};
+    const entry:ShelfEntry={...existing,book,position:remappedPosition(chapter,existing.position,content.paragraphs.join('\n').length)};
+    // Keep the published snapshot on the old source until IndexedDB commits.
+    // Queue and update callbacks can still change their own state meanwhile;
+    // defer their persistence, then merge those changes into the new snapshot.
+    let release!:()=>void;
+    this.sourceCommitBarrier=new Promise<void>(resolve=>{release=resolve;});
+    this.invalidatingBooks.add(book.id);this.generation++;this.requests.clear();this.cancelBookDownloads(book.id);
+    const end=plan.chapters.at(-1)!;
+    const tracking:BookUpdateState={knownChapterCount:plan.chapters.length,lastKnownChapterID:end.id,lastKnownChapterTitle:end.title,unreadChapterIDs:[],checkedAt:new Date().toISOString()};
+    const replacementState=():LibraryState=>({...this.state,shelf:this.state.shelf.map(value=>value.book.id===book.id?entry:value),updates:{...this.state.updates,[book.id]:tracking}});
+    const replacementProgress=()=>({...this.progress,[book.id]:{[chapter.id]:entry.position!.chapterFraction}});
+    const mutation:CloudMutation={id:crypto.randomUUID(),action:'add',bookID:book.id,baseRevision:this.cloud.revisions[book.id]??0,changedAt:new Date().toISOString(),entry};
+    const replacementCloud=()=>this.cloudEnabled?{...this.cloud,pending:[...this.cloud.pending.filter(value=>value.bookID!==book.id),mutation]}:this.cloud;
+    let abortTransaction:(()=>void)|undefined,transactionDone:Promise<unknown>|undefined,onAbort:(()=>void)|undefined;
+    try{
+      const tx=db.transaction(['chapters','contents','meta'],'readwrite');abortTransaction=()=>tx.abort();transactionDone=tx.done;onAbort=()=>{try{tx.abort();}catch{/* A finished transaction remains committed. */}};signal?.addEventListener('abort',onAbort,{once:true});if(signal?.aborted)onAbort();
+      await tx.objectStore('chapters').delete(book.id);
+      for(const key of await tx.objectStore('contents').getAllKeys())if(String(key).startsWith(book.id+'\0'))await tx.objectStore('contents').delete(key);
+      await tx.objectStore('chapters').put(plan.chapters,book.id);await tx.objectStore('contents').put(content,contentKey(book,chapter));
+      await tx.objectStore('meta').put(replacementState(),'state');await tx.objectStore('meta').put(replacementProgress(),'progress');await tx.objectStore('meta').put(replacementCloud(),'cloud');await tx.objectStore('meta').put({updates:{...this.state.updates,[book.id]:tracking},downloads:this.state.downloads},'workflows');await tx.done;
+      this.state=replacementState();this.progress=replacementProgress();this.cloud=replacementCloud();this.switchPlans.delete(plan);
+    }catch(error){try{abortTransaction?.();}catch{/* Already aborted transactions need no second abort. */}await transactionDone?.catch(()=>{});throw error;}
+    finally{
+      if(onAbort)signal?.removeEventListener('abort',onAbort);this.invalidatingBooks.delete(book.id);this.sourceCommitBarrier=undefined;release();this.emit();
+    }
+    return book;
+  }
+  private compactDownloadHistory(){
+    const ended=this.state.downloads.filter(job=>['completed','cancelled','failed'].includes(job.status)).sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));
+    const retained=new Set(ended.slice(0,20).map(job=>job.id));
+    this.state={...this.state,downloads:this.state.downloads.filter(job=>!['completed','cancelled','failed'].includes(job.status)||retained.has(job.id)).map(job=>job.status==='completed'||job.status==='cancelled'?{...job,chapterIDs:[],completedChapterIDs:[],failedChapterIDs:[]}:job)};
+  }
+  private patchDownload(id:string,patch:Partial<ChapterDownloadJob>){this.state={...this.state,downloads:this.state.downloads.map(job=>job.id===id?{...job,...patch,updatedAt:new Date().toISOString()}:job)};if(patch.status&&['completed','cancelled','failed'].includes(patch.status))this.compactDownloadHistory();this.emit();}
+  private cancelBookDownloads(bookID:string){for(const job of this.state.downloads)if(job.bookID===bookID&&['queued','running','paused','failed'].includes(job.status)){if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(job.id,{status:'cancelled'});}}
+  async enqueueDownload(book:Book,selection:ChapterDownloadSelection):Promise<ChapterDownloadJob>{
+    await this.initialized;
+    if(!this.active||!isChapterBook(book)||this.state.disabledSourceIDs.includes(book.sourceID))throw new Error('此书无法下载章节');
+    const saved=this.state.shelf.find(entry=>entry.book.id===book.id);if(!saved||saved.book.sourceID!==book.sourceID||saved.book.url!==book.url)throw new Error('请先将书籍加入书架');
+    const chapters=await this.getChapters(book)??await api.chapters(book);if(!chapters.length)throw new Error('目录为空');
+    const current=Math.max(0,chapters.findIndex(chapter=>chapter.id===saved.position?.chapterID));
+    let targets:Chapter[];
+    if(selection.kind==='all')targets=chapters;
+    else if(selection.kind==='next')targets=chapters.slice(current,current+selection.count);
+    else{const {from,to}=selection;if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<from||to>=chapters.length)throw new Error('请选择有效的章节范围');targets=chapters.slice(from,to+1);}
+    if(!this.active||this.state.disabledSourceIDs.includes(book.sourceID)||!this.state.shelf.some(entry=>entry.book.id===book.id&&entry.book.sourceID===book.sourceID&&entry.book.url===book.url))throw new Error('书籍或账号已变更');
+    await this.cacheChapters(book,chapters);
+    const states=await this.chapterStates(book,targets),completedChapterIDs=targets.filter(chapter=>states[chapter.id].cached).map(chapter=>chapter.id),now=new Date().toISOString();
+    const job:ChapterDownloadJob={id:crypto.randomUUID(),bookID:book.id,bookTitle:book.title,sourceID:book.sourceID,sourceURL:book.url,status:completedChapterIDs.length===targets.length?'completed':'queued',chapterIDs:targets.map(chapter=>chapter.id),total:targets.length,completed:completedChapterIDs.length,completedChapterIDs,failedChapterIDs:[],createdAt:now,updatedAt:now};
+    const duplicate=this.state.downloads.find(value=>['queued','running','paused'].includes(value.status)&&value.bookID===book.id&&value.sourceID===book.sourceID&&value.sourceURL===book.url&&value.chapterIDs.length===job.chapterIDs.length&&value.chapterIDs.every((id,index)=>id===job.chapterIDs[index]));
+    if(duplicate){if(duplicate.status==='paused')await this.resumeDownload(duplicate.id);return this.state.downloads.find(value=>value.id===duplicate.id)!;}
+    this.state={...this.state,downloads:[job,...this.state.downloads]};this.compactDownloadHistory();await this.persist();this.startDownloadRunner();return this.state.downloads.find(value=>value.id===job.id)??job;
+  }
+  async pauseDownload(id:string){const job=this.state.downloads.find(value=>value.id===id);if(!job||!['queued','running'].includes(job.status))return;if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(id,{status:'paused'});await this.persist();}
+  async resumeDownload(id:string){await this.initialized;const job=this.state.downloads.find(value=>value.id===id);if(!job||!['paused','failed'].includes(job.status))return;const book=this.state.shelf.find(entry=>entry.book.id===job.bookID)?.book;if(!this.active||!book||book.sourceID!==job.sourceID||book.url!==job.sourceURL||this.state.disabledSourceIDs.includes(job.sourceID))throw new Error('当前书源不可用');this.patchDownload(id,{status:'queued',error:undefined,failedChapterIDs:[]});await this.persist();this.startDownloadRunner();}
+  async retryDownload(id:string){return this.resumeDownload(id);}
+  async cancelDownload(id:string){const job=this.state.downloads.find(value=>value.id===id);if(!job)return;if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(id,{status:'cancelled'});await this.persist();}
+  async pauseDownloadsForBackground(){for(const job of this.state.downloads)if(['queued','running'].includes(job.status))this.patchDownload(job.id,{status:'paused'});this.downloadAbort?.abort();await this.persist();}
+  private startDownloadRunner(){if(this.downloadRunner||!this.active)return;this.downloadRunner=this.runDownloads().catch(async error=>{for(const job of this.state.downloads)if(job.status==='running')this.patchDownload(job.id,{status:'failed',error:error instanceof Error?error.message:'下载失败'});await this.persist();}).finally(()=>{this.downloadRunner=undefined;if(this.active&&this.state.downloads.some(job=>job.status==='queued'))this.startDownloadRunner();});}
+  private async runDownloads(){
+    while(this.active){
+      const job=[...this.state.downloads].reverse().find(value=>value.status==='queued');if(!job)return;
+      const book=this.state.shelf.find(entry=>entry.book.id===job.bookID)?.book;
+      if(!book||book.sourceID!==job.sourceID||book.url!==job.sourceURL||this.state.disabledSourceIDs.includes(job.sourceID)){this.patchDownload(job.id,{status:'paused',error:'书籍或书源已变更'});await this.persist();continue;}
+      const controller=new AbortController();this.downloadAbort=controller;this.patchDownload(job.id,{status:'running',error:undefined});await this.persist();
+      const chapters=await this.getChapters(book),completed=new Set(job.completedChapterIDs),failed:string[]=[];let lastError:string|undefined,lastPersisted=Date.now();
+      for(const id of job.chapterIDs){
+        if(controller.signal.aborted||!this.active||this.state.downloads.find(value=>value.id===job.id)?.status!=='running')break;
+        const chapter=chapters?.find(value=>value.id===id);if(!chapter){failed.push(id);lastError='章节已从目录移除';continue;}
+        let success=false;
+        for(let attempt=0;attempt<3;attempt++){
+          if(controller.signal.aborted)break;
+          try{await this.loadContent(book,chapter,controller.signal);if(!await this.hasContent(book,chapter))throw new Error('本地保存失败');success=true;break;}
+          catch(error){if(controller.signal.aborted)break;lastError=error instanceof Error?error.message:'下载失败';if(attempt<2)await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));}
+        }
+        if(controller.signal.aborted)break;
+        if(success)completed.add(id);else failed.push(id);
+        this.patchDownload(job.id,{completed:completed.size,completedChapterIDs:[...completed],failedChapterIDs:[...failed],error:failed.length?lastError:undefined});if(completed.size%5===0||Date.now()-lastPersisted>2000){await this.persist();lastPersisted=Date.now();}
+      }
+      if(this.state.downloads.find(value=>value.id===job.id)?.status==='running')this.patchDownload(job.id,{status:controller.signal.aborted?'paused':failed.length?'failed':'completed',error:failed.length?lastError:undefined,failedChapterIDs:failed,completed:completed.size,completedChapterIDs:[...completed]});
+      if(this.downloadAbort===controller)this.downloadAbort=undefined;await this.persist();
+    }
+  }
+  async setProfileActive(active:boolean){this.active=active;if(!active){this.generation++;this.workflowGeneration++;this.switchPlans=new WeakMap();this.updateAbort?.abort();await this.pauseDownloadsForBackground();}}
+
   async syncRequest(){await this.initialized;await this.writing;return{cursor:this.cloud.cursor,mutations:structuredClone(this.cloud.pending.slice(0,50))};}
   hasPendingSync(){return this.cloud.pending.length>0;}
   async acceptSync(snapshot:CloudSnapshot){
-    await this.initialized;
+    await this.initialized;await Promise.allSettled([...this.switchCommits.values()]);
     const ack=new Set(snapshot.acknowledged);
     this.cloud.pending=this.cloud.pending.filter(m=>!ack.has(m.id));
     const pending=new Set(this.cloud.pending.map(m=>m.bookID));
@@ -252,14 +451,23 @@ export class BrowserLibrary {
     }
     for(const [bookID,remote]of Object.entries(this.cloud.deferred)){
       if(pending.has(bookID))continue;
-      const previous=this.state.shelf.find(e=>e.book.id===bookID);
-      this.state={...this.state,shelf:this.state.shelf.filter(e=>e.book.id!==bookID)};
+      const previous=this.state.shelf.find(entry=>entry.book.id===bookID);
       if(remote.entry){
-        const entry=shelfEntry(remote.entry),cover=this.coverURLs.get(bookID);
-        if(cover)entry.book={...entry.book,coverURL:cover};
-        this.state.shelf.push(entry);
+        const entry=shelfEntry(remote.entry);
+        if(previous&&(previous.book.sourceID!==entry.book.sourceID||previous.book.url!==entry.book.url)){
+          this.invalidatingBooks.add(bookID);this.generation++;this.requests.clear();this.cancelBookDownloads(bookID);
+          try{
+            const db=await this.db,tx=db.transaction(['chapters','contents'],'readwrite');
+            await tx.objectStore('chapters').delete(bookID);for(const key of await tx.objectStore('contents').getAllKeys())if(String(key).startsWith(bookID+'\0'))await tx.objectStore('contents').delete(key);await tx.done;
+            delete this.progress[bookID];delete this.state.updates[bookID];
+          }finally{this.invalidatingBooks.delete(bookID);}
+        }
+        this.removedBooks.delete(bookID);const cover=this.coverURLs.get(bookID);if(cover)entry.book={...entry.book,coverURL:cover};
+        this.state={...this.state,shelf:[...this.state.shelf.filter(value=>value.book.id!==bookID),entry]};
         if(entry.position){this.progress[bookID]??=Object.create(null);this.progress[bookID][entry.position.chapterID]=Math.max(this.progress[bookID][entry.position.chapterID]??0,entry.position.chapterFraction);}
-      }else if(previous){delete this.progress[bookID];}
+      }else if(previous){
+        this.generation++;this.removedBooks.add(bookID);this.cancelBookDownloads(bookID);delete this.progress[bookID];delete this.state.updates[bookID];this.state={...this.state,shelf:this.state.shelf.filter(entry=>entry.book.id!==bookID)};
+      }
       delete this.cloud.deferred[bookID];
     }
     this.cloud.cursor=snapshot.cursor;
@@ -296,6 +504,7 @@ export async function switchLibraryProfile(profile:string|null){
   let next=guestLibrary;
   if(profile){next=profiles.get(profile)??new BrowserLibrary('qingread-cloud-'+profile,true);profiles.set(profile,next);}
   await next.initialized;
+  if(library!==next)await library.setProfileActive(false);await next.setProfileActive(true);
   detachLibrary();library=next;detachLibrary=library.subscribe(notifyLibrary);notifyLibrary();
 }
 const subscribeLibrary=(listener:()=>void)=>{libraryListeners.add(listener);return()=>{libraryListeners.delete(listener);};};

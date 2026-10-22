@@ -1,12 +1,13 @@
 import { loadCover } from './lib/covers';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpDown, BookOpen, Check, ChevronRight, CircleHelp, CloudOff, Download, FileUp, Grid2X2, Headphones, Library, LoaderCircle, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpDown, BookOpen, Check, ChevronRight, CircleHelp, CloudOff, Download, FileUp, Grid2X2, Headphones, Library, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react';
 import type { Book, Category, Chapter, DiscoverySection, ReaderSettings, SearchResponse, ShelfEntry, SourceDefinition } from './shared/types';
 import { api } from './lib/api';
 import { cloudSync, useCloudSync } from './lib/cloud';
 import { AccountPanel } from './components/AccountPanel';
 import { library, useLibrary } from './lib/store';
 import { Reader } from './components/Reader';
+import { canManageChapters, DownloadManager, DownloadOptions, SourcePicker } from './components/ReadingWorkflows';
 import { androidServerIssue, isAndroidApp, useAndroidBack } from './lib/android';
 import { authenticationRequiredEvent, normalizeApiAddress, serverConnectionStore } from './lib/connection';
 
@@ -23,6 +24,7 @@ export default function App() {
   const state = useLibrary();
   const cloud = useCloudSync();
   const [tab, setTab] = useState<Tab>('shelf');
+  const [showDownloads, setShowDownloads] = useState(false);
   const [selected, setSelected] = useState<Book | null>(null);
   const [reading, setReading] = useState<{ book: Book; chapterID?: string } | null>(null);
   const [notice, setNotice] = useState('');
@@ -30,6 +32,9 @@ export default function App() {
   const [authenticationRequired, setAuthenticationRequired] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [searchSeed, setSearchSeed] = useState('');
+  const profile = cloud.session?.user.id || 'guest';
+  const lastProfile = useRef(profile);
+  useEffect(() => { if (lastProfile.current !== profile) { setReading(null); setSelected(null); setShowDownloads(false); lastProfile.current = profile; } }, [profile]);
   const importInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const serverIssue = isAndroidApp() ? androidServerIssue(localStorage.getItem('qingread.apiBase') || import.meta.env.VITE_API_BASE || '') : undefined;
@@ -42,7 +47,7 @@ export default function App() {
   useEffect(() => {
     void cloudSync.initialize();
     const poll = setInterval(() => { if (document.visibilityState === 'visible') void cloudSync.sync(); }, 20000);
-    const syncOnResume = () => void cloudSync.sync();
+    const syncOnResume = () => { if (document.visibilityState === 'hidden') void library.pauseDownloadsForBackground(); else { void cloudSync.sync(); void library.checkForUpdates(); } };
     window.addEventListener('online', syncOnResume);
     document.addEventListener('visibilitychange', syncOnResume);
     return () => { clearInterval(poll); window.removeEventListener('online', syncOnResume); document.removeEventListener('visibilitychange', syncOnResume); };
@@ -73,6 +78,9 @@ export default function App() {
     }
     setSelected(null);setReading({book,chapterID});
   }
+  useEffect(() => { if (state.ready && tab === 'shelf' && !reading && !selected && document.visibilityState === 'visible' && navigator.onLine) void library.checkForUpdates(); }, [state.ready, tab, profile, Boolean(reading), Boolean(selected), state.shelf.length]);
+  const selectedBook = selected && (state.shelf.find(entry => entry.book.id === selected.id)?.book || selected);
+  const readingBook = reading && (state.shelf.find(entry => entry.book.id === reading.book.id)?.book || reading.book);
   if (!cloud.initialized) return <Loading text="正在打开书架" />;
   return <>
     <div className="app-shell">
@@ -82,7 +90,7 @@ export default function App() {
         {serverIssue && <div className="error-banner">{serverIssue} {tab !== 'settings' && <button className="text-button" onClick={() => setTab('settings')}>前往设置</button>}</div>}
         {authenticationRequired && <div className="error-banner">请在「设置 → 服务器连接」填写或更新服务访问码。{tab !== 'settings' && <button className="text-button" onClick={() => setTab('settings')}>前往设置</button>}</div>}
         {state.storageError && <div className="error-banner">{state.storageError}</div>}
-        {tab === 'shelf' && <Shelf entries={state.shelf} ready={state.ready} onDetails={setSelected} onRead={read} onSearch={() => setTab('search')} onImport={() => importInput.current?.click()} importing={importing} onNotice={setNotice} />}
+        {tab === 'shelf' && <Shelf entries={state.shelf} ready={state.ready} onDetails={setSelected} onRead={read} onSearch={() => setTab('search')} onImport={() => importInput.current?.click()} importing={importing} onNotice={setNotice} onDownloads={() => setShowDownloads(true)} />}
         {tab === 'discover' && <Discover onBook={setSelected} onSearch={openSearch} />}
         {tab === 'categories' && <Categories onBook={setSelected} />}
         {tab === 'search' && <SearchPage sources={state.sources} disabled={state.disabledSourceIDs} initialQuery={searchSeed} onBook={setSelected} />}
@@ -91,8 +99,9 @@ export default function App() {
       <nav className="bottom-nav" aria-label="主导航">{tabs.map(({ id, label, icon: Icon }) => <button key={id} aria-current={tab === id ? 'page' : undefined} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><span><Icon size={21} strokeWidth={tab === id ? 2 : 1.6} /></span><small>{label}</small></button>)}</nav>
     </div>
     <input ref={importInput} type="file" accept=".epub,.pdf,.txt,application/epub+zip,application/pdf,text/plain" hidden onChange={event => void importBook(event.target.files?.[0])} />
-    {selected && <BookDetail book={selected} onClose={() => setSelected(null)} onRead={read} onNotice={setNotice} />}
-    {reading && <Reader book={reading.book} initialChapterID={reading.chapterID} onClose={() => setReading(null)} />}
+    {selectedBook && <BookDetail key={`${profile}:${selectedBook.id}:${selectedBook.sourceID}:${selectedBook.url}`} book={selectedBook} onClose={() => setSelected(null)} onRead={read} onNotice={setNotice} />}
+    {reading && readingBook && <Reader key={`${profile}:${readingBook.id}:${readingBook.sourceID}:${readingBook.url}`} book={readingBook} initialChapterID={reading.book.sourceID === readingBook.sourceID && reading.book.url === readingBook.url ? reading.chapterID : undefined} onClose={() => setReading(null)} />}
+    {showDownloads && <DownloadManager onClose={() => setShowDownloads(false)}/>}
     {notice && <div className="toast" role="status">{notice}</div>}
   </>;
 }
@@ -121,7 +130,7 @@ function Cover({ book, large = false }: { book: Book; large?: boolean }) {
     let live=true,objectURL='';
     loadCover(book).then(blob=>{if(live&&blob){objectURL=URL.createObjectURL(blob);setURL(objectURL);}}).catch(()=>{if(live)setFailed(true);});
     return()=>{live=false;if(objectURL)URL.revokeObjectURL(objectURL);};
-  }, [book.id, book.coverURL,visible]);
+  }, [book.id, book.sourceID, book.url, book.coverURL,visible]);
   return <div ref={anchor} className={`book-cover cover-tone-${hash % 6} ${large ? 'large' : ''} ${loaded ? 'has-image' : ''}`}>
     <span className="cover-rule" /><div className="cover-typography"><span>{book.title}</span><small>{book.author || '佚名'}</small></div><span className="cover-stamp">藏书</span>
     {url && !failed && <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} onLoad={() => setLoaded(true)} />}
@@ -133,18 +142,20 @@ function BookGrid({ books, onBook }: { books: Book[]; onBook: (book: Book) => vo
 function Loading({ text = '正在整理书页' }: { text?: string }) { return <div className="loading-state"><LoaderCircle size={21} className="spin" /><span>{text}</span></div>; }
 function Empty({ title, text, children }: { title: string; text: string; children?: React.ReactNode }) { return <div className="empty-state"><span className="empty-illustration"><BookOpen size={36} strokeWidth={1} /></span><h3>{title}</h3>{text&&<p>{text}</p>}{children}</div>; }
 
-function Shelf({ entries, ready, onDetails, onRead, onSearch, onImport, importing, onNotice }: { entries: ShelfEntry[]; ready: boolean; onDetails: (book: Book) => void; onRead: (book: Book) => void; onSearch: () => void; onImport: () => void; importing: boolean; onNotice: (text: string) => void }) {
+function Shelf({ entries, ready, onDetails, onRead, onSearch, onImport, importing, onNotice, onDownloads }: { entries: ShelfEntry[]; ready: boolean; onDetails: (book: Book) => void; onRead: (book: Book) => void; onSearch: () => void; onImport: () => void; importing: boolean; onNotice: (text: string) => void; onDownloads: () => void }) {
+  const state = useLibrary();
   const [sort, setSort] = useState<'recent' | 'added' | 'title'>('recent');
+  async function checkUpdates() { try { const result = await library.checkForUpdates(undefined, { force: true }); onNotice(result.failures.length ? `${result.failures.length} 本暂未检查成功` : result.updated ? `${result.updated} 本书有更新` : result.checked ? '暂无新章节' : '刚刚已检查'); } catch (error) { onNotice(message(error)); } }
   const [manage, setManage] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const sorted = useMemo(() => [...entries].sort((a, b) => sort === 'title' ? a.book.title.localeCompare(b.book.title, 'zh-Hans') : sort === 'added' ? b.addedAt.localeCompare(a.addedAt) : (b.position?.updatedAt || b.addedAt).localeCompare(a.position?.updatedAt || a.addedAt)), [entries, sort]);
   const recent = sorted.find(entry => entry.position);
   async function remove() { if (!window.confirm(`删除所选 ${checked.size} 本书及其云端文件？`)) return; for (const entry of entries.filter(entry => checked.has(entry.book.id))) await library.remove(entry.book); setChecked(new Set()); setManage(false); onNotice('已从书架移除'); }
   return <>
-    <PageHeader title="书架" actions={<><button className="icon-button" aria-label="搜书" onClick={onSearch}><Search size={21} /></button><button className="icon-button" aria-label="导入书籍" disabled={importing} onClick={onImport}>{importing ? <LoaderCircle size={21} className="spin" /> : <Plus size={23} />}</button></>} />
+    <PageHeader title="书架" actions={<><button className="icon-button" aria-label="检查更新" disabled={state.checkingUpdates} onClick={() => void checkUpdates()}><RefreshCw size={19} className={state.checkingUpdates ? 'spin' : undefined}/></button><button className="icon-button" aria-label="下载管理" onClick={onDownloads}><Download size={20}/></button><button className="icon-button" aria-label="搜书" onClick={onSearch}><Search size={21} /></button><button className="icon-button" aria-label="导入书籍" disabled={importing} onClick={onImport}>{importing ? <LoaderCircle size={21} className="spin" /> : <Plus size={23} />}</button></>} />
     {recent && !manage && <button className="continue-card" onClick={() => onRead(recent.book)}><div className="continue-lines"><span className="eyebrow">继续阅读</span><strong>{recent.book.title}</strong><small>{recent.book.publicationFormat === 'pdf' ? `第 ${recent.position!.chapterIndex + 1} 页` : `第 ${recent.position!.chapterIndex + 1} 章 · 本章已读 ${Math.round(recent.position!.chapterFraction * 100)}%`}</small></div><span className="continue-arrow"><ArrowRight size={22} strokeWidth={1.5} /></span></button>}
     <div className="section-toolbar"><div className="collection-label">全部书籍 <span>{entries.length}</span></div><div className="toolbar-actions"><label className="sort-control"><ArrowUpDown size={14} /><select aria-label="书架排序" value={sort} onChange={event => setSort(event.target.value as typeof sort)}><option value="recent">最近阅读</option><option value="added">加入时间</option><option value="title">书名排序</option></select></label><button className={manage ? 'text-button accent' : 'text-button'} onClick={() => { setManage(!manage); setChecked(new Set()); }}>{manage ? '完成' : '管理'}</button></div></div>
-    {!ready ? <Loading /> : entries.length === 0 ? <Empty title="书架暂无书籍" text=""><button className="primary-button" onClick={onSearch}>去搜书 <ArrowRight size={16} /></button><button className="text-button" onClick={onImport}>导入本地书籍</button></Empty> : <div className="book-grid shelf-grid">{sorted.map(({ book, position }, index) => <div className="shelf-tile" key={book.id} style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}><button className="book-tile" onClick={() => { if (manage) { const next = new Set(checked); next.has(book.id) ? next.delete(book.id) : next.add(book.id); setChecked(next); } else onRead(book); }}><div className="cover-wrap"><Cover book={book} />{manage && <span className={`selection-check ${checked.has(book.id) ? 'selected' : ''}`}>{checked.has(book.id) && <Check size={15} />}</span>}</div><strong>{book.title}</strong><span>{position ? book.publicationFormat === 'pdf' ? `第 ${position.chapterIndex + 1} 页` : `第 ${position.chapterIndex + 1} 章 · ${Math.round(position.chapterFraction * 100)}%` : '未读'}</span></button>{!manage && <button className="book-more" onClick={() => onDetails(book)} aria-label={`${book.title}详情`}><MoreHorizontal size={17} /></button>}</div>)}</div>}
+    {!ready ? <Loading /> : entries.length === 0 ? <Empty title="书架暂无书籍" text=""><button className="primary-button" onClick={onSearch}>去搜书 <ArrowRight size={16} /></button><button className="text-button" onClick={onImport}>导入本地书籍</button></Empty> : <div className="book-grid shelf-grid">{sorted.map(({ book, position }, index) => <div className="shelf-tile" key={book.id} style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}><button className="book-tile" onClick={() => { if (manage) { const next = new Set(checked); next.has(book.id) ? next.delete(book.id) : next.add(book.id); setChecked(next); } else onRead(book); }}><div className="cover-wrap"><Cover book={book} />{!manage && !!state.updates[book.id]?.unreadChapterIDs.length && <span className="shelf-update-badge">更新 {state.updates[book.id].unreadChapterIDs.length} 章</span>}{manage && <span className={`selection-check ${checked.has(book.id) ? 'selected' : ''}`}>{checked.has(book.id) && <Check size={15} />}</span>}</div><strong>{book.title}</strong><span>{position ? book.publicationFormat === 'pdf' ? `第 ${position.chapterIndex + 1} 页` : `第 ${position.chapterIndex + 1} 章 · ${Math.round(position.chapterFraction * 100)}%` : '未读'}</span></button>{!manage && <button className="book-more" onClick={() => onDetails(book)} aria-label={`${book.title}详情`}><MoreHorizontal size={17} /></button>}</div>)}</div>}
     {manage && <div className="manage-bar"><button className="text-button" onClick={() => setChecked(checked.size === entries.length ? new Set() : new Set(entries.map(entry => entry.book.id)))}>{checked.size === entries.length ? '取消全选' : '全选'}</button><span>已选 {checked.size} 本</span><button className="danger-button" disabled={!checked.size} onClick={() => void remove()}><Trash2 size={15} />移除</button></div>}
     <div className="shelf-import-line"><span /><button onClick={onImport}><FileUp size={15} /> 导入本地书籍</button><span /></div>
   </>;
@@ -199,6 +210,7 @@ function SearchPage({ sources, disabled, initialQuery, onBook }: { sources: Sour
 
 function BookDetail({ book, onClose, onRead, onNotice }: { book: Book; onClose: () => void; onRead: (book: Book, chapterID?: string) => void; onNotice: (message: string) => void }) {
   const state = useLibrary(); const [chapters, setChapters] = useState<Chapter[]>([]); const [loading, setLoading] = useState(!book.publicationFormat); const [error, setError] = useState(''); const [working, setWorking] = useState(false); const [cacheProgress, setCacheProgress] = useState(''); const [cachedIDs, setCachedIDs] = useState<Set<string>>(new Set()); const [progress, setProgress] = useState<Record<string, number>>({}); const [confirmRemove, setConfirmRemove] = useState(false); const [publicationCached, setPublicationCached] = useState(false); const abort = useRef<AbortController | null>(null);
+  const [workflow, setWorkflow] = useState<'source'|'download'|'manager'|null>(null);
   const cloud=useCloudSync();
   const cloudAvailable=cloud.files.some(file=>file.bookID===book.id);
   const entry = state.shelf.find(entry => entry.book.id === book.id);
@@ -238,8 +250,24 @@ function BookDetail({ book, onClose, onRead, onNotice }: { book: Book; onClose: 
     return () => { live = false; controller.abort(); abort.current?.abort(); };
   }, [book]);
   async function add() { await library.add(book); onNotice('已加入书架'); }
-  async function download() { const owner=library; setWorking(true); setError(''); const controller = new AbortController(); abort.current = controller; try { if (book.publicationFormat && cloudAvailable) { const imported=await cloudSync.downloadPublication(book);if(library===owner)onRead(imported);return; } if (book.publicationFormat) { setCacheProgress('正在下载整本书…'); const blob = await api.download(book, controller.signal); if (controller.signal.aborted || library!==owner) return; const imported = await owner.importFile(new File([blob], `${book.title}.${book.publicationFormat}`, { type: blob.type }), book); setCacheProgress('整本已缓存'); onNotice('整本书已下载，可离线阅读'); onRead(imported); } else { await owner.add(book); const targets = chapters.slice(0, 80).filter(chapter => !cachedIDs.has(chapter.id)); let count = 0; for (const chapter of targets) { if (controller.signal.aborted || library!==owner) break; setCacheProgress(`正在缓存 ${++count} / ${targets.length}`); const content = await api.content(book, chapter, controller.signal); await owner.cacheContent(book, content); setCachedIDs(previous => new Set(previous).add(chapter.id)); } if (!controller.signal.aborted) { setCacheProgress('缓存完成'); onNotice(chapters.length > 80 ? '已缓存前 80 章；阅读时会自动预读后续章节' : '目录章节已缓存'); } } } catch (error) { if (!controller.signal.aborted) setError(message(error)); } finally { setWorking(false); } }
-  return <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><section className="book-detail modal-panel" role="dialog" aria-modal="true" aria-label={`${book.title}详情`}><div className="modal-toolbar"><button className="icon-button" aria-label="关闭书籍详情" onClick={onClose}><ArrowLeft size={21} /></button><span>书籍详情</span><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={20} /></button></div><div className="book-detail-intro"><Cover book={book} large /><div><span className="detail-source">{book.sourceName}</span><h2>{book.title}</h2><p>{book.author || '佚名'}</p><span className="file-label">{book.publicationFormat?.toUpperCase() || `${chapters.length || '—'} 章`}</span></div></div>{book.summary&&<p className="book-description">{book.summary}</p>}<input ref={fileInput} type="file" accept=".epub,.pdf,.txt" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void attachFile(file);event.target.value='';}} /><div className="book-detail-actions"><button className="primary-button" onClick={() => book.publicationFormat && !publicationCached ? book.sourceID==='local-file' && !cloudAvailable ? fileInput.current?.click() : void download() : onRead(book, entry?.position?.chapterID)} disabled={working || loading}>{working ? <LoaderCircle size={17} className="spin" /> : <BookOpen size={17} />}{book.publicationFormat && !publicationCached ? cloudAvailable ? '云端下载并阅读' : book.sourceID==='local-file' ? '导入文件并阅读' : '下载并阅读' : entry?.position ? '继续阅读' : '开始阅读'}</button><button className="secondary-button" onClick={() => entry ? setConfirmRemove(!confirmRemove) : void add()}>{entry ? <><Check size={16} />已在书架</> : <><Plus size={16} />加入书架</>}</button></div>{book.publicationFormat && !publicationCached && book.sourceID!=='local-file' && <button className="text-button" onClick={()=>fileInput.current?.click()}>导入已有的同一份文件</button>}{confirmRemove && <div className="inline-confirm"><span>删除书籍及云文件？</span><button className="text-button danger" onClick={() => { void library.remove(book); setConfirmRemove(false); onNotice('已移除'); }}>确认移除</button><button className="text-button" onClick={() => setConfirmRemove(false)}>取消</button></div>}{book.publicationFormat && <div className="file-explanation"><ArrowDownToLine size={17} /><span>{book.publicationFormat === 'pdf' ? 'PDF · 原始版面' : '下载后可离线阅读'}</span></div>}{error && <div className="error-banner">{error}</div>}{cacheProgress && <div className="cache-progress"><span>{cacheProgress}</span>{working && <button className="text-button" onClick={() => { abort.current?.abort(); setCacheProgress('已停止，已完成的章节会保留'); }}>停止</button>}</div>}<div className="detail-catalog-heading"><h3>目录 <span>{chapters.length || ''}</span></h3>{!book.publicationFormat && chapters.length > 0 && <button className="text-button" disabled={working} onClick={() => void download()}><Download size={14} />缓存{chapters.length > 80 ? '前 80 章' : '章节'}</button>}</div>{loading ? <Loading text="正在加载目录" /> : chapters.length ? <ol className="detail-chapters">{chapters.map(chapter => <li key={chapter.id}><button onClick={() => onRead(book, chapter.id)}><span>{chapter.title}</span><small>{(progress[chapter.id] || 0) > 0 && <em>{Math.round(progress[chapter.id] * 100)}%</em>}{cachedIDs.has(chapter.id) && <Check size={12} aria-label="已缓存" />}</small><ChevronRight size={14} /></button></li>)}</ol> : <p className="catalog-note">{book.publicationFormat ? publicationCached && book.publicationFormat === 'pdf' ? 'PDF 按原始页码阅读，点击开始阅读打开。' : '整本下载后显示目录。' : '当前未能获取目录，请稍后重试。'}</p>}</section></div>;
+  async function download() {
+    if (!book.publicationFormat) { setWorkflow('download'); return; }
+    const owner = library;
+    const controller = new AbortController(); abort.current = controller;
+    setWorking(true); setError('');
+    try {
+      if (cloudAvailable) { const imported = await cloudSync.downloadPublication(book); if (library === owner) onRead(imported); return; }
+      setCacheProgress('正在下载整本书…');
+      const blob = await api.download(book, controller.signal);
+      if (controller.signal.aborted || library !== owner) return;
+      const imported = await owner.importFile(new File([blob], `${book.title}.${book.publicationFormat}`, { type: blob.type }), book);
+      if (library !== owner) return;
+      setCacheProgress('整本已缓存'); onNotice('整本书已下载'); onRead(imported);
+    } catch (error) { if (!controller.signal.aborted && library === owner) setError(message(error)); }
+    finally { setWorking(false); }
+  }
+
+  return <><div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><section className="book-detail modal-panel" role="dialog" aria-modal="true" aria-label={`${book.title}详情`}><div className="modal-toolbar"><button className="icon-button" aria-label="关闭书籍详情" onClick={onClose}><ArrowLeft size={21} /></button><span>书籍详情</span><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={20} /></button></div><div className="book-detail-intro"><Cover book={book} large /><div><span className="detail-source">{book.sourceName}</span><h2>{book.title}</h2><p>{book.author || '佚名'}</p><span className="file-label">{book.publicationFormat?.toUpperCase() || `${chapters.length || '—'} 章`}</span></div></div>{book.summary&&<p className="book-description">{book.summary}</p>}<input ref={fileInput} type="file" accept=".epub,.pdf,.txt" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void attachFile(file);event.target.value='';}} /><div className="book-detail-actions"><button className="primary-button" onClick={() => book.publicationFormat && !publicationCached ? book.sourceID==='local-file' && !cloudAvailable ? fileInput.current?.click() : void download() : onRead(book, entry?.position?.chapterID)} disabled={working || loading}>{working ? <LoaderCircle size={17} className="spin" /> : <BookOpen size={17} />}{book.publicationFormat && !publicationCached ? cloudAvailable ? '云端下载并阅读' : book.sourceID==='local-file' ? '导入文件并阅读' : '下载并阅读' : entry?.position ? '继续阅读' : '开始阅读'}</button><button className="secondary-button" onClick={() => entry ? setConfirmRemove(!confirmRemove) : void add()}>{entry ? <><Check size={16} />已在书架</> : <><Plus size={16} />加入书架</>}</button></div>{book.publicationFormat && !publicationCached && book.sourceID!=='local-file' && <button className="text-button" onClick={()=>fileInput.current?.click()}>导入已有的同一份文件</button>}{confirmRemove && <div className="inline-confirm"><span>删除书籍及云文件？</span><button className="text-button danger" onClick={() => { void library.remove(book); setConfirmRemove(false); onNotice('已移除'); }}>确认移除</button><button className="text-button" onClick={() => setConfirmRemove(false)}>取消</button></div>}{book.publicationFormat && <div className="file-explanation"><ArrowDownToLine size={17} /><span>{book.publicationFormat === 'pdf' ? 'PDF · 原始版面' : '下载后可离线阅读'}</span></div>}{error && <div className="error-banner">{error}</div>}{cacheProgress && <div className="cache-progress"><span>{cacheProgress}</span>{working && <button className="text-button" onClick={() => { abort.current?.abort(); setCacheProgress('已停止，已完成的章节会保留'); }}>停止</button>}</div>}{canManageChapters(book) && <div className="book-workflow-actions">{entry && <button className="text-button" onClick={() => setWorkflow('source')}><RefreshCw size={15}/>换源</button>}<button className="text-button" onClick={() => setWorkflow('manager')}><Download size={15}/>下载管理</button></div>}<div className="detail-catalog-heading"><h3>目录 <span>{chapters.length || ''}</span></h3>{!book.publicationFormat && chapters.length > 0 && <button className="text-button" disabled={working} onClick={() => void download()}><Download size={14} />下载章节</button>}</div>{loading ? <Loading text="正在加载目录" /> : chapters.length ? <ol className="detail-chapters">{chapters.map(chapter => <li key={chapter.id}><button onClick={() => onRead(book, chapter.id)}><span>{chapter.title}</span><small>{(progress[chapter.id] || 0) > 0 && <em>{Math.round(progress[chapter.id] * 100)}%</em>}{cachedIDs.has(chapter.id) && <Check size={12} aria-label="已缓存" />}</small><ChevronRight size={14} /></button></li>)}</ol> : <p className="catalog-note">{book.publicationFormat ? publicationCached && book.publicationFormat === 'pdf' ? 'PDF 按原始页码阅读，点击开始阅读打开。' : '整本下载后显示目录。' : '当前未能获取目录，请稍后重试。'}</p>}</section></div>{workflow === 'source' && <SourcePicker book={book} onClose={() => setWorkflow(null)} onChanged={replacement => { setWorkflow(null); onRead(replacement); }}/>}{workflow === 'download' && <DownloadOptions book={book} chapters={chapters} onClose={() => setWorkflow(null)} onQueued={() => setWorkflow('manager')}/>}{workflow === 'manager' && <DownloadManager onClose={() => setWorkflow(null)}/>}</>;
 }
 
 type SettingPanel = 'sources' | 'voices' | 'reading' | 'storage' | 'server' | 'account' | null;

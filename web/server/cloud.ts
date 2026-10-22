@@ -100,8 +100,20 @@ export class CloudDatabase {
         if (m.action === 'add' && old && !previous && m.baseRevision < old.revision) reason = 'removed-elsewhere';
         if (m.action === 'remove' && old && m.baseRevision < old.revision && Date.parse(m.changedAt) < Date.parse(old.membership_at)) reason = 'newer-library-change';
         if (!reason && m.action !== 'remove' && entry) {
-          if (previous) entry = { ...previous, book: { ...previous.book, ...entry.book }, position: newestPosition(previous.position, entry.position) };
-          else membershipAt = m.changedAt;
+          if (previous) {
+            const sameSource = previous.book.sourceID === entry.book.sourceID && previous.book.url === entry.book.url;
+            if (!sameSource && (m.action === 'progress' || m.baseRevision !== old!.revision)) reason = 'source-changed';
+            else if (!sameSource) {
+              // Chapter anchors and publication identities belong to one source.
+              // A deliberate switch replaces both instead of merging old fields.
+              entry = { ...previous, book: entry.book, position: entry.position };
+              membershipAt = m.changedAt;
+            } else entry = {
+              ...previous,
+              book: m.action === 'progress' ? previous.book : { ...previous.book, ...entry.book },
+              position: newestPosition(previous.position, entry.position),
+            };
+          } else membershipAt = m.changedAt;
           if (!previous && Number((this.db.prepare('SELECT count(*) AS n FROM shelf WHERE user_id=? AND entry IS NOT NULL').get(user.id) as { n: number }).n) >= 1000) throw new ServiceError('云端书架最多保存 1000 本书。', 413);
         }
         if (!reason && !old && Number((this.db.prepare('SELECT count(*) AS n FROM shelf WHERE user_id=?').get(user.id) as { n: number }).n) >= 5000) throw new ServiceError('同步记录已达到上限，请联系维护者。', 413);
