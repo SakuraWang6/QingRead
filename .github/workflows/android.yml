@@ -53,7 +53,7 @@ jobs:
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Build and lint debug APK
         working-directory: web/android
-        run: ./gradlew --no-daemon assembleDebug lintDebug
+        run: ./gradlew --no-daemon assembleDebug lintDebug testDebugUnitTest
       - name: Verify APK signature and archive
         working-directory: web/android
         run: |
