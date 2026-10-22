@@ -1,6 +1,6 @@
 # 离线 AI 朗读：Melo 与 Kokoro
 
-依赖核对日期：2026-10-20；当前源码为 iPhone 0.10.0/build 12。Web/Android 使用系统语音，未集成本文的原生离线引擎。当前交付验证见[验证记录](verification.md)。
+依赖核对日期：2026-10-20；当前源码为 iPhone 0.10.0/build 13。Web/Android 使用系统语音，未集成本文的原生离线引擎。当前交付验证见[验证记录](verification.md)。
 
 在 iPhone「设置」中管理 Melo/Kokoro 声库，在阅读页的听书面板选择引擎、音色和语速。Melo 提供一个中文音色；Kokoro 提供三个女声与三个男声。两套声库都需首次联网下载，通过校验后可离线使用。
 

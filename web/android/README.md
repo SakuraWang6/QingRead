@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.10.0 / versionCode 8**，支持书架整理、书签笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。本机无 Android SDK，尚未在模拟器或真机运行；[最终 CI](https://github.com/SakuraWang6/QingRead/actions/runs/39808259963) 已通过编译、lint、JUnit、签名与 ZIP 检查；固定证书交付包与公网 latest 的版本、ZIP 和 SHA-256 核对均通过，详见[验证记录](../../docs/verification.md)。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.10.0 / versionCode 9**，支持书架整理、书签笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。本机无 Android SDK，尚未在模拟器或真机运行；[code 9 最终 CI](https://github.com/SakuraWang6/QingRead/actions/runs/39810145552) 、固定证书包的 v2/v3 签名、版本、ZIP 与公网 latest 全字节哈希校验均通过，详见[验证记录](../../docs/verification.md)。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 
@@ -34,7 +34,7 @@ cd android
 - 翻页时收起阅读控制栏，页码与进度条按当前排版估算；未缓存章节仍需联网加载。
 - 使用 Capacitor 8 的 SystemBars 原生安全区处理，适配状态栏、底部手势条及较旧 WebView 的安全区缺陷。
 - 听书仍通过系统 Web Speech 能力检测。部分 Android WebView 不提供该接口，会明确显示不可用；安卓原生听书、Kokoro 离线模型和锁屏持续播放尚未集成。
-- 听书可设 15 / 30 / 60 分钟或本章结束停止；EPUB 原版与文字模式、PDF 页笔记和本地搜索共用 Web 实现，见[电子书说明](../../docs/reading-tools.md)。
+- 听书可设 15 / 30 / 60 分钟或本章结束停止；EPUB 默认文字模式并提供「原版」入口，PDF 页笔记和本地搜索共用 Web 实现，见[电子书说明](../../docs/reading-tools.md)。
 - 文件选择、导出下载、系统返回手势、长时间阅读与后台行为仍需安卓模拟器/真机复核；CI 编译成功不等于这些交互已验证。
 
 官方参考：[Android 平台](https://capacitorjs.com/docs/android)、[Capacitor 8 升级要求](https://capacitorjs.com/docs/updating/8-0)、[配置和 HTTPS 原点](https://capacitorjs.com/docs/config)、[App 返回键](https://capacitorjs.com/docs/apis/app)、[SystemBars 安全区](https://capacitorjs.com/docs/apis/system-bars)。
