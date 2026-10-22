@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.10.0 / versionCode 8**，支持书架整理、书签笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。本机无 Android SDK，尚未在模拟器或真机运行；最终 CI 与签名包状态见[验证记录](../../docs/verification.md)。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前 **0.10.0 / versionCode 8**，支持书架整理、书签笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。本机无 Android SDK，尚未在模拟器或真机运行；[最终 CI](https://github.com/SakuraWang6/QingRead/actions/runs/39808259963) 已通过编译、lint、JUnit、签名与 ZIP 检查；固定证书交付包与公网 latest 的版本、ZIP 和 SHA-256 核对均通过，详见[验证记录](../../docs/verification.md)。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 

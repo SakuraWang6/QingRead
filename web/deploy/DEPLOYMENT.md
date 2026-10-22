@@ -1,6 +1,6 @@
 # 部署维护基线
 
-更新于 2026-10-22（Asia/Shanghai），本轮发布目标 Web/API 0.10.0，最终公网验证待补。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
+更新于 2026-10-22（Asia/Shanghai），Web/API 0.10.0 已上线，健康与共享服务检查通过。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
 
 iPhone 原生版为 0.10.0/build 12，Android 源码为 0.10.0/versionCode 8。本轮加入通知与后台任务、书架整理与笔记、EPUB 原版、PDF 页笔记搜索和账号恢复；具体构建、安装与分发状态见[验证记录](../../docs/verification.md)。
 
@@ -10,15 +10,15 @@ iPhone 原生版为 0.10.0/build 12，Android 源码为 0.10.0/versionCode 8。�
 |---|---|
 | 平台 | Ubuntu、`linux/amd64` Docker 镜像 |
 | 部署目录与项目 | `/srv/qingread`，Compose 项目 `qingread` |
-| 应用镜像 | 0.10.0 目标；继承已有基础镜像修复并加入匹配锁文件的生产依赖，最终上线待核对 |
-| Web 静态目录 | `downloads/sites/` 下独立版本目录；`qingread-current` 原子切换，0.10 最终目录待补 |
+| 应用镜像 | `qingread-web:0.10.0`，健康；保留基础镜像修复，包含新增生产依赖 |
+| Web 静态目录 | `downloads/sites/qingread-0100-20261022/`，`qingread-current` 指向该目录 |
 | HTTPS | 共享 Caddy 入口，清读路径 `/qingread/`；根路径返回空白 404，不展示项目 |
 | 应用入口 | Compose 私有网络 `qingread:8787` |
 | 资源上限 | 应用 384 MiB / 0.75 CPU；Caddy 128 MiB / 0.25 CPU |
 | 书源访问 | 显式 `QINGREAD_PUBLIC_ACCESS=true`、访问码留空 |
 | 个人数据 | 账号、恢复码哈希、书架整理、笔记、进度、原文件及后台任务按账号隔离 |
 | 云文件配额 | 单本 250 MiB、每账号 2 GiB、总计 10 GiB，预留 5 GiB 磁盘 |
-| 个人 Android 包 | 0.10.0 / versionCode 8；最终源码 CI、固定升级签名与公网校验待补 |
+| 个人 Android 包 | 0.10.0 / versionCode 8；CI、固定证书签名、ZIP 与公网 latest 下载哈希核对通过 |
 
 前端与 `linux/amd64` 镜像在开发电脑构建，服务器不执行 npm 安装或前端编译。0.10 新增 `web-push` 生产依赖，必须把匹配锁文件的依赖层一起交付，保留运行实例已有基础镜像修复；不能照搬 0.9 仅 COPY 少量源码的步骤。子路径网页单独上传到静态版本目录，不依赖镜像内旧 dist。保留上一兼容镜像、静态目录和升级前一致数据备份。日志过滤访问码、Bearer 会话、恢复码与推送订阅密钥，不公开展开的 Compose 或私有环境。
 
@@ -75,9 +75,15 @@ Mac 上可用 `scripts/ssh-en0-connector.py` 作为 SSH 的 `ProxyCommand`，仅
 
 ## 0.10.0 发布核对
 
-本地核心、原生编译与安装结果见[验证记录](../../docs/verification.md)。最终公网版本、子路径 PWA、云端任务/账号权限、Web Push 配置与网络、Android 交付包和共享服务器资源对比待补。
+升级前保留完整 `before-10` 备份，开发机离线构建包含 `web-push` 的镜像，仅切换清读应用与静态目录。`qingread-web:0.10.0` 健康，API 返回 0.10.0；`/qingread/`、manifest、Service Worker 与 push worker 均返回 200，scope 限定正确。根路径与 `/index.html` 仍为正文 0 字节的 404。
 
-可选推送只向主动授权的登录账号开放；默认关闭，无订阅就没有目录轮询。VAPID 私钥保存在私有配置并备份，新增环境只传给清读。云端准备全局单并发并限额，不扫描未启用用户书架；临时正文不能替代原文件备份。文档详见 [Push](../server/PUSH.md) 与 [云端准备](../server/OFFLINE-JOBS.md)。
+共享 Caddy 配置逐字未改，其他五个容器的 ID 与启动时间均未变；既有课程入口经认证跳转后为 200，独立端口服务仍为 200。无 OOM，清读约 115.1 MiB / 384 MiB，主机可用内存从 713 MiB 变为 699 MiB，磁盘约 24 GiB 可用。
+
+`/api/push/status` 与 `/api/offline/jobs` 未登录返回 401。Web Push 已启用，VAPID 密钥仅放私有环境；Apple 推送端点 TLS 可达、HTTP 405，尚未验证真实订阅送达。Android 最终源码 CI、固定证书签名、manifest 0.10.0/code 8 和 ZIP 检查通过；latest 原子切换后重新下载的 7,819,583 字节与本地包 SHA-256 一致。本地与设备检查见[验证记录](../../docs/verification.md)。
+
+线上旧 PWA 已实测点击更新后保留原有两本书架，显示新增筛选与 Web 0.10 版本；390 × 844 布局正常。未登录的通知面板要求先登录，不自动弹出系统权限。
+
+可选推送只向主动授权的登录账号开放；软件默认关闭，本实例已配置启用，无订阅就没有目录轮询。VAPID 私钥保存在私有配置并备份，新增环境只传给清读。云端准备全局单并发并限额，不扫描未启用用户书架；临时正文不能替代原文件备份。文档详见 [Push](../server/PUSH.md) 与 [云端准备](../server/OFFLINE-JOBS.md)。
 
 ## 上一兼容基线
 
