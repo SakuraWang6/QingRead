@@ -9,7 +9,7 @@
 | 平台与页面 | 版本 | 原图尺寸 | 文件与检查 |
 | --- | --- | --- | --- |
 | iPhone 原生 · 玄幻奇幻分类 | 0.10.0 / build 13 | 1206 × 2622 | [iphone-categories.png](iphone-categories.png)，首屏九张真实来源 JPEG 封面全部加载，无加载圈或文字占位 |
-| Web · 修真武侠分类 | 0.10.0 | 390 × 844 | [web-mobile-categories.png](web-mobile-categories.png)，首屏六张封面 complete 为真、naturalWidth 大于零，实际页面与截图均已核对 |
+| Web · 修真武侠分类 | 0.10.0 | 390 × 844 | [web-mobile-categories.jpg](web-mobile-categories.jpg)，首屏六张封面 complete 为真、naturalWidth 大于零，实际页面与截图均已核对 |
 
 所有展示图来自实际运行页面，不用生成图片或设计稿替代界面。两张截图均没有账号、私人服务器地址、令牌或设备标识；原图直接采集，未编辑封面或拼接页面。模拟器与响应式视口检查不代替真机兼容性验证。
 

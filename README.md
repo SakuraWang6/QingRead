@@ -15,7 +15,7 @@ iPhone 原生与 Web 0.10 的实际分类页，截图中可见封面均已加载
   </tr>
   <tr>
     <td align="center"><img src="docs/previews/iphone-categories.png" alt="iPhone 0.10 玄幻奇幻分类，九张真实封面已加载" width="260" /></td>
-    <td align="center"><img src="docs/previews/web-mobile-categories.png" alt="Web 0.10 修真武侠分类，六张真实封面已加载" width="260" /></td>
+    <td align="center"><img src="docs/previews/web-mobile-categories.jpg" alt="Web 0.10 修真武侠分类，六张真实封面已加载" width="260" /></td>
   </tr>
 </table>
 
