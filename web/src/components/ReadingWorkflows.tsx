@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, Download, LoaderCircle, Pause, Play, RefreshCw, X } from 'lucide-react';
 import type { Book, Chapter, SourceSwitchPlan } from '../shared/types';
 import { api } from '../lib/api';
+import { cloudSync } from '../lib/cloud';
+import { isAndroidApp } from '../lib/android';
 import { library, useLibrary } from '../lib/store';
 import { useAndroidBack } from '../lib/android';
 import './ReadingWorkflows.css';
@@ -10,7 +12,7 @@ import './ReadingWorkflows.css';
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '操作未完成，请重试';
 export const canManageChapters = (book: Book) => !book.publicationFormat && !book.fileDownloadURL && !book.sourceID.startsWith('local') && book.sourceID !== 'sample' && /^https?:/.test(book.url);
 
-function WorkflowDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function WorkflowDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const section = useRef<HTMLElement>(null);
   const close = useRef(onClose); close.current = onClose;
   useAndroidBack(() => { onClose(); return true; }, 500);
@@ -121,6 +123,8 @@ export function DownloadOptions({ book, chapters: supplied, onClose, onQueued }:
     try {
       await owner.add(book);
       if (library !== owner) return;
+      if(!isAndroidApp()&&cloudSync.getSnapshot().session)await cloudSync.sync();
+      if(library!==owner)return;
       await owner.enqueueDownload(book, kind === 'range' ? { kind: 'range', from: from - 1, to: to - 1 } : kind === 'all' ? { kind: 'all' } : { kind: 'next', count: Number(kind) as 50 | 100 });
       if (library === owner) onQueued();
     } catch (reason) { if (library === owner) setError(errorMessage(reason)); }
@@ -145,9 +149,10 @@ export function DownloadManager({ onClose }: { onClose: () => void }) {
   return <WorkflowDialog title="下载管理" onClose={onClose}>
     {error && <p className="workflow-error" role="alert">{error}</p>}
     {!downloads.length ? <p className="workflow-empty">暂无下载任务</p> : <div className="workflow-jobs">{downloads.map(job => <article className="workflow-job" key={job.id}>
-      <div className="workflow-job-heading"><strong>{job.bookTitle}</strong><span>{downloadLabels[job.status]}</span></div>
+      <div className="workflow-job-heading"><strong>{job.bookTitle}</strong><span>{job.engine==='server'&&job.status==='completed'&&!job.storedOnDevice?'云端已备妥':job.engine==='server'&&job.status==='running'?'云端准备中':downloadLabels[job.status]}</span></div>
       <progress aria-label={`${job.bookTitle}下载进度`} max={Math.max(1, job.total)} value={job.completed}/>
       <div className="workflow-job-foot"><span>{job.completed} / {job.total} 章{job.failedChapterIDs.length ? ` · ${job.failedChapterIDs.length} 章失败` : ''}</span><div>
+        {job.engine==='server'&&job.completed>0&&!job.storedOnDevice&&<button aria-label={`保存到本机${job.bookTitle}`} onClick={()=>void action(()=>library.savePreparedDownload(job.id))}><Download size={18}/></button>}
         {(job.status === 'running' || job.status === 'queued') && <button aria-label={`暂停下载${job.bookTitle}`} onClick={() => void action(() => library.pauseDownload(job.id))}><Pause size={18}/></button>}
         {job.status === 'paused' && <button aria-label={`继续下载${job.bookTitle}`} onClick={() => void action(() => library.resumeDownload(job.id))}><Play size={18}/></button>}
         {job.status === 'failed' && <button aria-label={`重试下载${job.bookTitle}`} onClick={() => void action(() => library.retryDownload(job.id))}><RefreshCw size={18}/></button>}

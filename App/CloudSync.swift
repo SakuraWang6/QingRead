@@ -68,7 +68,7 @@ final class NativeCloudSync: ObservableObject {
         if !path.hasSuffix("/api") { path += "/api" };parts.path=path
         guard let result=parts.url?.absoluteString else { throw AppError.message("服务器地址无效。") };return result
     }
-    func start() async {
+    func restoreSessionForBackground() {
         guard !started else { return };started=true
         if let data=CloudKeychain.load(),let saved=try? CloudJSON.decoder().decode(SavedCloudSession.self,from:data),let current=try? normalized(address),current==saved.address {
             do { try activate(saved.session,address:current) } catch { message=error.localizedDescription }
@@ -80,8 +80,27 @@ final class NativeCloudSync: ObservableObject {
                 if UIApplication.shared.applicationState == .active { await self?.sync() }
             }
         }
+    }
+    func start() async {
+        restoreSessionForBackground()
         await sync()
     }
+    var canDownloadInBackground: Bool { (try? normalized(address)) != nil }
+    func backgroundChapterRequest(book: Book, chapters: [Chapter]) throws -> URLRequest {
+        let endpoint = try normalized(address)
+        // A transfer only needs source identity. Covers and long summaries would
+        // inflate the GET URL without helping the server retrieve any chapter.
+        let sourceBook = Book(id: book.id, title: book.title, sourceID: book.sourceID, sourceName: book.sourceName, url: book.url)
+        let payload = try JSONEncoder().encode(BackgroundChapterRequest(book: sourceBook, chapters: chapters))
+            .base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        guard !chapters.isEmpty, chapters.count <= 10, payload.count <= 12_000,
+              let url = URL(string: endpoint + "/offline/chapters?payload=" + payload) else { throw AppError.message("章节下载地址过长，请缩小下载范围。") }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 180)
+        if endpoint == sessionAddress, let token = session?.token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+    private struct BackgroundChapterRequest: Encodable { let book: Book; let chapters: [Chapter] }
     private func activate(_ session: CloudSession,address: String) throws {
         generation=UUID();fileTask?.cancel();fileTask=nil;downloads.values.forEach { $0.cancel() };downloads=[:];files=[];fileBusy=false;fileMessage="";usedBytes=0
         try store?.selectCloudProfile(address+"|"+session.user.id)
@@ -120,6 +139,40 @@ final class NativeCloudSync: ObservableObject {
         try activate(result,address:endpoint)
         Task { @MainActor in await sync() }
     }
+    func discoveryRecommendations() async throws -> NativeDiscoveryPage { try await request("/recommendations", authenticated: false) }
+    func discoveryCategories() async throws -> [NativeDiscoveryCategory] { try await request("/categories", authenticated: false) }
+    func discoveryCategory(_ id: String) async throws -> [Book] { try await request("/categories/" + id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!, authenticated: false) }
+    func discoveryAuthor(_ name: String) async throws -> NativeAuthorPage {
+        let query = URLQueryItem(name: "name", value: name)
+        var parts = URLComponents(); parts.queryItems = [query]
+        return try await request("/author?" + (parts.percentEncodedQuery ?? ""), authenticated: false)
+    }
+    private func acceptSession(_ result: CloudSession, endpoint: String) throws {
+        try CloudKeychain.save(CloudJSON.encoder().encode(SavedCloudSession(address: endpoint, session: result)))
+        address = endpoint; UserDefaults.standard.set(endpoint, forKey: "QingReadCloudServer")
+        try activate(result, address: endpoint)
+    }
+    func changePassword(currentPassword: String, newPassword: String) async throws {
+        guard !busy else { throw AppError.message("请稍后重试。") }; busy = true; defer { busy = false }
+        let endpoint = try normalized(address)
+        let body = try JSONSerialization.data(withJSONObject: ["currentPassword": currentPassword, "newPassword": newPassword])
+        let result: CloudSession = try await request("/auth/password", body: body)
+        try acceptSession(result, endpoint: endpoint)
+    }
+    func createRecoveryCode(password: String) async throws -> String {
+        guard !busy else { throw AppError.message("请稍后重试。") }; busy = true; defer { busy = false }
+        struct Result: Decodable { let recoveryCode: String }
+        let body = try JSONSerialization.data(withJSONObject: ["password": password])
+        let result: Result = try await request("/auth/recovery-code", body: body)
+        return result.recoveryCode
+    }
+    func recoverAccount(username: String, recoveryCode: String, newPassword: String) async throws {
+        guard !busy else { throw AppError.message("请稍后重试。") }; busy = true; defer { busy = false }
+        let endpoint = try normalized(address)
+        let body = try JSONSerialization.data(withJSONObject: ["username": username, "recoveryCode": recoveryCode, "newPassword": newPassword])
+        let result: CloudSession = try await request("/auth/recover", body: body, authenticated: false)
+        try acceptSession(result, endpoint: endpoint)
+    }
     func localChanged(_ action:CloudAction,book:Book) {
         guard user != nil,let store else { return }
         let previous=local.pending.first { $0.bookID==book.id }
@@ -148,7 +201,17 @@ final class NativeCloudSync: ObservableObject {
         defer { syncing=false;if current==generation { busy=false } }
         do {
             for _ in 0..<40 {
-                let request=CloudSyncRequest(cursor:local.cursor,mutations:Array(local.pending.prefix(50)))
+                var batch: [CloudMutation] = []
+                var bytes = try CloudJSON.encoder().encode(CloudSyncRequest(cursor: local.cursor, mutations: [])).count
+                for mutation in local.pending.prefix(50) {
+                    let size = try CloudJSON.encoder().encode(mutation).count + 1
+                    if bytes + size > 2 * 1024 * 1024 {
+                        if batch.isEmpty { throw AppError.message("这本书的标注数据过大，请缩短笔记后同步。") }
+                        break
+                    }
+                    batch.append(mutation); bytes += size
+                }
+                let request=CloudSyncRequest(cursor:local.cursor,mutations:batch)
                 let snapshot:CloudSnapshot=try await self.request("/sync",body:CloudJSON.encoder().encode(request))
                 guard current==generation else { return }
                 guard snapshot.anchorFormat=="body-utf16-v1" else { throw AppError.message("服务器同步版本不兼容。") }
@@ -248,7 +311,8 @@ struct CloudAccountView: View {
             if let user=cloud.user,!relogin {
                 Section("当前账号") {
                     Text(user.username).font(.headline)
-                    Text("书架和阅读进度只同步到这个账号。").font(.footnote)
+                    NavigationLink("修改密码") { AccountSecurityView(cloud: cloud, mode: .password) }
+                    NavigationLink("账号恢复码") { AccountSecurityView(cloud: cloud, mode: .recoveryCode) }
                     if let date=cloud.lastSync { Text("上次同步 \(date.formatted(date:.omitted,time:.shortened))").font(.footnote) }
                     Button(cloud.needsLogin ? "重新登录":"立即同步") { if cloud.needsLogin { username=user.username;relogin=true } else { Task { await cloud.sync() } } }.disabled(cloud.busy)
                     Button("合并本机未登录书架") { Task { do { try await cloud.mergeGuest() } catch { self.error=error.localizedDescription } } }.disabled(cloud.busy)
@@ -269,6 +333,7 @@ struct CloudAccountView: View {
                             password="";confirmation=""
                         }
                     }.disabled(cloud.busy)
+                    NavigationLink("忘记密码") { AccountSecurityView(cloud: cloud, mode: .recover) }
                     Button(register ? "已有账号，去登录":"没有账号，创建一个") { register.toggle();error="" }
 
                 }

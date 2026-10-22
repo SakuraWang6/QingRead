@@ -42,6 +42,7 @@ export const api = {
   recommendations: (signal?: AbortSignal) => request<{ sections: DiscoverySection[] }>('/recommendations', undefined, signal),
   categories: (signal?: AbortSignal) => request<Category[]>('/categories', undefined, signal),
   category: (id: string, signal?: AbortSignal) => request<Book[]>('/categories/' + encodeURIComponent(id), undefined, signal),
+  author:(name:string,signal?:AbortSignal)=>request<{author:string;books:Book[]}>('/author?'+new URLSearchParams({name}),undefined,signal),
   download: async (book: Book, signal?: AbortSignal): Promise<Blob> => { const address = apiBase(); return (await checked(await fetch(address + '/download', { method: 'POST', headers: headers(address, true), body: JSON.stringify({ book }), signal, redirect: 'error' }))).blob(); },
   coverURL: (book: Book): string => book.coverURL?.startsWith('blob:') ? book.coverURL : book.sourceID === 'local' || book.sourceID.startsWith('local-') ? '' : apiBase() + '/cover?' + new URLSearchParams({ sourceID: book.sourceID, bookURL: book.url, ...(book.coverURL ? { url: book.coverURL } : {}) }),
   cover: async (book: Book, signal?: AbortSignal): Promise<Blob> => { const address = apiBase(); return (await checked(await fetch(api.coverURL(book), { headers: headers(address), signal, redirect: 'error' }))).blob(); },

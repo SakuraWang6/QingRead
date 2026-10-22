@@ -19,6 +19,8 @@ struct BookReadingView: View {
             }
         } else if store.importedBooks[book.id]?.format == .pdf, let url = store.publicationURL(for: book) {
             PDFBookReader(book: book, url: url)
+        } else if store.importedBooks[book.id]?.format == .epub, let url = store.publicationURL(for: book) {
+            EPUBBookReader(book: book, url: url, initialChapterID: initialChapterID)
         } else { ReaderView(book: book, initialChapterID: initialChapterID) }
       }
       .overlay { if cloudLoading { ProgressView("下载中…").padding(24).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)) } }
@@ -143,10 +145,20 @@ private struct PDFBookReader: View {
     @State private var pages = 1
     @State private var seekPage: Int?
     @State private var showCatalog = false
+    @State private var showNotes = false
+    @State private var document: PDFDocument?
+    @State private var selectedText: PDFPageQuote?
+    @State private var requestedMatch: PDFPageJump?
+    @State private var openedProfile = -1
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                PDFCanvas(url: url, initialPage: store.position(for: book)?.chapterIndex ?? 0, requestedPage: seekPage) { index, count in
+                PDFCanvas(url: url, initialPage: store.position(for: book)?.chapterIndex ?? 0, requestedPage: seekPage, requestedMatch: requestedMatch, onDocument: {
+                    if openedProfile == store.profileRevision { document = $0 }
+                }, onSelection: {
+                    if openedProfile == store.profileRevision { selectedText = $0 }
+                }) { index, count in
+                    guard openedProfile == store.profileRevision else { return }
                     page = index; pages = count
                     let chapter = Chapter(id: book.id + "|\(index)", title: "第 \(index + 1) 页", url: book.url, index: index)
                     store.savePosition(book: book, chapter: chapter, index: index, characterOffset: 0, fraction: 0)
@@ -160,7 +172,19 @@ private struct PDFBookReader: View {
                     .font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 24).padding(.bottom, 8)
             }
             .background(Palette.paper).navigationTitle(book.title).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("返回") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("返回") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) { Button { showNotes = true } label: { Image(systemName: "bookmark") }.accessibilityLabel("PDF 书签与搜索").disabled(document == nil) }
+            }
+            .onAppear { openedProfile = store.profileRevision }
+            .onChange(of: store.profileRevision) { _ in document?.cancelFindString(); document = nil; dismiss() }
+            .sheet(isPresented: $showNotes) {
+                if let document {
+                    PDFAnnotationsPanel(book: book, document: document, pageIndex: page, quote: selectedText) { index, offset, length in
+                        seekPage = index; requestedMatch = .init(pageIndex: index, offset: offset, length: length)
+                    }
+                }
+            }
             .sheet(isPresented: $showCatalog) {
                 NavigationStack {
                     List(0..<pages, id: \.self) { index in
@@ -176,6 +200,9 @@ private struct PDFCanvas: UIViewRepresentable {
     let url: URL
     let initialPage: Int
     let requestedPage: Int?
+    let requestedMatch: PDFPageJump?
+    let onDocument: (PDFDocument) -> Void
+    let onSelection: (PDFPageQuote?) -> Void
     let onPage: (Int, Int) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(onPage: onPage) }
     func makeUIView(context: Context) -> PDFView {
@@ -185,15 +212,27 @@ private struct PDFCanvas: UIViewRepresentable {
         if let document = PDFDocument(url: url) {
             view.document = document
             if let page = document.page(at: min(max(0, initialPage), max(0, document.pageCount - 1))) { view.go(to: page) }
+            DispatchQueue.main.async { onDocument(document) }
         }
         context.coordinator.observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak view] _ in
             guard let view, let page = view.currentPage, let doc = view.document else { return }
             onPage(doc.index(for: page), doc.pageCount)
         }
+        context.coordinator.selectionObserver = NotificationCenter.default.addObserver(forName: .PDFViewSelectionChanged, object: view, queue: .main) { [weak view] _ in
+            guard let view, let document = view.document, let selection = view.currentSelection, let page = selection.pages.first else { onSelection(nil); return }
+            onSelection(PDFPageQuote.selection(selection, page: page, document: document))
+        }
         DispatchQueue.main.async { if let doc = view.document { onPage(min(max(0, initialPage), max(0, doc.pageCount - 1)), doc.pageCount) } }
         return view
     }
     func updateUIView(_ view: PDFView, context: Context) {
+        if let requestedMatch, requestedMatch.id != context.coordinator.lastMatch, let page = view.document?.page(at: requestedMatch.pageIndex) {
+            context.coordinator.lastMatch = requestedMatch.id
+            context.coordinator.lastRequested = requestedMatch.pageIndex
+            let range = PDFTextAnchor.rawRange(offset: requestedMatch.offset, length: max(1, requestedMatch.length), in: page.string ?? "")
+            if let selection = page.selection(for: range), range.length > 0 { view.setCurrentSelection(selection, animate: true); view.go(to: selection) }
+            else { view.go(to: page) }
+        }
         if let requestedPage, requestedPage != context.coordinator.lastRequested, let page = view.document?.page(at: requestedPage) {
             context.coordinator.lastRequested = requestedPage; view.go(to: page)
         }
@@ -201,7 +240,9 @@ private struct PDFCanvas: UIViewRepresentable {
     class Coordinator {
         var lastRequested: Int?
         var observer: NSObjectProtocol?
+        var selectionObserver: NSObjectProtocol?
+        var lastMatch: UUID?
         init(onPage: @escaping (Int, Int) -> Void) { }
-        deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+        deinit { if let observer { NotificationCenter.default.removeObserver(observer) }; if let selectionObserver { NotificationCenter.default.removeObserver(selectionObserver) } }
     }
 }

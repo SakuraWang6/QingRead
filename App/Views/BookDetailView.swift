@@ -27,7 +27,7 @@ struct BookDetailView: View {
                     BookSpine(book: currentBook)
                     VStack(alignment: .leading, spacing: 10) {
                         Text(book.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.ink)
-                        Text(book.author.isEmpty ? "作者未标注" : book.author).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                        if !book.author.isEmpty { NavigationLink { AuthorBooksView(author: book.author) } label: { Text(book.author).font(.system(size: 13)).foregroundStyle(Palette.secondary) } }
                         Text(currentBook.sourceName).font(.system(size: 12)).foregroundStyle(Palette.secondary)
                         if book.url.scheme == "https" || book.url.scheme == "http" {
                             Link(destination: book.url) {

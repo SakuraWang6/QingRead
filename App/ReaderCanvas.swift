@@ -20,6 +20,8 @@ struct ReaderCanvasView: UIViewRepresentable {
     let onToggleControls: () -> Void
     let onBoundary: (Int) -> Void
     let onExit: () -> Void
+    var onAnnotate: ((Int) -> Void)? = nil
+    var annotationRanges: [NSRange] = []
 
     func makeUIView(context: Context) -> ReaderCanvas {
         let view = ReaderCanvas()
@@ -33,8 +35,11 @@ struct ReaderCanvasView: UIViewRepresentable {
         view.onToggleControls = onToggleControls
         view.onBoundary = onBoundary
         view.onExit = onExit
+        view.onAnnotate = onAnnotate
+        view.annotationRanges = annotationRanges
         view.apply(content: content, settings: settings, initialOffset: initialOffset, seek: seek,
                    previousContent: previousContent, nextContent: nextContent)
+        view.highlightAnnotations()
     }
     static func dismantleUIView(_ view: ReaderCanvas, coordinator: ()) { view.cancelPreparation() }
 }
@@ -48,6 +53,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     var onToggleControls: (() -> Void)?
     var onBoundary: ((Int) -> Void)?
     var onExit: (() -> Void)?
+    var onAnnotate: ((Int) -> Void)?
+    var annotationRanges: [NSRange] = []
+    private var annotationKey = ""
 
     private var settings = ReaderSettings()
     private var chapterID: String?
@@ -107,6 +115,9 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
+        let annotate = UILongPressGestureRecognizer(target: self, action: #selector(annotatePressed(_:)))
+        annotate.minimumPressDuration = 0.5
+        addGestureRecognizer(annotate)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(coverPanned(_:)))
         pan.delegate = self
         cover.addGestureRecognizer(pan)
@@ -178,7 +189,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     private func rebuildLayout() {
         guard let document else { return }
         isUpdating = true
-        defer { isUpdating = false }
+        defer { isUpdating = false; annotationKey = ""; highlightAnnotations() }
         needsPagination = false
         layoutGeneration = UUID()
         backgroundColor = UIColor(settings.activeTheme.background)
@@ -330,6 +341,24 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
             if settings.turnMode == .cover { showCoverPage(pageIndex) }
         }
         report(settled: true)
+    }
+
+    func highlightAnnotations() {
+        guard let document else { return }
+        let key = "\(document.content.chapter.id)|\(ObjectIdentifier(textStorage))|\(settings.fontSize)|\(settings.turnMode)|" + annotationRanges.map { "\($0.location):\($0.length)" }.joined(separator: ",")
+        guard key != annotationKey else { return }; annotationKey = key
+        for storage in [textStorage, vertical.textStorage] where storage.length > 0 {
+            storage.removeAttribute(.underlineStyle, range: NSRange(location: 0, length: storage.length))
+            storage.removeAttribute(.underlineColor, range: NSRange(location: 0, length: storage.length))
+            for range in annotationRanges where range.location >= 0 && range.length > 0 && NSMaxRange(range) <= storage.length {
+                storage.addAttributes([.underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: UIColor(Palette.cinnabar)], range: range)
+            }
+        }
+        pageViews.forEach { $0.setNeedsDisplay() }; vertical.setNeedsDisplay()
+    }
+
+    @objc private func annotatePressed(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began { onAnnotate?(currentUTF16()) }
     }
 
     private func currentUTF16() -> Int {

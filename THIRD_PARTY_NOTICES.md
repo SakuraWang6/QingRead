@@ -55,7 +55,7 @@ SOFTWARE.
 
 - Project: https://github.com/weichsel/ZIPFoundation/tree/0.9.20
 - License: MIT; full text bundled in `App/Resources/ThirdPartyNotices.txt`.
-- Usage: bounded in-memory EPUB entry reading.
+- Usage: bounded EPUB text reading and validated local original-layout resources.
 
 ## Offline speech and Kokoro
 
@@ -67,3 +67,32 @@ SOFTWARE.
 ## Whole-book sources
 
 Search and file downloads are fetched from Project Gutenberg, Standard Ebooks, and OpenStax. Original book URLs and source names are retained. No downloaded book files or covers are committed; each edition retains its source terms and notices.
+
+## web-push
+
+- Project: https://github.com/web-push-libs/web-push
+- Version: 3.6.7, fixed in `web/package-lock.json`.
+- License: MPL-2.0; the unmodified package and its full license remain in the server dependency installation.
+- Usage: standard VAPID authentication and Web Push payload encryption for optional, account-authorized update notifications. It is a server dependency, not a telemetry SDK or native push service.
+
+## Web and Android reader dependencies
+
+The exact npm dependency versions are recorded in `web/package-lock.json`; upstream license files remain in the installed packages. This inventory supplements, rather than replaces, those license and copyright texts. QingRead's own license does not apply to these components.
+
+| Component | Upstream license | Use |
+| --- | --- | --- |
+| [React / React DOM](https://github.com/facebook/react) | MIT | Web and Android interface |
+| [Capacitor](https://github.com/ionic-team/capacitor), [App plugin](https://github.com/ionic-team/capacitor-plugins) | MIT | Android host and system integration |
+| [PDF.js](https://github.com/mozilla/pdf.js/blob/master/LICENSE) | Apache-2.0 | Local PDF rendering and text search |
+| [fflate](https://github.com/101arrowz/fflate/blob/master/LICENSE) | MIT | Bounded EPUB extraction |
+| [Lucide](https://github.com/lucide-icons/lucide) | ISC, with retained upstream notices | Interface icons |
+| [idb](https://github.com/jakearchibald/idb) | ISC | Account-scoped IndexedDB |
+| [noble-hashes](https://github.com/paulmillr/noble-hashes) | MIT | Local file hashes |
+| [Workbox](https://github.com/GoogleChrome/workbox) | MIT | PWA offline resources and worker integration |
+| [Fastify](https://github.com/fastify/fastify), [static](https://github.com/fastify/fastify-static), [rate-limit](https://github.com/fastify/fastify-rate-limit) | MIT | HTTP routes, static resources and request limits |
+| [Cheerio](https://github.com/cheeriojs/cheerio), [iconv-lite](https://github.com/pillarjs/iconv-lite) | MIT | Source parsing and character encoding |
+| [OpenCC-js](https://github.com/nk2028/opencc-js) | MIT AND Apache-2.0 | Simplified/traditional Chinese search conversion |
+| [tsx](https://github.com/privatenumber/tsx) | MIT | TypeScript server execution |
+| [AndroidX WorkManager](https://github.com/androidx/androidx/tree/androidx-main/work) | Apache-2.0 | Optional Android background update checks; `work-runtime:2.12.0` |
+
+PDF.js also supplies CMaps, standard fonts and WASM components with their own notices. `web/scripts/copy-pdf-assets.mjs` copies the original resource directories, including their license files, into `public/pdfjs/` for Web and Android packaging; these notices must remain with those resources. PDF text stays local; no OCR or external document-analysis SDK is added.

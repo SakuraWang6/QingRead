@@ -7,6 +7,7 @@ struct ReaderTopBar: View {
     let onClose: () -> Void
     var onSource: (() -> Void)? = nil
     var onDownload: (() -> Void)? = nil
+    var onAnnotations: (() -> Void)? = nil
     var body: some View {
         HStack(spacing: 14) {
             Button(action: onClose) {
@@ -14,8 +15,9 @@ struct ReaderTopBar: View {
             }.accessibilityLabel("关闭阅读器").accessibilityIdentifier("reader.close")
             Text(title).font(.system(size: 16, weight: .medium)).lineLimit(1)
             Spacer(minLength: 0)
-            if onSource != nil || onDownload != nil {
+            if onSource != nil || onDownload != nil || onAnnotations != nil {
                 Menu {
+                    if let onAnnotations { Button(action: onAnnotations) { Label("书签与搜索", systemImage: "bookmark") } }
                     if let onSource { Button(action: onSource) { Label("换源", systemImage: "arrow.triangle.swap") } }
                     if let onDownload { Button(action: onDownload) { Label("下载章节", systemImage: "arrow.down.circle") } }
                 } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }
@@ -375,6 +377,13 @@ struct ReaderAudioPanel: View {
                         var updated = store.settings; updated.speechRate = value; store.updateSettings(updated)
                     }), in: 0.6...1.8, step: 0.1).accessibilityIdentifier("reader.audio.rate")
                     Text(String(format: "%.1f×", store.settings.speechRate)).font(.system(size: 12)).monospacedDigit().frame(width: 36)
+                }
+                HStack {
+                    Text("定时停止").font(.system(size: 13))
+                    Spacer()
+                    Menu {
+                        ForEach(ReaderSpeechController.SleepMode.allCases) { mode in Button(mode.label) { speech.setSleepMode(mode) } }
+                    } label: { Text(speech.sleepMode.label).font(.system(size: 13)) }
                 }
                 VoicePreferencesView(activeSpeech: speech)
                 Text(speech.message ?? "锁屏后可继续收听，播完本章自动续章。退出阅读器后停止。")

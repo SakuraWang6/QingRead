@@ -4,7 +4,13 @@ import ReadingCore
 
 @main
 struct QingReadApp: App {
-    @StateObject private var store = AppStore()
+    @UIApplicationDelegateAdaptor(QingReadApplicationDelegate.self) private var applicationDelegate
+    @StateObject private var store: AppStore
+    init() {
+        let instance = AppStore()
+        _store = StateObject(wrappedValue: instance)
+        QingReadApplicationDelegate.store = instance
+    }
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -13,7 +19,10 @@ struct QingReadApp: App {
                 .environmentObject(store)
                 .task { await store.cloud.start() }
                 .onChange(of: scenePhase) { phase in
-                    if phase == .background { store.pauseDownloadsForBackground() }
+                    if phase == .background {
+                        store.pauseDownloadsForBackground()
+                        QingReadApplicationDelegate.scheduleRefresh(enabled: store.notificationPreferences.updates)
+                    }
                     if phase == .active {
                         Task {
                             await store.cloud.sync()
@@ -84,6 +93,9 @@ private struct RootView: View {
             NavigationStack { SettingsView() }
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(2)
+        }
+        .onChange(of: store.notificationBook?.id) { _ in
+            if let book = store.notificationBook { selectedTab = 0; importedBook = book; store.notificationBook = nil }
         }
         .toolbarBackground(Palette.paper, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)

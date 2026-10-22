@@ -6,11 +6,14 @@ import { existsSync } from 'node:fs';
 import { resolve as filePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchBuffer, fetchStream, MAX_DOWNLOAD, ServiceError, validateSourceURL } from './network.js';
-import { sources, categories, sourceFor, search, chapters, content, recommendations, category, coverFor, downloadURL, userError } from './reading.js';
+import { sources, categories, sourceFor, search, chapters, content, recommendations, category, coverFor, downloadURL, userError, authorBooks } from './reading.js';
 import { registerCloudRoutes, type CloudDatabase } from './cloud.js';
 import { registerFileRoutes, type CloudFiles } from './files.js';
 import { CoverCache } from './cover-cache.js';
 import { join } from 'node:path';
+import { createWebPushFromEnvironment, registerWebPushRoutes, type WebPushService } from './push.js';
+import { registerOfflineRoutes } from './offline.js';
+import { createOfflineJobs, registerOfflineJobRoutes, type OfflineJobs } from './offline-jobs.js';
 
 // Fastify decodes static route segments (e.g. /%61pi/sources). Use the
 // matched route as the authority, so encoded paths cannot bypass auth/quotas.
@@ -22,7 +25,7 @@ function tokenMatches(value: unknown, expected: string): boolean {
   if (typeof value !== 'string') return false;
   const a = Buffer.from(value), b = Buffer.from(expected); return a.length === b.length && timingSafeEqual(a, b);
 }
-export async function createApp(options: { token?: string; origins?: string[]; serveWeb?: boolean; webRoot?: string; cloud?: CloudDatabase; files?: CloudFiles } = {}) {
+export async function createApp(options: { token?: string; origins?: string[]; serveWeb?: boolean; webRoot?: string; cloud?: CloudDatabase; files?: CloudFiles; push?: WebPushService; offlineJobs?: OfflineJobs | false } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 64 * 1024, requestTimeout: 660_000, connectionTimeout: 65_000, trustProxy: false });
   // PWA installation fetches hundreds of static assets; only API traffic consumes quota.
   await app.register(rateLimit, { max: 180, timeWindow: '1 minute', allowList: request => !isAPIRequest(request) });
@@ -36,7 +39,7 @@ export async function createApp(options: { token?: string; origins?: string[]; s
     if (isAPIRequest(request) && !allowed) return reply.code(403).send({ message: '这个网页来源未被服务器允许。' });
     if (origin && allowed) reply.header('Access-Control-Allow-Origin', origin).header('Vary', 'Origin');
     if (request.method === 'OPTIONS') return reply.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS').header('Access-Control-Allow-Headers', 'Content-Type,X-QingRead-Token,Authorization').header('Access-Control-Max-Age', '600').code(204).send();
-    const cloudRoute = request.routeOptions.url?.startsWith('/api/auth/') || request.routeOptions.url === '/api/sync' || request.routeOptions.url?.startsWith('/api/files');
+    const cloudRoute = request.routeOptions.url?.startsWith('/api/auth/') || request.routeOptions.url === '/api/sync' || request.routeOptions.url?.startsWith('/api/files') || request.routeOptions.url?.startsWith('/api/push/') || request.routeOptions.url?.startsWith('/api/offline/jobs');
     if (cloudRoute) reply.header('Cache-Control', 'no-store');
     if (isAPIRequest(request) && !cloudRoute && request.routeOptions.url !== '/api/health' && token && !tokenMatches(request.headers['x-qingread-token'], token)) {
       // Images cannot carry custom headers: authenticated covers use the fetch endpoint via api.cover().
@@ -50,8 +53,13 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   });
   const objectSchema = { type: 'object', required: ['book'], properties: { book: { type: 'object' }, chapter: { type: 'object' } }, additionalProperties: false } as const;
   const searchSchema = { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 100 }, sourceIDs: { type: 'array', maxItems: 10, uniqueItems: true, items: { type: 'string', maxLength: 80 } } }, additionalProperties: false } as const;
-  app.get('/api/health', async () => ({ ok: true, version: '0.9.0', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud), filesEnabled: Boolean(options.files) }));
-  if (options.cloud) registerCloudRoutes(app, options.cloud);
+  app.get('/api/health', async () => ({ ok: true, version: '0.10.0', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud), filesEnabled: Boolean(options.files) }));
+  if (options.cloud) {
+    // The optional worker uses its own read-only account connection.
+    registerWebPushRoutes(app, options.cloud, options.push ?? createWebPushFromEnvironment());
+    if(options.offlineJobs!==false)registerOfflineJobRoutes(app,options.cloud,options.offlineJobs??await createOfflineJobs(options.cloud));
+    registerCloudRoutes(app, options.cloud);
+  }
   if (options.cloud && options.files) registerFileRoutes(app,options.cloud,options.files);
   app.get('/api/sources', async () => sources);
   app.post<{ Body: { query: string; sourceIDs?: string[] } }>('/api/search', { schema: { body: searchSchema } }, async request => {
@@ -67,6 +75,8 @@ export async function createApp(options: { token?: string; origins?: string[]; s
   });
   app.post<{ Body: { book: unknown } }>('/api/chapters', { schema: { body: objectSchema } }, request => chapters(request.body.book));
   app.post<{ Body: { book: unknown; chapter: unknown } }>('/api/content', { schema: { body: { ...objectSchema, required: ['book', 'chapter'] } } }, request => content(request.body.book, request.body.chapter));
+  registerOfflineRoutes(app);
+  app.get<{Querystring:{name:string}}>('/api/author',{schema:{querystring:{type:'object',required:['name'],properties:{name:{type:'string',minLength:1,maxLength:100}},additionalProperties:false}}},request=>authorBooks(request.query.name));
   app.get('/api/recommendations', () => recommendations());
   app.get('/api/categories', async () => categories);
   app.get<{ Params: { id: string } }>('/api/categories/:id', request => category(request.params.id));

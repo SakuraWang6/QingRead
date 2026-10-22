@@ -12,6 +12,7 @@ struct SettingsView: View {
                 NavigationLink { DownloadSitesView() } label: { Label("整本下载与网站", systemImage: "arrow.down.doc") }
             }
             Section("阅读") {
+                NavigationLink { ReadingNotificationSettingsView() } label: { Label("通知与后台", systemImage: "bell") }
                 NavigationLink { ReaderSettingsPanel() } label: { Label("排版与翻页", systemImage: "textformat.size") }
             }
         }
@@ -138,5 +139,34 @@ struct VoicePreferencesView: View {
     private func select(_ engine: SpeechEngine) {
         guard engine == .system || AIModelManager.manager(for: engine).readyDirectory != nil else { return }
         var settings = store.settings; settings.speechEngine = engine; store.updateSettings(settings)
+    }
+}
+
+struct ReadingNotificationSettingsView: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject private var notifications = ReadingNotifications.shared
+    var body: some View {
+        List {
+            Section {
+                Toggle("追更提醒", isOn: binding(\.updates))
+                Toggle("下载完成提醒", isOn: binding(\.downloads))
+            } footer: { Text("后台检查由 iOS 安排，提醒可能延迟。上划关闭应用后，下载需重新打开继续。") }
+            if notifications.permission == .denied {
+                Button("前往系统设置允许通知") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+            }
+            if let error = notifications.error { Text(error).font(.footnote).foregroundStyle(.red) }
+        }
+        .navigationTitle("通知与后台").navigationBarTitleDisplayMode(.inline)
+        .onAppear { notifications.refreshPermission() }
+    }
+    private func binding(_ path: WritableKeyPath<ReadingNotificationPreferences, Bool>) -> Binding<Bool> {
+        Binding(get: { store.notificationPreferences[keyPath: path] }, set: { enabled in
+            let profile = store.profileRevision
+            Task {
+                if enabled { guard await notifications.authorize() else { return } }
+                guard profile == store.profileRevision else { return }
+                var value = store.notificationPreferences; value[keyPath: path] = enabled; store.updateNotificationPreferences(value)
+            }
+        })
     }
 }

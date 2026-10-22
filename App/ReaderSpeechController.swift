@@ -5,6 +5,15 @@ import UIKit
 
 @MainActor
 final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    enum SleepMode: String, CaseIterable, Identifiable {
+        case off, minutes15, minutes30, minutes60, chapter
+        var id: String { rawValue }
+        var label: String { switch self { case .off: return "不定时"; case .minutes15: return "15 分钟"; case .minutes30: return "30 分钟"; case .minutes60: return "60 分钟"; case .chapter: return "播完本章" } }
+        var minutes: Int? { switch self { case .minutes15: return 15; case .minutes30: return 30; case .minutes60: return 60; default: return nil } }
+    }
+    @Published private(set) var sleepMode: SleepMode = .off
+    @Published private(set) var sleepDeadline: Date?
+    private var sleepTask: Task<Void, Never>?
     enum State: Equatable { case stopped, playing, paused, waiting }
     @Published private(set) var state: State = .stopped
     @Published private(set) var paragraphIndex = 0
@@ -225,6 +234,7 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
     }
 
     func stop() {
+        sleepTask?.cancel(); sleepTask = nil; sleepMode = .off; sleepDeadline = nil
         if state == .playing || state == .paused, let anchor = currentUTF16Anchor { onParagraph?(anchor) }
         playbackIntent = UUID()
         continuationRequested = false
@@ -343,13 +353,28 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
             guard let self, self.offlinePlayback == token, self.state == .playing else { return }
             self.setParagraph(max(0, self.paragraphCount - 1))
             if let last = document.content.paragraphs.last { self.cursor = ReaderSpeechCursor(text: last, utf16Offset: (last as NSString).length) }
-            self.onChapterCompleted?()
-            self.requestChapter(1)
+            self.completedChapter()
         }, onError: { [weak self] error in
             guard let self, self.offlinePlayback == token else { return }
             self.stop()
             self.message = error
         })
+    }
+
+    func setSleepMode(_ mode: SleepMode) {
+        sleepTask?.cancel(); sleepTask = nil; sleepMode = mode; sleepDeadline = nil
+        guard let minutes = mode.minutes else { return }
+        sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        sleepTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(minutes * 60) * 1_000_000_000) } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            self.stop(); self.message = "已定时停止"
+        }
+    }
+    private func completedChapter() {
+        onChapterCompleted?()
+        if sleepMode == .chapter { stop(); message = "已播完本章" }
+        else { requestChapter(1) }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
@@ -371,8 +396,7 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
                 let text = document.content.paragraphs[paragraphIndex]
                 cursor = ReaderSpeechCursor(text: text, utf16Offset: (text as NSString).length)
             }
-            onChapterCompleted?()
-            requestChapter(1)
+            completedChapter()
         }
     }
 
@@ -423,6 +447,16 @@ final class ReaderSpeechController: NSObject, ObservableObject, AVSpeechSynthesi
             speech.prepare(content: content, settings: selected, anchor: document.paragraphRanges[0].location + wordOffset,
                            bookTitle: "诊断", autoplay: false)
             assert(speech.cursor?.utf16Offset == wordOffset)
+            var timerBoundaries = 0
+            speech.onChapterBoundary = { _ in timerBoundaries += 1 }
+            speech.setSleepMode(.chapter); speech.completedChapter()
+            assert(speech.state == .stopped && timerBoundaries == 0 && speech.sleepMode == .off)
+            speech.setSleepMode(.minutes15)
+            assert(speech.sleepDeadline != nil && speech.sleepMode == .minutes15)
+            speech.setSleepMode(.off)
+            assert(speech.sleepDeadline == nil)
+            speech.onChapterBoundary = nil
+            speech.prepare(content: content, settings: selected, anchor: document.paragraphRanges[0].location + wordOffset, bookTitle: "诊断", autoplay: false)
             let stale = AVSpeechUtterance(string: text)
             speech.utterance = stale
             speech.state = .paused

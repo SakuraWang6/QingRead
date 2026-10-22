@@ -165,3 +165,22 @@ describe('account cloud synchronization',()=>{
     expect((await app.inject({method:'POST',url:'/api/sync',headers:{Authorization:'Bearer '+a.token,Origin:'https://evil.example'},payload:{anchorFormat,cursor:0,mutations:[]}})).statusCode).toBe(403);
   });
 });
+
+describe('cloud organization and annotation convergence',()=>{
+  it('preserves notes and organization across old clients, source conflicts and note deletion',async()=>{
+    const app=await setup(),a=await register(app,'annotation-reader'),now=Date.now()-10000;
+    const note={id:'annotation-first',kind:'note',chapterID:'old-chapter',chapterIndex:0,chapterTitle:'第一章',characterOffset:5,characterLength:2,quote:'正文',note:'离线笔记',sourceID:sampleBook.sourceID,sourceURL:sampleBook.url,updatedAt:new Date(now).toISOString()};
+    const original={...entry(),organization:{pinned:true,status:'later',group:'文学',updatedAt:new Date(now).toISOString()},annotations:[note]};
+    const first=(await sync(app,a.token,[mutation('annotation-add-0001','add',{entry:original})])).json();
+    const switched={...original,book:{...sampleBook,sourceID:'replacement',url:'https://replacement.example/book'},annotations:undefined};
+    const second=(await sync(app,a.token,[mutation('annotation-source-02','add',{baseRevision:first.cursor,entry:switched})],first.cursor)).json();
+    expect(second.records[0].entry.annotations).toHaveLength(1);
+    const offlineNote={...note,id:'annotation-offline',note:'另一台设备离线新增',updatedAt:new Date(now+1000).toISOString()};
+    const stale=(await sync(app,a.token,[mutation('annotation-stale-003','add',{baseRevision:first.cursor,entry:{...original,annotations:[note,offlineNote]}})],second.cursor)).json();
+    expect(stale.rejected[0].reason).toBe('source-changed');expect(stale.records[0].entry.book.sourceID).toBe('replacement');expect(stale.records[0].entry.annotations).toHaveLength(2);
+    const deleted={...offlineNote,updatedAt:new Date(now+2000).toISOString(),deletedAt:new Date(now+2000).toISOString()};
+    const erased=(await sync(app,a.token,[mutation('annotation-delete-04','add',{baseRevision:stale.cursor,entry:{...switched,annotations:[deleted]}})],stale.cursor)).json();
+    const old=(await sync(app,a.token,[mutation('annotation-old-0005','add',{baseRevision:erased.cursor,entry:{...switched,annotations:[offlineNote],organization:undefined}})],erased.cursor)).json();
+    expect(old.records[0].entry.organization.group).toBe('文学');expect(old.records[0].entry.annotations.find((n:{id:string})=>n.id===offlineNote.id).deletedAt).toBeTruthy();
+  });
+});

@@ -8,7 +8,7 @@
 
 `compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
 
-部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 `QingRead-Android-0.8.1.apk`，该目录仅供 Caddy 只读访问。然后执行：
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。独占域名时复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 APK，该目录仅供 Caddy 只读访问。然后执行：
 
 ```sh
 docker compose -f compose.production.yaml config --quiet
@@ -86,7 +86,7 @@ docker compose up -d --no-deps --force-recreate qingread
 
 ## 运行限制与更新
 
-容器以 UID 1000 非 root 运行，文件系统只读，只给 `/tmp` 64 MiB 临时空间，移除所有 Linux capabilities 并禁止提权。不挂载 Docker socket、主机目录或凭据。服务器通过 `app-data:/data` 持久化账号数据库与原文件；登录同一账号可同步 iOS、Web 与安卓书架和阅读位置，原文件按账号隔离。客户端章节缓存与语音模型不上传。
+容器以 UID 1000 非 root 运行，文件系统只读，只给 `/tmp` 64 MiB 临时空间，移除所有 Linux capabilities 并禁止提权。不挂载 Docker socket、主机目录或凭据。服务器通过 `app-data:/data` 持久化账号、书架笔记与原文件；登录同一账号跨端同步，原文件按账号隔离。客户端章节缓存与语音模型不做书架同步。可选推送订阅与云端准备任务也在该目录按账号保存。
 
 `web/compose.yaml` 通用配置将内存上限设为 384 MiB、Node 堆上限 192 MiB，CPU 上限 1 核；当前实际使用的 `compose.production.yaml` 则把 API 限为 384 MiB / 0.75 CPU、Caddy 限为 128 MiB / 0.25 CPU。请通过 `docker stats --no-stream` 观察实际负载；高并发或大目录可能需要调高限制，内存不足会被容器运行时重启。整本文件上限 250 MiB，下载采用流式转发，但服务器到部分海外书源的整本下载仍可能中断。
 
@@ -126,4 +126,13 @@ Compose 将 `app-data` 挂载到 `/data`，容器根文件系统继续只读。�
 原文件与数据库需要同一份一致备份。低峰只暂停清读容器，备份整个 `app-data`（数据库、WAL、SHM 与 files），随后立即启动清读。SQLite 在线备份 API 可生成数据库快照，但单独的数据库快照不能替代完整原文件备份。备份包含私人书架和密码哈希，应限制为所有者可读，并加密异地保存。不能只复制运行中的主数据库文件；不要将备份上传 GitHub。保留原镜像、配置和迁移前数据快照，以便回滚。
 
 
-当前 `app-data` 除 SQLite 外，还保存按账号分目录的原文件以及公共封面缓存。不能只备份 accounts.sqlite 而遗漏 files。最简单的一致备份方式是在低峰只暂停清读服务，备份整个 app-data 后立即启动清读；不要暂停其他 Compose 项目。还原也需还原同一份数据库与文件目录。目录 700、文件 600、当前身份校验和 SHA-256 验证均不因开启公共书源模式而取消。
+当前 `app-data` 包含 `accounts.sqlite`、按账号分目录的 `files/`、公共封面缓存，以及启用后的 `notifications.sqlite`、`offline-jobs.sqlite` 与 `jobs/`。不能只备份账号库而遗漏其他数据。最简单的一致备份方式是在低峰只暂停清读服务，备份整个 app-data 后立即启动清读；不要暂停其他 Compose 项目。还原也需还原同一份数据库与文件目录。目录 700、文件 600、当前身份校验和 SHA-256 验证均不因开启公共书源模式而取消。
+
+
+## 0.10 后台能力
+
+云端准备默认全实例单并发、章间至少 1 秒、私有空间全局 512 MiB、每账号 100 MiB，并保留至少 5 GiB 磁盘；准备完成后需在前台保存到设备。容量与会话失效规则见[云端准备](../server/OFFLINE-JOBS.md)。不要为下载放开任意 URL 代理或给其他应用目录写权限。
+
+Web Push 默认关闭。开启时生成自己的 VAPID 密钥，把 `QINGREAD_WEB_PUSH_ENABLED=true`、公钥、私钥和联系地址加入私有环境，并仅传入清读容器；仓库现有 Compose 不会自动透传任意环境变量，需在本项目配置或私有覆盖文件显式映射。不能覆盖共享 Caddy 或其他服务配置。密钥生成、订阅限额和公网连接验证见 [Web Push](../server/PUSH.md)。
+
+0.10 新增 `web-push` 生产依赖，必须使用更新后的锁文件构建完整依赖，或在开发机准备匹配目标平台的生产依赖层；不能沿用 0.9 仅 COPY 几个源码文件的方式。保留运行实例已有基础镜像修复，在开发机完成构建和验证后上传。发布后先检查账号、资源、其他服务，再由用户主动订阅测试；自动化不向真实手机发通知。

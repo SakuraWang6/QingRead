@@ -24,7 +24,13 @@ export interface Category { id: string; title: string }
 export interface ReadingPosition {
   chapterID: string; chapterIndex: number; characterOffset: number; chapterFraction: number; updatedAt: string;
 }
-export interface ShelfEntry { book: Book; position?: ReadingPosition; addedAt: string }
+export interface ShelfOrganization { pinned: boolean; status: 'reading'|'later'|'finished'; group: string; updatedAt: string }
+export interface ReadingAnnotation {
+  id: string; kind: 'bookmark'|'note'; chapterID: string; chapterIndex: number; chapterTitle: string;
+  characterOffset: number; characterLength: number; quote: string; note: string;
+  sourceID: string; sourceURL: string; updatedAt: string; deletedAt?: string;
+}
+export interface ShelfEntry { book: Book; position?: ReadingPosition; addedAt: string; organization?: ShelfOrganization; annotations?: ReadingAnnotation[] }
 export type ReadingTheme = 'paper'|'dusk'|'mint'|'gray'|'rose'|'night';
 export interface ReaderSettings {
   fontSize: number; lineSpacing: number; paragraphSpacing: number; theme: ReadingTheme; isNightMode: boolean;
@@ -48,6 +54,8 @@ export interface BookUpdateState {
 export interface UpdateCheckResult { checked: number; updated: number; failures: string[] }
 export type ChapterDownloadStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export interface ChapterDownloadJob {
+  engine?: 'native'|'server';
+  storedOnDevice?: boolean;
   id: string; bookID: string; bookTitle: string; sourceID: string; sourceURL: string;
   status: ChapterDownloadStatus; chapterIDs: string[]; total: number; completed: number;
   completedChapterIDs: string[]; failedChapterIDs: string[]; error?: string;

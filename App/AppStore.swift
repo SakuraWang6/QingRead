@@ -21,6 +21,8 @@ final class AppStore: ObservableObject {
     @Published private(set) var profileRevision = 0
     @Published private(set) var importedBooks: [String: ImportedBookRecord] = [:]
     @Published var storageMessage: String?
+    @Published private(set) var notificationPreferences = ReadingNotificationPreferences()
+    @Published var notificationBook: Book?
     @Published private(set) var updateTracking: [String: BookUpdateTracking] = [:]
     @Published private(set) var checkingUpdates = false
     @Published private(set) var downloads: [ChapterDownloadTask] = []
@@ -29,6 +31,7 @@ final class AppStore: ObservableObject {
     private var downloadWorkerID: UUID?
     private var workflowGeneration = UUID()
     private var endCheckTimes: [String: Date] = [:]
+    private var backgroundDownloads: BackgroundChapterDownloads?
 
     lazy var cloud = NativeCloudSync(store: self)
 
@@ -63,7 +66,7 @@ final class AppStore: ObservableObject {
     }
 
     private func loadProfileStorage() {
-        updateTracking=[:];downloads=[];checkingUpdates=false;
+        updateTracking=[:];downloads=[];checkingUpdates=false;notificationPreferences=ReadingNotificationPreferences();notificationBook=nil;
         shelf=[];importedBooks=[:];importedSources=[];disabledSourceIDs=[];chapterProgresses=[:];settings=ReaderSettings();sources=SourceDefinition.builtIn
         do {
             try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
@@ -80,9 +83,10 @@ final class AppStore: ObservableObject {
             }
             settings = try read(ReaderSettings.self, name: "reader-settings.json") ?? ReaderSettings()
             chapterProgresses = try read([String: [String: Double]].self, name: "chapter-progress.json") ?? [:]
+            notificationPreferences = try read(ReadingNotificationPreferences.self, name: "notification-preferences.json") ?? ReadingNotificationPreferences()
             updateTracking = try read([String: BookUpdateTracking].self, name: "update-tracking.json") ?? [:]
             downloads = try read([ChapterDownloadTask].self, name: "chapter-downloads.json") ?? []
-            for index in downloads.indices where [.running, .queued].contains(downloads[index].status) { downloads[index].status = .paused }
+            for index in downloads.indices where [.running, .queued].contains(downloads[index].status) && downloads[index].backgroundManaged != true { downloads[index].status = .paused }
             persistDownloads()
             // A legacy position proves only that specific chapter was visited.
             for entry in shelf {
@@ -98,12 +102,15 @@ final class AppStore: ObservableObject {
     }
 
     func selectCloudProfile(_ key: String?) throws {
+        ReadingNotifications.shared.clear(scope: backgroundProfileScope)
         profileRevision += 1
         stopProfileWorkflows();cacheGeneration=UUID();prefetchTask?.cancel();cancelContentRequests()
         root=key.map { guestRoot.appendingPathComponent("Accounts/"+stableKey($0),isDirectory:true) } ?? guestRoot
         cacheRoot=root.appendingPathComponent("ChapterCache",isDirectory:true)
         try FileManager.default.createDirectory(at:cacheRoot,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         loadProfileStorage();cacheRevision += 1
+        QingReadApplicationDelegate.scheduleRefresh(enabled: notificationPreferences.updates)
+        backgroundDownloads?.restore()
     }
     func loadCloudState() throws -> NativeCloudLocalState { try read(NativeCloudLocalState.self,name:"cloud-state.json") ?? NativeCloudLocalState() }
     func saveCloudState(_ value: NativeCloudLocalState) throws { try encoder.encode(value).write(to:root.appendingPathComponent("cloud-state.json"),options:.atomic) }
@@ -143,9 +150,11 @@ final class AppStore: ObservableObject {
                     book=book.withFileHash(hash.finalize().map { String(format:"%02x",$0) }.joined())
                 }
             }
-            let merged=ShelfEntry(book:book,position:entry.position,addedAt:entry.addedAt)
+            let merged=ShelfEntry(book:book,position:entry.position,addedAt:entry.addedAt,organization:entry.organization,annotations:entry.annotations)
             if let index=shelf.firstIndex(where:{$0.id==book.id}) {
-                if (merged.position?.updatedAt ?? merged.addedAt) > (shelf[index].position?.updatedAt ?? shelf[index].addedAt) { shelf[index]=merged }
+                if (merged.position?.updatedAt ?? merged.addedAt) > (shelf[index].position?.updatedAt ?? shelf[index].addedAt) {
+                    var combined = merged; combined.mergeMetadata(from: shelf[index]); shelf[index] = combined
+                } else { shelf[index].mergeMetadata(from: merged) }
             } else { shelf.append(merged) }
             cloud.localChanged(.add,book:book)
         }
@@ -157,7 +166,10 @@ final class AppStore: ObservableObject {
         shelf.filter { $0.position != nil }.max { ($0.position?.updatedAt ?? .distantPast) < ($1.position?.updatedAt ?? .distantPast) }
     }
     var sortedShelf: [ShelfEntry] {
-        shelf.sorted { ($0.position?.updatedAt ?? $0.addedAt) > ($1.position?.updatedAt ?? $1.addedAt) }
+        shelf.sorted {
+            if ($0.organization?.pinned ?? false) != ($1.organization?.pinned ?? false) { return $0.organization?.pinned == true }
+            return ($0.position?.updatedAt ?? $0.addedAt) > ($1.position?.updatedAt ?? $1.addedAt)
+        }
     }
 
     func isSaved(_ book: Book) -> Bool { shelf.contains { $0.id == book.id } }
@@ -280,8 +292,11 @@ final class AppStore: ObservableObject {
         guard !chapters.isEmpty else { throw AppError.message("来源没有返回可读章节。") }
         if isSaved(book), book.publicationFormat == nil {
             var tracking = updateTracking[book.id] ?? BookUpdateTracking()
+            let alreadyMarked = Set(tracking.newChapterIDs)
             tracking.refreshed(chapters, previous: previous, readIndex: position(for: book)?.chapterIndex)
             updateTracking[book.id] = tracking; persist(updateTracking, name: "update-tracking.json")
+            let newlyAdded = tracking.newChapterIDs.filter { !alreadyMarked.contains($0) }.count
+            if notificationPreferences.updates && newlyAdded > 0 { ReadingNotifications.shared.post(scope: backgroundProfileScope, book: book, kind: "updates", body: "更新 \(newlyAdded) 章") }
         }
         do { try writeCache(chapters, to: cache) }
         catch { storageMessage = "目录已获取，但离线保存失败：\(error.localizedDescription)" }
@@ -451,7 +466,7 @@ extension AppStore {
         if let index = shelf.firstIndex(where: { $0.id == book.id }) {
             guard let hash = book.fileHash, shelf[index].book.fileHash != hash else { return }
             let previous = shelf[index]
-            shelf[index] = ShelfEntry(book: previous.book.withFileHash(hash), position: previous.position, addedAt: previous.addedAt)
+            shelf[index] = ShelfEntry(book: previous.book.withFileHash(hash), position: previous.position, addedAt: previous.addedAt, organization: previous.organization, annotations: previous.annotations)
             cloud.localChanged(.add, book: shelf[index].book)
             persist(shelf, name: "library.json")
         } else { add(book) }
@@ -598,13 +613,14 @@ extension AppStore {
         tracking.newChapterIDs.removeAll { consumed.contains($0) }
         updateTracking[book.id] = tracking; persist(updateTracking, name: "update-tracking.json")
     }
-    func checkShelfUpdates(force: Bool = false) async {
+    func checkShelfUpdates(force: Bool = false, maximumBooks: Int? = nil) async {
         if let updateCheckTask { await updateCheckTask.value; return }
         let generation = workflowGeneration
         checkingUpdates = true
         let work = Task { @MainActor [weak self] in
             guard let self else { return }
-            let books = self.shelf.map(\.book).filter { $0.publicationFormat == nil && $0.fileDownloadURL == nil && self.enabledSourceIDs.contains($0.sourceID) }
+            let allBooks = self.sortedShelf.map(\.book).filter { $0.publicationFormat == nil && $0.fileDownloadURL == nil && self.enabledSourceIDs.contains($0.sourceID) }
+            let books = maximumBooks.map { Array(allBooks.prefix(max(0, $0))) } ?? allBooks
             for book in books {
                 guard !Task.isCancelled, self.workflowGeneration == generation else { return }
                 let cooldown: TimeInterval = force ? 60 : 15 * 60
@@ -693,7 +709,7 @@ extension AppStore {
                                        characterOffset: SourceProgressMatcher.utf16Offset(fraction: fraction, content: content), chapterFraction: fraction, updatedAt: Date())
         let oldEntry = shelf.first { $0.id == plan.book.id }
         var updatedShelf = shelf.filter { $0.id != plan.book.id }
-        updatedShelf.append(ShelfEntry(book: replacement, position: position, addedAt: oldEntry?.addedAt ?? Date()))
+        updatedShelf.append(ShelfEntry(book: replacement, position: position, addedAt: oldEntry?.addedAt ?? Date(), organization: oldEntry?.organization, annotations: oldEntry?.annotations))
         do {
             try encoder.encode(updatedShelf).write(to: root.appendingPathComponent("library.json"), options: .atomic)
         } catch {
@@ -716,7 +732,17 @@ extension AppStore {
         downloads.removeAll { ended.contains($0.status) && !retained.contains($0.id) }
         persist(downloads, name: "chapter-downloads.json")
     }
-    func pauseDownloadsForBackground() { stopAllDownloads() }
+    private func canDownloadBookInBackground(_ book: Book) -> Bool {
+        backgroundDownloads != nil && cloud.canDownloadInBackground && SourceDefinition.builtIn.contains(where: { $0.id == book.sourceID })
+    }
+    func pauseDownloadsForBackground() {
+        guard backgroundDownloads != nil else { stopAllDownloads(); return }
+        downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil; cancelDownloadRequests()
+        for index in downloads.indices where [.queued, .running].contains(downloads[index].status) && downloads[index].backgroundManaged != true {
+            downloads[index].status = .paused; downloads[index].lastError = "当前书源需在前台下载。"
+        }
+        persistDownloads(); scheduleBackgroundDownloads()
+    }
     private func cancelDownloadRequests(for bookID: String? = nil) {
         var cancelled = false
         for (key, request) in contentRequests where request.downloadOnly && (bookID == nil || request.bookID == bookID) {
@@ -739,6 +765,8 @@ extension AppStore {
         }
         add(book)
         var job = ChapterDownloadTask(book: book, chapters: selected)
+        job.backgroundManaged = canDownloadBookInBackground(book)
+        job.backgroundAttempts = [:]
         job.completedIDs = Set(selected.filter { hasCachedContent(for: $0, in: book) }.map(\.id))
         downloads.append(job); persistDownloads(); startDownloadWorker()
     }
@@ -746,18 +774,22 @@ extension AppStore {
         guard let index = downloads.firstIndex(where: { $0.id == id }), [.queued, .running].contains(downloads[index].status) else { return }
         let running = downloads[index].status == .running, bookID = downloads[index].book.id
         downloads[index].status = .paused; persistDownloads()
+        backgroundDownloads?.cancel(jobID: id, scope: backgroundProfileScope)
         if running { downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil; cancelDownloadRequests(for: bookID); startDownloadWorker() }
     }
     func resumeDownload(_ id: UUID) {
         guard let index = downloads.firstIndex(where: { $0.id == id }), [.paused, .failed].contains(downloads[index].status),
               isSaved(downloads[index].book), enabledSourceIDs.contains(downloads[index].book.sourceID), sourceFingerprint(currentBook(downloads[index].book)) == sourceFingerprint(downloads[index].book) else { return }
         downloads[index].status = .queued; downloads[index].failedIDs = []; downloads[index].lastError = nil
+        downloads[index].backgroundManaged = canDownloadBookInBackground(downloads[index].book)
+        downloads[index].backgroundAttempts = [:]
         persistDownloads(); startDownloadWorker()
     }
     func cancelDownload(_ id: UUID) {
         guard let index = downloads.firstIndex(where: { $0.id == id }) else { return }
         let running = downloads[index].status == .running, bookID = downloads[index].book.id
         downloads[index].status = .cancelled; persistDownloads()
+        backgroundDownloads?.cancel(jobID: id, scope: backgroundProfileScope)
         if running { downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil; cancelDownloadRequests(for: bookID); startDownloadWorker() }
     }
     func dismissDownload(_ id: UUID) {
@@ -768,13 +800,16 @@ extension AppStore {
         ids.forEach(cancelDownload)
     }
     private func stopAllDownloads() {
+        backgroundDownloads?.cancel(scope: backgroundProfileScope)
         downloadWorker?.cancel(); downloadWorker = nil; downloadWorkerID = nil
         cancelDownloadRequests()
         for index in downloads.indices where [.queued, .running].contains(downloads[index].status) { downloads[index].status = .paused }
         persistDownloads()
     }
     private func startDownloadWorker() {
-        guard downloadWorker == nil, let next = downloads.first(where: { $0.status == .queued }) else { return }
+        guard downloadWorker == nil else { return }
+        if backgroundDownloads != nil, downloads.contains(where: { $0.backgroundManaged == true && [.queued, .running].contains($0.status) }) { scheduleBackgroundDownloads(); return }
+        guard let next = downloads.first(where: { $0.status == .queued }) else { return }
         let worker = UUID(), profile = workflowGeneration
         downloadWorkerID = worker
         downloadWorker = Task { @MainActor [weak self] in
@@ -821,5 +856,213 @@ extension AppStore {
             self.downloads[index].status = self.downloads[index].failedIDs.isEmpty ? .completed : .failed
             self.persistDownloads()
         }
+    }
+}
+
+extension AppStore {
+    var backgroundProfileScope: String { root == guestRoot ? "guest" : root.lastPathComponent }
+    func startBackgroundDownloads() {
+        guard backgroundDownloads == nil else { return }
+        let manager = BackgroundChapterDownloads(directory: guestRoot.appendingPathComponent("BackgroundTransfers", isDirectory: true))
+        backgroundDownloads = manager
+        manager.request = { [weak self] book, chapters in
+            guard let self else { throw CancellationError() }
+            return try self.cloud.backgroundChapterRequest(book: book, chapters: chapters)
+        }
+        manager.receive = { [weak self] transfer, result in self?.receiveBackgroundBatch(transfer, result: result) }
+        manager.restored = { [weak self] records in self?.reconcileBackgroundDownloads(records) }
+        manager.changed = { [weak self] in self?.scheduleBackgroundDownloads() }
+        manager.restore()
+    }
+    func handleBackgroundDownloadEvents(completion: @escaping () -> Void) {
+        startBackgroundDownloads()
+        backgroundDownloads?.handleEvents(completion: completion)
+    }
+    private func reconcileBackgroundDownloads(_ records: [BackgroundChapterTransfer]) {
+        backgroundDownloads?.retain(scope: backgroundProfileScope)
+        for record in records {
+            let job = downloads.first { $0.id == record.jobID }
+            if !record.matches(scope: backgroundProfileScope, job: job) { backgroundDownloads?.cancel(jobID: record.jobID, scope: record.profileScope) }
+        }
+        for index in downloads.indices where downloads[index].backgroundManaged == true && [.queued, .running].contains(downloads[index].status) {
+            let job = downloads[index]
+            if job.completedIDs.count == job.chapters.count { downloads[index].status = .completed }
+            else if job.completedIDs.union(job.failedIDs).count == job.chapters.count { downloads[index].status = .failed }
+            else { downloads[index].status = records.contains { $0.matches(scope: backgroundProfileScope, job: job) } ? .running : .paused }
+        }
+        persistDownloads()
+    }
+    private func scheduleBackgroundDownloads() {
+        guard let manager = backgroundDownloads, manager.ready, cloud.canDownloadInBackground, downloadWorker == nil else { return }
+        manager.retain(scope: backgroundProfileScope)
+        guard let index = downloads.firstIndex(where: { $0.backgroundManaged == true && [.queued, .running].contains($0.status) }) else { startDownloadWorker(); return }
+        let job = downloads[index]
+        guard isSaved(job.book), enabledSourceIDs.contains(job.book.sourceID), sourceFingerprint(currentBook(job.book)) == sourceFingerprint(job.book) else { pauseDownload(job.id); return }
+        let active = manager.transfers.filter { $0.jobID == job.id && $0.profileScope == backgroundProfileScope }
+        let pending = Set(active.flatMap { $0.chapters.map(\.id) })
+        var missing: [Chapter] = []
+        for chapter in job.chapters where !job.completedIDs.contains(chapter.id) && !job.failedIDs.contains(chapter.id) && !pending.contains(chapter.id) {
+            if hasCachedContent(for: chapter, in: job.book) { downloads[index].completedIDs.insert(chapter.id) }
+            else { missing.append(chapter) }
+        }
+        if missing.isEmpty && active.isEmpty {
+            downloads[index].status = downloads[index].failedIDs.isEmpty ? .completed : .failed
+            if downloads[index].status == .completed && notificationPreferences.downloads { ReadingNotifications.shared.post(scope: backgroundProfileScope, book: job.book, kind: "download", body: "下载完成，可离线阅读") }
+            persistDownloads(); scheduleBackgroundDownloads(); return
+        }
+        downloads[index].status = .running
+        // Twenty larger transfers are pre-registered, rather than waking once
+        // for every chapter. The OS may delay later windows while suspended.
+        var planned: [BackgroundChapterTransfer] = []
+        while !missing.isEmpty && planned.count + active.count < 20 {
+            var count = min(10, missing.count)
+            var selected = Array(missing.prefix(count))
+            while count > 1 && (try? cloud.backgroundChapterRequest(book: job.book, chapters: selected)) == nil {
+                count -= 1; selected = Array(missing.prefix(count))
+            }
+            do {
+                _ = try cloud.backgroundChapterRequest(book: job.book, chapters: selected)
+                planned.append(BackgroundChapterTransfer(profileScope: backgroundProfileScope, jobID: job.id, book: job.book, chapters: selected))
+            } catch {
+                for chapter in selected { downloads[index].failedIDs.insert(chapter.id) }
+                downloads[index].lastError = error.localizedDescription
+            }
+            missing.removeFirst(count)
+        }
+        if planned.isEmpty && active.isEmpty {
+            downloads[index].status = .failed; persistDownloads(); scheduleBackgroundDownloads(); return
+        }
+        persistDownloads()
+        do { try manager.submit(planned) }
+        catch {
+            if let index = downloads.firstIndex(where: { $0.id == job.id }) { downloads[index].status = .paused; downloads[index].lastError = error.localizedDescription; persistDownloads() }
+        }
+    }
+    private func receiveBackgroundBatch(_ transfer: BackgroundChapterTransfer, result: Result<BackgroundChapterBatch, Error>) {
+        guard let index = downloads.firstIndex(where: { $0.id == transfer.jobID }), transfer.matches(scope: backgroundProfileScope, job: downloads[index]),
+              isSaved(transfer.book), sourceFingerprint(currentBook(transfer.book)) == sourceFingerprint(transfer.book), enabledSourceIDs.contains(transfer.book.sourceID) else { return }
+        let contents: [ChapterContent]
+        let messages: [String: String]
+        switch result {
+        case .success(let batch):
+            contents = transfer.validatedContents(batch)
+            messages = Dictionary(batch.failures.map { ($0.chapterID, String($0.message.prefix(200))) }, uniquingKeysWith: { first, _ in first })
+        case .failure(let error):
+            if error is BackgroundChapterDownloadError {
+                downloads[index].status = .paused; downloads[index].lastError = error.localizedDescription
+                backgroundDownloads?.cancel(jobID: transfer.jobID, scope: backgroundProfileScope)
+                persistDownloads(); return
+            }
+            contents = []; messages = Dictionary(uniqueKeysWithValues: transfer.chapters.map { ($0.id, error.localizedDescription) })
+        }
+        var saved = Set<String>()
+        for content in contents {
+            do {
+                try writeCache(content, to: contentURL(chapter: content.chapter, book: transfer.book))
+                downloads[index].completedIDs.insert(content.chapter.id); downloads[index].failedIDs.remove(content.chapter.id)
+                saved.insert(content.chapter.id)
+            } catch { downloads[index].lastError = error.localizedDescription }
+        }
+        for chapter in transfer.chapters where !saved.contains(chapter.id) {
+            let attempt = (downloads[index].backgroundAttempts?[chapter.id] ?? 0) + 1
+            downloads[index].backgroundAttempts = (downloads[index].backgroundAttempts ?? [:]).merging([chapter.id: attempt]) { _, new in new }
+            if attempt >= 3 { downloads[index].failedIDs.insert(chapter.id) }
+            downloads[index].lastError = messages[chapter.id] ?? "章节未能保存，稍后可重试。"
+        }
+        cacheRevision += 1; persistDownloads()
+    }
+}
+
+extension AppStore {
+    func updateNotificationPreferences(_ value: ReadingNotificationPreferences) {
+        notificationPreferences = value; persist(value, name: "notification-preferences.json")
+        QingReadApplicationDelegate.scheduleRefresh(enabled: value.updates)
+        if !value.updates && !value.downloads { ReadingNotifications.shared.clear(scope: backgroundProfileScope) }
+    }
+    func openNotificationBook(scope: String, id: String) {
+        guard scope == backgroundProfileScope, let entry = shelf.first(where: { $0.id == id }) else { return }
+        notificationBook = entry.book
+    }
+    func cancelBackgroundUpdateCheck() { updateCheckTask?.cancel() }
+}
+
+#if DEBUG
+extension AppStore {
+    func seedBackgroundDiagnostic(book: Book, chapters: [Chapter]) -> BackgroundChapterTransfer {
+        add(book)
+        var job = ChapterDownloadTask(book: book, chapters: chapters)
+        job.backgroundManaged = true; job.backgroundAttempts = [:]; job.status = .running
+        downloads.append(job); persistDownloads()
+        return BackgroundChapterTransfer(profileScope: backgroundProfileScope, jobID: job.id, book: book, chapters: chapters)
+    }
+    func receiveBackgroundDiagnostic(_ transfer: BackgroundChapterTransfer, batch: BackgroundChapterBatch) { receiveBackgroundBatch(transfer, result: .success(batch)) }
+    func throttleBackgroundDiagnostic(_ transfer: BackgroundChapterTransfer) { receiveBackgroundBatch(transfer, result: .failure(BackgroundChapterDownloadError.rateLimited)) }
+    func restoreBackgroundDiagnostic(_ records: [BackgroundChapterTransfer]) { reconcileBackgroundDownloads(records) }
+}
+#endif
+
+struct CachedBookMatch: Identifiable {
+    var id: String { chapter.id + "|" + String(characterOffset) }
+    let chapter: Chapter
+    let characterOffset: Int
+    let excerpt: String
+}
+extension AppStore {
+    var shelfGroups: [String] { Array(Set(shelf.compactMap { $0.organization?.group }.filter { !$0.isEmpty })).sorted() }
+    func organizeBooks(_ ids: Set<String>, pinned: Bool? = nil, status: ShelfReadingStatus? = nil, group: String? = nil) {
+        for index in shelf.indices where ids.contains(shelf[index].id) {
+            var value = shelf[index].organization ?? ShelfOrganization()
+            if let pinned { value.pinned = pinned }; if let status { value.status = status }; if let group { value.group = ReadingMetadataText.clipped(group.trimmingCharacters(in: .whitespacesAndNewlines), utf16Limit: 40) }
+            value.updatedAt = Date(); shelf[index].organization = value
+            cloud.localChanged(.add, book: shelf[index].book)
+        }
+        persist(shelf, name: "library.json")
+    }
+    func annotations(for book: Book) -> [ReadingAnnotation] { (shelf.first { $0.id == book.id }?.annotations ?? []).filter { $0.deletedAt == nil }.sorted { $0.updatedAt > $1.updatedAt } }
+    func saveAnnotation(book: Book, kind: ReadingAnnotationKind, chapter: Chapter, offset: Int, length: Int = 0, quote: String = "", note: String = "", replacing id: String? = nil) throws {
+        guard sourceFingerprint(currentBook(book)) == sourceFingerprint(book) else { throw AppError.message("书源已变更，请重新选择正文。") }
+        add(book)
+        guard let index = shelf.firstIndex(where: { $0.id == book.id }) else { return }
+        var values = shelf[index].annotations ?? []
+        if id == nil && values.count >= 256 { throw AppError.message("这本书的标注已达 256 条。") }
+        let annotation = ReadingAnnotation(id: id ?? UUID().uuidString, kind: kind, chapterID: chapter.id, chapterIndex: chapter.index, chapterTitle: chapter.title, characterOffset: offset, characterLength: length, quote: quote, note: note, sourceID: book.sourceID, sourceURL: book.url.absoluteString)
+        values.removeAll { $0.id == annotation.id }; values.append(annotation); shelf[index].annotations = values
+        cloud.localChanged(.add, book: book); persist(shelf, name: "library.json")
+    }
+    func deleteAnnotation(_ annotation: ReadingAnnotation, in book: Book) {
+        guard let index = shelf.firstIndex(where: { $0.id == book.id }), var values = shelf[index].annotations, let note = values.firstIndex(where: { $0.id == annotation.id }) else { return }
+        values[note].deletedAt = Date(); values[note].updatedAt = Date(); shelf[index].annotations = values
+        cloud.localChanged(.add, book: shelf[index].book); persist(shelf, name: "library.json")
+    }
+    func searchCachedText(_ query: String, book: Book, chapters: [Chapter]) async -> [CachedBookMatch] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        let profile = profileRevision, fingerprint = sourceFingerprint(book)
+        var matches: [CachedBookMatch] = []
+        for chapter in chapters {
+            guard !Task.isCancelled, profile == profileRevision, fingerprint == sourceFingerprint(currentBook(book)) else { return [] }
+            if let content = cachedContent(for: chapter, in: book) {
+                let text = content.paragraphs.joined(separator: "\n") as NSString
+                var start = 0
+                while start < text.length, matches.count < 100 {
+                    let range = text.range(of: query, options: .caseInsensitive, range: NSRange(location: start, length: text.length - start))
+                    if range.location == NSNotFound { break }
+                    let context = NSRange(location: max(0, range.location - 25), length: min(text.length, range.location + range.length + 55) - max(0, range.location - 25))
+                    matches.append(CachedBookMatch(chapter: chapter, characterOffset: range.location, excerpt: text.substring(with: context)))
+                    start = range.location + max(1, range.length)
+                }
+            }
+            if matches.count >= 100 { break }
+            await Task.yield()
+        }
+        return matches
+    }
+}
+
+extension AppStore {
+    func editAnnotation(_ id: String, in book: Book, note: String) {
+        guard let index = shelf.firstIndex(where: { $0.id == book.id }), var values = shelf[index].annotations, let item = values.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        values[item].note = ReadingMetadataText.clipped(note, utf16Limit: 1000); values[item].kind = .note; values[item].updatedAt = Date(); shelf[index].annotations = values
+        cloud.localChanged(.add, book: shelf[index].book); persist(shelf, name: "library.json")
     }
 }

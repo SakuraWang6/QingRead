@@ -91,7 +91,7 @@ HTTP 来源受 iOS App Transport Security 限制。工程使用系统默认安�
 
 ## 整本书库
 
-直接加入同一搜书流程，不要求用户找书的网址。下载在详情页显示进度，可取消；完成后加入书架并离线保存。EPUB/TXT 分为本地章节沿用阅读器和听书；iPhone 的 PDF 使用 PDFKit，Web/Android 使用 PDF.js，均保留版面与图表并记录所在页，暂不提供 PDF 听书。EPUB 当前提取正文，未复现原始 CSS、内嵌插图和复杂脚注，数学/图表密集书籍应优先选 PDF。
+直接加入同一搜书流程，不要求用户找书的网址。下载在详情页显示进度，可取消；完成后加入书架并离线保存。EPUB 提供保留插图、CSS、标题与脚注跳转的原版模式，也可切到文字模式重新排版和听书；TXT 按本地章节阅读。iPhone 的 PDF 使用 PDFKit，Web/Android 使用 PDF.js，保留页面图表，支持页书签、笔记与本地文字搜索，暂不提供 OCR 或 PDF 听书。详情见[电子书阅读](reading-tools.md)。
 
 | 官方书库 | 范围与格式 | 2026-10-20 实测 |
 |---|---|---|
@@ -99,7 +99,7 @@ HTTP 来源受 iOS App Transport Security 限制。工程使用系统默认安�
 | [Standard Ebooks](https://standardebooks.org/) | 精校英文文学，EPUB；跟随出版者下载中间页的 meta refresh | Tolstoy → 12 本，首本 The Power of Darkness 下载 686,454 bytes，解析 11 节 |
 | [OpenStax](https://openstax.org/subjects) | 主要为英文开放大学教材，PDF；支持统计、微积分、物理、经济等中文关键词映射 | 统计 → 5 本相关教材；首本 PDF 下载 106,819,604 bytes，文件头有效 |
 
-EPUB/ZIP 读取检查归档条目数、展开大小、读取大小、资源路径和符号链接；只在内存提取正文资源，不把归档路径写入文件系统。iPhone 单本导入上限 250 MB，TXT 上限 20 MB；损坏、加密或纯图片 EPUB 会明确失败。整本文件保存在 ImportedBooks，清理网页章节缓存不会删除已导入文件，移出书架会删除该书本地文件。
+EPUB/ZIP 读取检查归档条目数、展开大小、单资源大小、路径与符号链接。文字提取在内存完成；原版资源仅写入本书的安全缓存，Web 使用经清理的 Blob，禁用作者脚本与外网。单本导入上限 250 MB，TXT 上限 20 MB；损坏、加密或没有可提取正文的 EPUB 不支持文字导入。iPhone 原文件保存在 ImportedBooks，Web/Android 保存在账号 IndexedDB；清理网页章节缓存不删除原文件，移出书架会删除对应本地文件。
 
 ## Z-Library 的接入边界
 

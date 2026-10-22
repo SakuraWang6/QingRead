@@ -1,6 +1,6 @@
 # 清读书源服务
 
-需要 Node.js 24（使用内置 SQLite）。当前 API 版本为 0.8.1。在 `web/` 运行 `npm run dev:api`，默认仅监听 `127.0.0.1:8787`。Vite 将同源 `/api` 代理到此服务；生产 `npm run build && npm start` 同时提供 `dist/` 页面。
+需要 Node.js 24（使用内置 SQLite）。当前 API 版本为 0.10.0。在 `web/` 运行 `npm run dev:api`，默认仅监听 `127.0.0.1:8787`。Vite 将同源 `/api` 代理到此服务；生产 `npm run build && npm start` 同时提供 `dist/` 页面。
 
 服务器配置（环境变量）：
 
@@ -23,9 +23,11 @@ API：
 | GET | `/api/recommendations` | `{sections}`，来自真实站点推荐 |
 | GET | `/api/categories` | 分类 |
 | GET | `/api/categories/:id` | 该分类真实书目 |
+| GET | `/api/author?name=...` | 按实际作者字段过滤的作品 |
 | GET | `/api/cover` | `sourceID`、`bookURL`、可选 `url`；栅格图片 |
 | POST | `/api/cover-metadata` | `{book}` → `{url}` |
 | POST | `/api/download` | `{book}` → 整本 EPUB / PDF 文件流 |
+| GET | `/api/offline/chapters?payload=...` | 原生后台批次，最多 10 章、5 MiB；仍受书源访问码校验 |
 
 安全边界：鉴权、CORS 和 API 配额以 Fastify 匹配后的路由识别 API，编码路径不能绕过检查。仅内置来源主机，没有任意网址代理或客户端自定义来源接口；正文必须属于返回的书籍目录，静态资源限制到登记仓库；OpenStax 下载地址从出版者目录复核。所有连接使用 HTTPS，校验 DNS 的公网地址后固定连接 IP，TLS 仍校验原始主机；每次重定向重新验证。旧站同主机的 `http` 重定向仅升级为 `https`，不会发送明文请求。
 
@@ -44,10 +46,15 @@ API：
 
 - `POST /api/auth/register`、`POST /api/auth/login`：`{username,password}`，返回用户、随机会话令牌与 30 天有效期。
 - `GET /api/auth/me`、`POST /api/auth/logout`：使用 `Authorization: Bearer <session>`；退出撤销当前会话。
+- `POST /api/auth/password`：`{currentPassword,newPassword}`；验证当前密码，撤销旧会话并返回新会话。
+- `POST /api/auth/recovery-code`：`{password}`；需登录并验证当前密码，只展示一次，轮换替换旧码。
+- `POST /api/auth/recover`：`{username,recoveryCode,newPassword}`；恢复码使用一次即失效，撤销旧会话。
 - `POST /api/sync`：使用相同会话认证，协议 `body-utf16-v1`，用户由会话确定，不能在请求中指定其他用户。
 
 同步独立于可选的书源访问码；开放书源不等于开放个人数据。密码经独立随机盐的 scrypt 哈希；数据库仅保存会话令牌的 SHA-256。注册/登录每 IP 每路由每分钟 10 次，同时仅执行一次密码计算，避免小内存服务器被耗尽。每账号最多 1000 本书、每批 50 个操作。详见 [云同步](../../docs/cloud-sync.md)。
 
+
+书架整理按独立修改时间合并，笔记按条目 ID 合并并保留删除标记。普通进度只更新位置，不能清空整理或笔记。跨来源换源需当前修订号，书籍和新位置整体替换；旧来源进度会被拒绝并返回权威记录。PDF 标注采用统一 `pdf-page-<0 起页码>`，搜索在客户端提取本地文字，不上传全文索引。
 
 ## 私有云文件
 
@@ -56,3 +63,11 @@ API：
 默认单本 250 MiB、每账号 2 GiB、服务器合计 10 GiB；环境变量 `QINGREAD_FILE_USER_GB` 和 `QINGREAD_FILE_TOTAL_GB` 调整容量，保留 5 GiB 可用磁盘的保护仍生效。上传 1 个并行任务、下载最多 2 个，闲置连接 65 秒、文件总传输 10 分钟。中断或校验失败清理临时文件；启动时清理中断写入残留。客户端按需下载，不把所有云文件一次性塞进设备存储。
 
 公共书源封面缓存使用 `app-data/covers`，最大约 128 MiB、500 张、7 天；同一张正在加载的图只请求一次。响应头 `X-QingRead-Cover-Cache` 区分 miss/memory/disk，`Server-Timing` 显示服务端处理耗时。它只缓存书源公开图片，私有导入封面从当前账号原文件在客户端提取。
+
+
+## 可选后台服务
+
+- [Web Push](PUSH.md)：登录用户主动授权，免费 VAPID、选书检查、泛化通知、去重与限频；默认关闭，需私有环境配置和可达的浏览器推送服务。
+- [云端准备章节](OFFLINE-JOBS.md)：本账号书架创建任务，全实例单并发、私有暂存与空间限额；关闭页面后可继续准备，回前台再保存到本机。
+
+`notifications.sqlite`、`offline-jobs.sqlite` 及 `jobs/` 与账号库共同位于私有数据目录。部署和备份需包含整个目录；取消或过期清理只处理清读自己拥有的临时任务文件。后台检查和准备仍经过既有网络层与全局书源并发限制。

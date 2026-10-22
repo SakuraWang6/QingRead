@@ -12,6 +12,8 @@
 | [服务器部署](../web/deploy/README.md) | HTTPS、资源限制、数据持久化与备份 |
 | [部署维护基线](../web/deploy/DEPLOYMENT.md) | 当前部署方式、验证范围与回滚 |
 | [云同步](cloud-sync.md) | 账号隔离、原文件、阅读位置与冲突处理 |
+| [追更、换源与下载](reading-workflows.md) | 系统通知、来源切换、后台下载与云端准备 |
+| [书架、笔记与电子书](reading-tools.md) | 书架整理、标注、正文搜索、EPUB 原版与 PDF |
 | [签名与续签](sideloading.md) | iPhone 自签安装与后台续期 |
 | [听书与离线 AI](offline-voice.md) | 声库、设备端合成与运行时依赖 |
 
@@ -31,8 +33,7 @@
 ## 背景与历史
 
 - [竞品研究](market-research.md)
+- [0.9 工作流、安装与部署](history/reader-0.9-verification.md)
 - [iPhone 0.1–0.7 验证归档](history/reader-0.1-0.7-verification.md)
 - [Web 0.5–0.6 验证归档](history/web-0.5-0.6-verification.md)
 - [当前许可与第三方依赖说明](licensing.md)
-
-- [追更、换源与下载](reading-workflows.md)：0.9 三端工作流、进度保护与离线任务。

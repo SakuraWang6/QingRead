@@ -1,6 +1,7 @@
 import type { Book, ReadingPosition, ShelfEntry } from '../src/shared/types.js';
 import type { CloudMutation } from '../src/shared/sync.js';
 import { ServiceError } from './network.js';
+import { libraryData } from '../src/shared/libraryData.js';
 
 const fail = (): never => { throw new ServiceError('同步数据格式无效，请更新客户端后重试。', 400); };
 function object(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : fail(); }
@@ -35,7 +36,8 @@ export function parseEntry(value: unknown): ShelfEntry {
     ...(b.fileDownloadURL ? { fileDownloadURL: url(b.fileDownloadURL, true) } : {}),
     ...(typeof b.fileHash==='string'&&/^[a-f0-9]{64}$/.test(b.fileHash)?{fileHash:b.fileHash}:{}),
   };
-  return { book, addedAt: date(e.addedAt), ...(e.position ? { position: position(e.position) } : {}) };
+  let metadata;try{metadata=libraryData(e,true);}catch{throw new ServiceError('书架分组或笔记格式无效。',400);}
+  return { book, addedAt: date(e.addedAt), ...(e.position ? { position: position(e.position) } : {}), ...metadata };
 }
 export function parseMutations(value: unknown): CloudMutation[] {
   if (!Array.isArray(value) || value.length > 50) return fail();

@@ -9,6 +9,7 @@ import { parseMutations } from './cloud-schema.js';
 import { ServiceError } from './network.js';
 import type { StoredFile } from './files.js';
 import type { Book } from '../src/shared/types.js';
+import { mergeLibraryData } from '../src/shared/libraryData.js';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 const sessionLife = 30 * 24 * 60 * 60_000;
@@ -28,7 +29,9 @@ interface StoredRow { entry: string | null; revision: number; changed_at: string
 export class CloudDatabase {
   private db: DatabaseSync;
   private hashing = false;
+  readonly storagePath:string;
   constructor(path: string, private maxUsers = 100) {
+    this.storagePath=path;
     if (path !== ':memory:') { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); }
     this.db = new DatabaseSync(path);
     if (path !== ':memory:') chmodSync(path, 0o600);
@@ -40,9 +43,11 @@ export class CloudDatabase {
       CREATE INDEX IF NOT EXISTS shelf_changes ON shelf(user_id,revision);
       CREATE TABLE IF NOT EXISTS receipts(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, operation_id TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(user_id,operation_id));
       CREATE INDEX IF NOT EXISTS receipt_age ON receipts(user_id,created);
+      CREATE TABLE IF NOT EXISTS account_recovery(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,code_hash TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS cloud_files(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,hash TEXT NOT NULL,bytes INTEGER NOT NULL,format TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,hash));`);
   }
   fileBooks(user:CloudUser):Book[]{return (this.db.prepare('SELECT entry FROM shelf WHERE user_id=? AND entry IS NOT NULL').all(user.id) as {entry:string}[]).map(row=>(JSON.parse(row.entry) as ShelfEntry).book);}
+  hasSession(userID:string,sessionHash:string):boolean{return Boolean(this.db.prepare('SELECT 1 FROM sessions WHERE user_id=? AND hash=? AND expires>?').get(userID,sessionHash,Date.now()));}
   fileRows(user:CloudUser):StoredFile[]{return this.db.prepare('SELECT hash,bytes,format,updated_at AS updatedAt FROM cloud_files WHERE user_id=?').all(user.id) as unknown as StoredFile[];}
   fileUsage(user?:CloudUser){return Number((user?this.db.prepare('SELECT coalesce(sum(bytes),0) AS n FROM cloud_files WHERE user_id=?').get(user.id):this.db.prepare('SELECT coalesce(sum(bytes),0) AS n FROM cloud_files').get())?.n??0);}
   saveFile(user:CloudUser,file:StoredFile){this.db.prepare('INSERT INTO cloud_files VALUES(?,?,?,?,?) ON CONFLICT(user_id,hash) DO UPDATE SET bytes=excluded.bytes,format=excluded.format,updated_at=excluded.updated_at').run(user.id,file.hash,file.bytes,file.format,file.updatedAt);}
@@ -80,6 +85,43 @@ export class CloudDatabase {
     if (!row) throw new ServiceError('登录已过期，请重新登录。', 401);
     return { id: row.id, username: row.username };
   }
+  private async verifyPassword(user:CloudUser,password:unknown){
+    if(typeof password!=='string'||password.length<10||password.length>128)throw new ServiceError('请填写当前密码。',400);
+    const row=this.db.prepare('SELECT salt,password_hash FROM users WHERE id=?').get(user.id) as {salt:string;password_hash:string};
+    const hash=await hashPassword(password,row.salt);
+    if(!timingSafeEqual(hash,Buffer.from(row.password_hash,'hex')))throw new ServiceError('当前密码不正确。',403);
+  }
+  async changePassword(header:unknown,body:unknown):Promise<CloudSession>{
+    const user=this.authorize(header),b=body as Record<string,unknown>;
+    if(!b||Object.keys(b).some(k=>!['currentPassword','newPassword'].includes(k))||typeof b.newPassword!=='string'||b.newPassword.length<10||b.newPassword.length>128)throw new ServiceError('新密码需为 10–128 个字符。',400);
+    if(this.hashing)throw new ServiceError('账号服务正忙，请稍后重试。',429);this.hashing=true;
+    try{await this.verifyPassword(user,b.currentPassword);return await this.replacePassword(user,b.newPassword);}finally{this.hashing=false;}
+  }
+  private async replacePassword(user:CloudUser,password:string,consumeRecovery=false):Promise<CloudSession>{
+    const salt=randomBytes(16).toString('hex'),hash=await hashPassword(password,salt);
+    this.db.exec('BEGIN IMMEDIATE');
+    try{this.db.prepare('UPDATE users SET salt=?,password_hash=? WHERE id=?').run(salt,hash.toString('hex'),user.id);this.db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);if(consumeRecovery)this.db.prepare('DELETE FROM account_recovery WHERE user_id=?').run(user.id);const session=this.session(user);this.db.exec('COMMIT');return session;}catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  async recoveryCode(header:unknown,body:unknown){
+    const user=this.authorize(header),b=body as Record<string,unknown>;
+    if(!b||Object.keys(b).some(k=>k!=='password'))throw new ServiceError('请填写当前密码。',400);
+    if(this.hashing)throw new ServiceError('账号服务正忙，请稍后重试。',429);this.hashing=true;
+    try{await this.verifyPassword(user,b.password);const code=randomBytes(24).toString('base64url');this.db.prepare('INSERT INTO account_recovery VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET code_hash=excluded.code_hash').run(user.id,digest(code));return{recoveryCode:code};}finally{this.hashing=false;}
+  }
+  async recover(body:unknown):Promise<CloudSession>{
+    const b=body as Record<string,unknown>;
+    if(!b||Object.keys(b).some(k=>!['username','recoveryCode','newPassword'].includes(k)))throw new ServiceError('恢复信息无效。',400);
+    const c=credentials({username:b.username,password:b.newPassword});
+    const code=typeof b.recoveryCode==='string'?b.recoveryCode.trim():'';
+    if(!/^[\w-]{32}$/.test(code))throw new ServiceError('恢复码无效或尚未设置。',403);
+    if(this.hashing)throw new ServiceError('账号服务正忙，请稍后重试。',429);this.hashing=true;
+    try{
+      const row=this.db.prepare('SELECT users.id,users.username,account_recovery.code_hash FROM users JOIN account_recovery ON users.id=account_recovery.user_id WHERE normalized=?').get(c.normalized) as {id:string;username:string;code_hash:string}|undefined;
+      const valid=timingSafeEqual(Buffer.from(digest(code),'hex'),Buffer.from(row?.code_hash??'0'.repeat(64),'hex'));
+      if(!row||!valid)throw new ServiceError('恢复码无效或尚未设置。',403);
+      return await this.replacePassword({id:row.id,username:row.username},c.password,true);
+    }finally{this.hashing=false;}
+  }
   logout(header: unknown) { this.authorize(header); this.db.prepare('DELETE FROM sessions WHERE hash=?').run(digest((header as string).slice(7))); }
   sync(user: CloudUser, body: unknown): CloudSnapshot {
     const b = body as Record<string, unknown>;
@@ -96,29 +138,36 @@ export class CloudDatabase {
         let entry: ShelfEntry | null = m.entry ?? null;
         let membershipAt = old?.membership_at ?? m.changedAt;
         let reason = '';
+        let metadataOnly=false;
         if (m.action === 'progress' && !previous) reason = 'removed-elsewhere';
         if (m.action === 'add' && old && !previous && m.baseRevision < old.revision) reason = 'removed-elsewhere';
         if (m.action === 'remove' && old && m.baseRevision < old.revision && Date.parse(m.changedAt) < Date.parse(old.membership_at)) reason = 'newer-library-change';
         if (!reason && m.action !== 'remove' && entry) {
           if (previous) {
             const sameSource = previous.book.sourceID === entry.book.sourceID && previous.book.url === entry.book.url;
-            if (!sameSource && (m.action === 'progress' || m.baseRevision !== old!.revision)) reason = 'source-changed';
+            if (!sameSource && (m.action === 'progress' || m.baseRevision !== old!.revision)) {
+              reason = 'source-changed';
+              // Offline annotations belong to the logical book. Keep them even
+              // when the stale source/position portion must be rejected.
+              if(m.action==='add'){entry={...previous,...mergeLibraryData(previous,entry)};metadataOnly=true;}
+            }
             else if (!sameSource) {
               // Chapter anchors and publication identities belong to one source.
               // A deliberate switch replaces both instead of merging old fields.
-              entry = { ...previous, book: entry.book, position: entry.position };
+              entry = { ...previous, book: entry.book, position: entry.position, ...mergeLibraryData(previous,entry) };
               membershipAt = m.changedAt;
             } else entry = {
               ...previous,
               book: m.action === 'progress' ? previous.book : { ...previous.book, ...entry.book },
               position: newestPosition(previous.position, entry.position),
+              ...(m.action === 'add' ? mergeLibraryData(previous,entry) : {}),
             };
           } else membershipAt = m.changedAt;
           if (!previous && Number((this.db.prepare('SELECT count(*) AS n FROM shelf WHERE user_id=? AND entry IS NOT NULL').get(user.id) as { n: number }).n) >= 1000) throw new ServiceError('云端书架最多保存 1000 本书。', 413);
         }
         if (!reason && !old && Number((this.db.prepare('SELECT count(*) AS n FROM shelf WHERE user_id=?').get(user.id) as { n: number }).n) >= 5000) throw new ServiceError('同步记录已达到上限，请联系维护者。', 413);
         if (reason) rejected.push({ id: m.id, reason });
-        else if (!old || old.entry !== (entry ? JSON.stringify(entry) : null)) {
+        if ((!reason||metadataOnly)&&(!old || old.entry !== (entry ? JSON.stringify(entry) : null))) {
           this.db.prepare('UPDATE users SET revision=revision+1 WHERE id=?').run(user.id);
           const revision = Number((this.db.prepare('SELECT revision FROM users WHERE id=?').get(user.id) as { revision: number }).revision);
           this.db.prepare('INSERT INTO shelf VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,book_id) DO UPDATE SET entry=excluded.entry,revision=excluded.revision,changed_at=excluded.changed_at,membership_at=excluded.membership_at').run(user.id, m.bookID, entry ? JSON.stringify(entry) : null, revision, new Date().toISOString(), membershipAt);
@@ -148,8 +197,11 @@ export function registerCloudRoutes(app: FastifyInstance, cloud: CloudDatabase) 
   const auth = (request: FastifyRequest) => cloud.authorize(request.headers.authorization);
   app.post('/api/auth/register', authConfig, async request => cloud.authenticate(request.body, true));
   app.post('/api/auth/login', authConfig, async request => cloud.authenticate(request.body, false));
+  app.post('/api/auth/password',authConfig,async request=>cloud.changePassword(request.headers.authorization,request.body));
+  app.post('/api/auth/recovery-code',authConfig,async request=>cloud.recoveryCode(request.headers.authorization,request.body));
+  app.post('/api/auth/recover',authConfig,async request=>cloud.recover(request.body));
   app.get('/api/auth/me', async request => ({ user: auth(request), serverTime: new Date().toISOString() }));
   app.post('/api/auth/logout', async request => { cloud.logout(request.headers.authorization); return { ok: true }; });
-  app.post('/api/sync', { bodyLimit: 1024 * 1024 }, async request => cloud.sync(auth(request), request.body));
+  app.post('/api/sync', { bodyLimit: 4 * 1024 * 1024 }, async request => cloud.sync(auth(request), request.body));
   app.addHook('onClose', async () => cloud.close());
 }

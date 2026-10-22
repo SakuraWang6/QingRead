@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { registerPlugin } from '@capacitor/core';
 import { apiBase } from './api';
 import { isAndroidApp } from './android';
+import { disablePush, cancelPendingPushChanges } from './pushNotifications';
 import { guestLibrary, library, switchLibraryProfile } from './store';
 import type { Book } from '../shared/types';
 import { anchorFormat, type CloudSession, type CloudSnapshot, type CloudFileSnapshot, type CloudFile } from '../shared/sync';
@@ -15,6 +16,11 @@ export class CloudSync {
   private state:CloudState={initialized:false,session:null,busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0};
   private listeners=new Set<()=>void>();
   private generation=0;
+  private accountRevision=0;
+  private accountBusy?:number;
+  private sessionWriting=Promise.resolve();
+  private requests=new Set<AbortController>();
+  private remembered=false;
   private address='';
   private starting?:Promise<void>;
   private syncing?:Promise<void>;
@@ -26,55 +32,68 @@ export class CloudSync {
   subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
   getSnapshot=()=>this.state;
   private update(patch:Partial<CloudState>){this.state={...this.state,...patch};this.listeners.forEach(fn=>fn());}
+  private beginAccountChange(){if(this.accountBusy!==undefined)throw new Error('账号操作进行中，请稍后重试');const revision=++this.accountRevision;this.accountBusy=revision;return revision;}
+  private requireAccount(revision:number){if(revision!==this.accountRevision)throw new Error('账号已切换，请重试');}
+  private sessionTransition(work:()=>Promise<void>){const pending=this.sessionWriting.catch(()=>{}).then(work);this.sessionWriting=pending.catch(()=>{});return pending;}
+  private invalidate(){
+    this.generation++;this.requests.forEach(c=>c.abort());this.transfers.forEach(c=>c.abort());this.downloads.clear();
+    this.syncing=undefined;this.fileSyncing=undefined;this.detach?.();this.detach=undefined;clearTimeout(this.debounce);
+  }
   initialize(){
     return this.starting??=this.restore();
   }
   private async restore(){
+    const revision=this.accountRevision;
     try{
       this.address=apiBase();
       const native=isAndroidApp()?(await secureSession.load()).value:null;
+      this.requireAccount(revision);
       const raw=sessionStorage.getItem(storageKey)||native||localStorage.getItem(storageKey);
+      this.remembered=Boolean(native||localStorage.getItem(storageKey));
       const saved:SavedSession|null=raw?JSON.parse(raw):null;
       if(saved?.address===this.address&&saved.session?.user?.id&&/^[\w-]{43}$/.test(saved.session.token)){
-        this.update({session:saved.session});await this.activate(saved.session);
+        await this.sessionTransition(async()=>{this.requireAccount(revision);await this.activate(saved.session);this.requireAccount(revision);this.update({session:saved.session});});
       }
-    }catch{this.update({error:'同步登录未能恢复，可在设置中重新登录。'});}
+    }catch{if(revision===this.accountRevision)this.update({error:'同步登录未能恢复，可在设置中重新登录。'});}
     finally{this.update({initialized:true});}
-    if(this.state.session)void this.sync();
+    if(revision===this.accountRevision&&this.state.session)void this.sync();
   }
-  private async request<T>(path:string,body?:unknown,authenticated=true):Promise<T>{
+  private async request<T>(path:string,body?:unknown,authenticated=true,generation=this.generation):Promise<T>{
+    if(generation!==this.generation)throw new Error('账号已切换，请重试');
     const address=apiBase();
     if(address!==this.address)throw new Error('服务器地址已更改，请重新登录。');
     const requestToken=this.state.session?.token;
-    const response=await fetch(address+path,{method:body===undefined?'GET':'POST',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(authenticated&&this.state.session?{Authorization:'Bearer '+this.state.session.token}:{})},body:body===undefined?undefined:JSON.stringify(body),redirect:'error',signal:AbortSignal.timeout(20_000)});
-    const value=await response.json().catch(()=>({}));
-    if(!response.ok){if(response.status===401&&authenticated&&this.state.session?.token===requestToken)this.update({expired:true});throw new Error(value.message||'同步服务暂时不可用');}
-    return value;
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20_000);this.requests.add(controller);
+    try{
+      const response=await fetch(address+path,{method:body===undefined?'GET':'POST',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(authenticated&&requestToken?{Authorization:'Bearer '+requestToken}:{})},body:body===undefined?undefined:JSON.stringify(body),redirect:'error',signal:controller.signal});
+      const value=await response.json().catch(()=>({}));
+      if(generation!==this.generation)throw new Error('账号已切换，请重试');
+      if(!response.ok){if(response.status===401&&authenticated&&this.state.session?.token===requestToken)this.update({expired:true});throw new Error(value.message||'同步服务暂时不可用');}
+      return value;
+    }finally{clearTimeout(timeout);this.requests.delete(controller);}
   }
   private async activate(session:CloudSession){
-    this.generation++;this.transfers.forEach(c=>c.abort());this.detach?.();
+    this.invalidate();
     this.update({files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0});
     const sources=library.getSnapshot().sources;
     await switchLibraryProfile(this.address+'|'+session.user.id);
     if(sources.length&&!library.getSnapshot().sources.length)await library.initializeSources(sources);
-    const store=library;
+    const store=library;store.configureServerDownloads({address:this.address,token:session.token});
     this.detach=store.subscribe(()=>{
       if(!store.hasPendingSync())return;
       clearTimeout(this.debounce);this.debounce=setTimeout(()=>void this.sync(),2500);
     });
   }
   async login(username:string,password:string,register:boolean,remember:boolean){
-    await this.initialize();this.address=apiBase();this.update({busy:true,error:'',expired:false});
+    const revision=this.beginAccountChange();
     try{
-      const session=await this.request<CloudSession>(register?'/auth/register':'/auth/login',{username,password},false);
-      const saved=JSON.stringify({address:this.address,session});
-      sessionStorage.setItem(storageKey,saved);localStorage.removeItem(storageKey);
-      if(isAndroidApp()){if(remember)await secureSession.save({value:saved});else await secureSession.clear();}
-      else if(remember)localStorage.setItem(storageKey,saved);
-      await this.activate(session);this.update({session,lastSync:'',error:'',expired:false});
-    }catch(error){this.update({error:error instanceof Error?error.message:'登录失败'});throw error;}
-    finally{this.update({busy:false});}
-    await this.sync();
+      await this.initialize();this.requireAccount(revision);this.address=apiBase();this.update({busy:true,error:'',expired:false});
+      const generation=this.generation;
+      const previous=this.state.session;if(previous)await disablePush({apiAddress:this.address,session:previous}).catch(()=>{});cancelPendingPushChanges();
+      this.requireAccount(revision);const session=await this.request<CloudSession>(register?'/auth/register':'/auth/login',{username,password},false,generation);
+      this.requireAccount(revision);await this.renewedSession(session,remember,revision);this.requireAccount(revision);await this.sync();
+    }catch(error){if(revision===this.accountRevision)this.update({error:error instanceof Error?error.message:'登录失败'});throw error;}
+    finally{if(this.accountBusy===revision)this.accountBusy=undefined;if(revision===this.accountRevision)this.update({busy:false});}
   }
   async sync(){
     if(this.syncing)return this.syncing;
@@ -85,9 +104,10 @@ export class CloudSync {
       try{
         for(let round=0;round<40;round++){
           const pending=await store.syncRequest();
-          const snapshot=await this.request<CloudSnapshot>('/sync',{anchorFormat,...pending});
+          const snapshot=await this.request<CloudSnapshot>('/sync',{anchorFormat,...pending},true,generation);
           if(generation!==this.generation)return;
           await store.acceptSync(snapshot);
+          if(generation!==this.generation)return;
           this.update({lastSync:new Date().toISOString()});
           if(!snapshot.hasMore&&!store.hasPendingSync())break;
         }
@@ -112,7 +132,7 @@ export class CloudSync {
     }finally{clearTimeout(timeout);this.transfers.delete(controller);}
   }
   private async fileList(generation:number){
-    const snapshot=await this.request<CloudFileSnapshot>('/files');
+    const snapshot=await this.request<CloudFileSnapshot>('/files',undefined,true,generation);
     if(generation===this.generation)this.update({files:snapshot.files,usedBytes:snapshot.usedBytes,limitBytes:snapshot.limitBytes});
     return snapshot;
   }
@@ -154,13 +174,38 @@ export class CloudSync {
     return work;
   }
   async mergeGuest(){if(!this.state.session)throw new Error('请先登录');await library.mergeFrom(guestLibrary);await this.sync();}
+  private async renewedSession(session:CloudSession,remember:boolean,revision:number){
+    await this.sessionTransition(async()=>{
+      this.requireAccount(revision);
+      const saved=JSON.stringify({address:this.address,session});sessionStorage.setItem(storageKey,saved);localStorage.removeItem(storageKey);
+      if(isAndroidApp()){if(remember)await secureSession.save({value:saved});else await secureSession.clear();}else if(remember)localStorage.setItem(storageKey,saved);
+      this.requireAccount(revision);this.remembered=remember;await this.activate(session);this.requireAccount(revision);this.update({session,lastSync:'',expired:false,error:''});
+    });
+  }
+  async changePassword(currentPassword:string,newPassword:string){
+    const revision=this.beginAccountChange();
+    try{const session=await this.request<CloudSession>('/auth/password',{currentPassword,newPassword});this.requireAccount(revision);await this.renewedSession(session,this.remembered,revision);this.requireAccount(revision);await this.sync();}
+    finally{if(this.accountBusy===revision)this.accountBusy=undefined;}
+  }
+  async createRecoveryCode(password:string){return(await this.request<{recoveryCode:string}>('/auth/recovery-code',{password})).recoveryCode;}
+  async recover(username:string,recoveryCode:string,newPassword:string,remember:boolean){
+    const revision=this.beginAccountChange();
+    try{await this.initialize();this.requireAccount(revision);this.address=apiBase();const session=await this.request<CloudSession>('/auth/recover',{username,recoveryCode,newPassword},false);this.requireAccount(revision);cancelPendingPushChanges();await this.renewedSession(session,remember,revision);this.requireAccount(revision);await this.sync();}
+    finally{if(this.accountBusy===revision)this.accountBusy=undefined;}
+  }
   async logout(){
-    this.generation++;this.transfers.forEach(c=>c.abort());this.downloads.clear();this.detach?.();clearTimeout(this.debounce);
-    // Revocation is best effort offline; local credentials are always removed.
-    try{await this.request('/auth/logout',{});}catch{ /* session will expire server-side */ }
-    sessionStorage.removeItem(storageKey);localStorage.removeItem(storageKey);
-    if(isAndroidApp())await secureSession.clear();
-    await switchLibraryProfile(null);this.update({session:null,busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0});
+    const revision=++this.accountRevision;this.accountBusy=revision;this.invalidate();
+    try{
+      cancelPendingPushChanges();if(this.state.session)await disablePush({apiAddress:this.address,session:this.state.session}).catch(()=>{});
+      // Revocation is best effort offline; local credentials are always removed.
+      try{this.requireAccount(revision);await this.request('/auth/logout',{});}catch{ /* session will expire server-side */ }
+      await this.sessionTransition(async()=>{
+        this.requireAccount(revision);sessionStorage.removeItem(storageKey);localStorage.removeItem(storageKey);
+        if(isAndroidApp())await secureSession.clear();this.requireAccount(revision);
+        await switchLibraryProfile(null);this.requireAccount(revision);this.remembered=false;
+        this.update({session:null,busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0});
+      });
+    }finally{if(this.accountBusy===revision)this.accountBusy=undefined;}
   }
 }
 export const cloudSync=new CloudSync();

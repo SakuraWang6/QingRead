@@ -21,7 +21,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Book, Chapter, ChapterContent, SearchResponse, SourceDefinition } from '../../src/shared/types.js';
 
 const host = '127.0.0.1';
-const port = 8791;
+const port = Number(process.env.QINGREAD_PREVIEW_PORT || 8791);
 const sourceIDs = ['preview-a', 'preview-b'] as const;
 type PreviewSourceID = typeof sourceIDs[number];
 const titles = ['第一章 山路初晴', '第二章 林间来信', '第三章 远处灯火'];

@@ -2,6 +2,11 @@ import { openDB, type IDBPDatabase } from 'idb';
 import { useSyncExternalStore } from 'react';
 import type { Book, Chapter, ChapterContent, LibraryState, ReaderSettings, ShelfEntry, SourceDefinition, LocalPublication, ReadingPosition, BookUpdateState, ChapterDownloadJob, ChapterDownloadSelection, SourceSwitchPlan, UpdateCheckResult } from '../shared/types';
 import { defaultSettings } from '../shared/types';
+import type { ReadingAnnotation, ShelfOrganization } from '../shared/types';
+import { libraryData } from '../shared/libraryData';
+import { isAndroidApp } from './android';
+import { nativeBackground } from './androidBackground';
+import { serverDownloads, type ServerDownloadConnection, type ServerDownloadJob } from './serverDownloads';
 import { sampleBook, sampleChapter, sampleContent } from './sample';
 import { parsePublication } from './importPublication';
 import { api } from './api';
@@ -30,7 +35,7 @@ function shelfEntry(value:unknown):ShelfEntry {
     if(!record(p)||!safeID(p.chapterID)||!validDate(p.updatedAt)||!Number.isSafeInteger(p.chapterIndex)||Number(p.chapterIndex)<0||!Number.isSafeInteger(p.characterOffset)||Number(p.characterOffset)<0||typeof p.chapterFraction!=='number'||!Number.isFinite(p.chapterFraction)||p.chapterFraction<0||p.chapterFraction>1)throw new Error('备份包含无效阅读进度');
     position={chapterID:p.chapterID,updatedAt:p.updatedAt,chapterIndex:p.chapterIndex as number,characterOffset:p.characterOffset as number,chapterFraction:p.chapterFraction};
   }
-  return{book,addedAt:value.addedAt,position};
+  return{book,addedAt:value.addedAt,position,...libraryData(value)};
 }
 function progressRecords(value:unknown,strict=false):Record<string,Record<string,number>> {
   const result:Record<string,Record<string,number>>=Object.create(null);
@@ -72,10 +77,15 @@ export class BrowserLibrary {
   private invalidatingBooks=new Set<string>();
   private sourceCommitBarrier?:Promise<void>;
   private removedBooks=new Set<string>();
+  private nativeSyncing=false;
+  private serverConnection?:ServerDownloadConnection;
+  private serverSyncing=false;
+  private serverSaveAttempts=new Map<string,number>();
+  configureServerDownloads(connection?:ServerDownloadConnection){this.serverConnection=connection;}
   private cloud={cursor:0,revisions:{} as Record<string,number>,pending:[] as CloudMutation[],deferred:{} as Record<string,CloudRecord>};
   readonly initialized:Promise<void>;
-  constructor(name='qingread-web-v1',private cloudEnabled=false){
-    this.db=openDB(name,2,{upgrade(db){for(const store of ['meta','chapters','contents','imports','files','covers','localContents'])if(!db.objectStoreNames.contains(store))db.createObjectStore(store);}});
+  constructor(readonly profile='qingread-web-v1',private cloudEnabled=false){
+    this.db=openDB(profile,2,{upgrade(db){for(const store of ['meta','chapters','contents','imports','files','covers','localContents'])if(!db.objectStoreNames.contains(store))db.createObjectStore(store);}});
     this.initialized=this.hydrate();
     if(typeof document!=='undefined')document.addEventListener('visibilitychange',()=>{if(document.hidden){this.updateAbort?.abort();void this.pauseDownloadsForBackground();}});
   }
@@ -103,10 +113,10 @@ export class BrowserLibrary {
       if(record(workflows)){
         if(record(workflows.updates))for(const [id,value]of Object.entries(workflows.updates))if(safeID(id)&&record(value)&&Number.isSafeInteger(value.knownChapterCount)&&Array.isArray(value.unreadChapterIDs))updates[id]={knownChapterCount:Number(value.knownChapterCount),lastKnownChapterID:typeof value.lastKnownChapterID==='string'?value.lastKnownChapterID:undefined,lastKnownChapterTitle:typeof value.lastKnownChapterTitle==='string'?value.lastKnownChapterTitle:undefined,unreadChapterIDs:value.unreadChapterIDs.filter(safeID),checkedAt:validDate(value.checkedAt)?value.checkedAt:undefined};
         if(Array.isArray(workflows.downloads))for(const value of workflows.downloads)if(record(value)&&safeID(value.id)&&safeID(value.bookID)&&typeof value.bookTitle==='string'&&typeof value.sourceID==='string'&&typeof value.sourceURL==='string'&&Array.isArray(value.chapterIDs)&&Array.isArray(value.completedChapterIDs)&&Array.isArray(value.failedChapterIDs)&&validDate(value.createdAt)&&validDate(value.updatedAt)){
-          const status=value.status==='running'||value.status==='queued'?'paused':value.status;
-          if(!['paused','completed','failed','cancelled'].includes(String(status)))continue;
+          const status=value.engine==='server'||value.engine==='native'?value.status:value.status==='running'||value.status==='queued'?'paused':value.status;
+          if(!['queued','running','paused','completed','failed','cancelled'].includes(String(status)))continue;
           const chapterIDs=value.chapterIDs.filter(safeID),completedChapterIDs=value.completedChapterIDs.filter(safeID);
-          downloads.push({...value,status,chapterIDs,completedChapterIDs,failedChapterIDs:value.failedChapterIDs.filter(safeID),total:status==='completed'||status==='cancelled'?bounded(Number(value.total),0,100000,chapterIDs.length):chapterIDs.length,completed:status==='completed'||status==='cancelled'?bounded(Number(value.completed),0,Number(value.total)||chapterIDs.length,0):completedChapterIDs.length}as unknown as ChapterDownloadJob);
+          downloads.push({...value,status,chapterIDs,completedChapterIDs,failedChapterIDs:value.failedChapterIDs.filter(safeID),total:value.engine==='server'||status==='completed'||status==='cancelled'?bounded(Number(value.total),0,100000,chapterIDs.length):chapterIDs.length,completed:value.engine==='server'||status==='completed'||status==='cancelled'?bounded(Number(value.completed),0,Number(value.total)||chapterIDs.length,0):completedChapterIDs.length}as unknown as ChapterDownloadJob);
         }
       }
       const cloud=await db.get('meta','cloud');
@@ -154,7 +164,44 @@ export class BrowserLibrary {
     this.cloud.pending=[...this.cloud.pending.filter(m=>m.bookID!==bookID),mutation];
   }
   async add(book:Book){await this.initialized;this.removedBooks.delete(book.id);if(this.state.shelf.some(e=>e.book.id===book.id))return;const entry={book,addedAt:new Date().toISOString()};this.state={...this.state,shelf:[...this.state.shelf,entry]};this.enqueue('add',book.id,entry);await this.persist();}
+  async organize(bookIDs:string[],patch:Partial<Pick<ShelfOrganization,'pinned'|'status'|'group'>>){
+    await this.initialized;await Promise.allSettled(bookIDs.map(id=>this.switchCommits.get(id)).filter(Boolean));
+    if(!this.active)return;
+    const selected=new Set(bookIDs);
+    this.state={...this.state,shelf:this.state.shelf.map(entry=>{
+      if(!selected.has(entry.book.id))return entry;
+      const organization={pinned:false,status:'reading' as const,group:'',...entry.organization,...patch,updatedAt:new Date().toISOString()};
+      const value={...entry,...libraryData({organization})};this.enqueue('add',entry.book.id,value);return value;
+    })};await this.persist();
+  }
+  async annotate(book:Book,annotation:ReadingAnnotation){
+    await this.initialized;await this.switchCommits.get(book.id);if(!this.active)return;
+    await this.add(book);
+    const previous=this.state.shelf.find(entry=>entry.book.id===book.id);
+    if(!previous||previous.book.sourceID!==book.sourceID||previous.book.url!==book.url)throw new Error('书源已变更，请重新定位');
+    const annotations=[...(previous.annotations??[]).filter(note=>note.id!==annotation.id),annotation];
+    const entry={...previous,...libraryData({annotations})};
+    this.state={...this.state,shelf:this.state.shelf.map(value=>value.book.id===book.id?entry:value)};
+    this.enqueue('add',book.id,entry);await this.persist();
+  }
+  async deleteAnnotation(book:Book,id:string){
+    const note=this.state.shelf.find(entry=>entry.book.id===book.id)?.annotations?.find(value=>value.id===id);if(!note)return;
+    const now=new Date().toISOString();await this.annotate(book,{...note,updatedAt:now,deletedAt:now});
+  }
+  async searchCached(book:Book,query:string,signal?:AbortSignal):Promise<{chapter:Chapter;offset:number;excerpt:string}[]>{
+    query=query.trim();if(!query||query.length>100)return[];const generation=this.generation;
+    const chapters=await this.getChapters(book)??[],results:{chapter:Chapter;offset:number;excerpt:string}[]=[];
+    for(const chapter of chapters){
+      if(signal?.aborted||!this.active||generation!==this.generation)break;
+      const value=await this.getContent(book,chapter);
+      const text=value?.paragraphs.join('\n')??'';let start=0;
+      while(results.length<100){const offset=text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase(),start);if(offset<0)break;results.push({chapter,offset,excerpt:text.slice(Math.max(0,offset-25),offset+query.length+60)});start=offset+Math.max(1,query.length);}
+      if(results.length>=100)break;
+    }
+    return results;
+  }
   async remove(book:Book){
+    if(isAndroidApp())await nativeBackground.removeBook({profile:this.profile,bookID:book.id});
     await this.initialized;await this.switchCommits.get(book.id)?.catch(()=>{});if(this.persistenceBlocked)return;this.generation++;this.removedBooks.add(book.id);this.cancelBookDownloads(book.id);delete this.state.updates[book.id];
     this.state={...this.state,shelf:this.state.shelf.filter(e=>e.book.id!==book.id)};delete this.progress[book.id];
     this.enqueue('remove',book.id);
@@ -172,13 +219,13 @@ export class BrowserLibrary {
     const existing=this.state.shelf.find(entry=>entry.book.id===book.id);
     if(!this.active||generation!==this.generation||this.removedBooks.has(book.id)||this.invalidatingBooks.has(book.id)||this.switchCommits.has(book.id)||(existing&&(existing.book.sourceID!==book.sourceID||existing.book.url!==book.url)))return;
     const value=bounded(fraction,0,1,0),position:ReadingPosition={chapterID:chapter.id,chapterIndex:chapter.index,chapterFraction:value,characterOffset:Math.max(0,Math.floor(characterOffset)||0),updatedAt:new Date().toISOString()};
-    this.state={...this.state,shelf:[...this.state.shelf.filter(entry=>entry.book.id!==book.id),{book:existing?.book||book,position,addedAt:existing?.addedAt||new Date().toISOString()}]};
+    this.state={...this.state,shelf:[...this.state.shelf.filter(entry=>entry.book.id!==book.id),{...existing,book:existing?.book||book,position,addedAt:existing?.addedAt||new Date().toISOString()}]};
     if(tracking?.unreadChapterIDs.length&&chapters){const readIndex=chapters.findIndex(item=>item.id===chapter.id);if(readIndex>=0)this.state={...this.state,updates:{...this.state.updates,[book.id]:{...tracking,unreadChapterIDs:tracking.unreadChapterIDs.filter(id=>chapters.findIndex(item=>item.id===id)>readIndex)}}};}
     this.progress[book.id]??=Object.create(null);this.progress[book.id][chapter.id]=Math.max(this.progress[book.id][chapter.id]??0,value);
     this.enqueue(existing?'progress':'add',book.id,this.state.shelf.find(entry=>entry.book.id===book.id));await this.persist();
   }
   async updateSettings(settings:Partial<ReaderSettings>){await this.initialized;this.state={...this.state,settings:normalizeSettings({...this.state.settings,...settings})};await this.persist();}
-  async toggleSource(id:string){await this.initialized;const ids=new Set(this.state.disabledSourceIDs);ids.has(id)?ids.delete(id):ids.add(id);this.state={...this.state,disabledSourceIDs:[...ids]};if(ids.has(id))for(const job of this.state.downloads)if(job.sourceID===id&&['queued','running'].includes(job.status))this.patchDownload(job.id,{status:'paused'});await this.persist();}
+  async toggleSource(id:string){await this.initialized;const ids=new Set(this.state.disabledSourceIDs);ids.has(id)?ids.delete(id):ids.add(id);this.state={...this.state,disabledSourceIDs:[...ids]};if(ids.has(id))for(const job of [...this.state.downloads])if(job.sourceID===id&&['queued','running'].includes(job.status))await this.pauseDownload(job.id);await this.persist();}
   async initializeSources(sources:SourceDefinition[]){await this.initialized;this.state={...this.state,sources};await this.persist();}
   async getChapters(book:Book):Promise<Chapter[]|undefined>{
     if(book.id===sampleBook.id)return[sampleChapter];
@@ -250,7 +297,7 @@ export class BrowserLibrary {
     }
     await this.add(publication.book);return publication.book;
   }
-  async clearCache(){this.generation++;await this.pauseDownloadsForBackground();const db=await this.db,tx=db.transaction(['chapters','contents'],'readwrite');await Promise.all([tx.objectStore('chapters').clear(),tx.objectStore('contents').clear()]);await tx.done;this.emit();}
+  async clearCache(){if(this.serverConnection)for(const job of this.state.downloads)if(job.engine==='server'&&!['completed','cancelled'].includes(job.status))await serverDownloads.action(this.serverConnection,job.id,'cancel');const nativeDB=await this.db,ignored=await nativeDB.get('meta','server-downloads-ignored')??{};for(const j of this.state.downloads)if(j.engine==='server')ignored[j.id]=true;await nativeDB.put('meta',ignored,'server-downloads-ignored');await nativeDB.delete('meta','server-downloads-saved');this.serverSaveAttempts.clear();if(isAndroidApp())await nativeBackground.clearCache({profile:this.profile});this.generation++;await this.pauseDownloadsForBackground();const db=await this.db,tx=db.transaction(['chapters','contents'],'readwrite');await Promise.all([tx.objectStore('chapters').clear(),tx.objectStore('contents').clear()]);await tx.done;this.emit();}
   async cacheStats(){const db=await this.db;const contents=await db.getAll('contents') as ChapterContent[];const imports=await db.getAll('imports') as {chapters:Chapter[];fileSize:number}[];return{chapters:contents.length+imports.reduce((n,p)=>n+p.chapters.length,0),bytes:contents.reduce((n,c)=>n+new TextEncoder().encode(JSON.stringify(c)).byteLength,0)+imports.reduce((n,p)=>n+p.fileSize,0)};}
   async exportBackup(){await this.initialized;if(this.persistenceBlocked)throw new Error('本地数据尚未安全加载，请刷新后再导出');await this.writing;return new Blob([JSON.stringify({format:'qingread-backup',version:1,anchorFormat:'body-utf16-v1',exportedAt:new Date().toISOString(),shelf:this.state.shelf.map(e=>({...e,book:{...e.book,coverURL:e.book.coverURL?.startsWith('blob:')?undefined:e.book.coverURL}})),settings:this.state.settings,disabledSourceIDs:this.state.disabledSourceIDs,progress:this.progress},null,2)],{type:'application/json'});}
   async importBackup(file:File){
@@ -386,7 +433,7 @@ export class BrowserLibrary {
     this.state={...this.state,downloads:this.state.downloads.filter(job=>!['completed','cancelled','failed'].includes(job.status)||retained.has(job.id)).map(job=>job.status==='completed'||job.status==='cancelled'?{...job,chapterIDs:[],completedChapterIDs:[],failedChapterIDs:[]}:job)};
   }
   private patchDownload(id:string,patch:Partial<ChapterDownloadJob>){this.state={...this.state,downloads:this.state.downloads.map(job=>job.id===id?{...job,...patch,updatedAt:new Date().toISOString()}:job)};if(patch.status&&['completed','cancelled','failed'].includes(patch.status))this.compactDownloadHistory();this.emit();}
-  private cancelBookDownloads(bookID:string){for(const job of this.state.downloads)if(job.bookID===bookID&&['queued','running','paused','failed'].includes(job.status)){if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(job.id,{status:'cancelled'});}}
+  private cancelBookDownloads(bookID:string){if(this.serverConnection&&this.active)for(const job of this.state.downloads)if(job.bookID===bookID&&job.engine==='server'&&!['completed','cancelled'].includes(job.status))void serverDownloads.action(this.serverConnection,job.id,'cancel').catch(()=>{});if(isAndroidApp()&&this.active)void nativeBackground.removeBook({profile:this.profile,bookID}).catch(e=>this.report(e));for(const job of this.state.downloads)if(job.bookID===bookID&&['queued','running','paused','failed'].includes(job.status)){if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(job.id,{status:'cancelled'});}}
   async enqueueDownload(book:Book,selection:ChapterDownloadSelection):Promise<ChapterDownloadJob>{
     await this.initialized;
     if(!this.active||!isChapterBook(book)||this.state.disabledSourceIDs.includes(book.sourceID))throw new Error('此书无法下载章节');
@@ -403,17 +450,73 @@ export class BrowserLibrary {
     const job:ChapterDownloadJob={id:crypto.randomUUID(),bookID:book.id,bookTitle:book.title,sourceID:book.sourceID,sourceURL:book.url,status:completedChapterIDs.length===targets.length?'completed':'queued',chapterIDs:targets.map(chapter=>chapter.id),total:targets.length,completed:completedChapterIDs.length,completedChapterIDs,failedChapterIDs:[],createdAt:now,updatedAt:now};
     const duplicate=this.state.downloads.find(value=>['queued','running','paused'].includes(value.status)&&value.bookID===book.id&&value.sourceID===book.sourceID&&value.sourceURL===book.url&&value.chapterIDs.length===job.chapterIDs.length&&value.chapterIDs.every((id,index)=>id===job.chapterIDs[index]));
     if(duplicate){if(duplicate.status==='paused')await this.resumeDownload(duplicate.id);return this.state.downloads.find(value=>value.id===duplicate.id)!;}
+    if(isAndroidApp()){
+      const result=await nativeBackground.enqueue({profile:this.profile,job:{id:job.id,book,chapters:targets,completedChapterIDs}});
+      if(!this.active)throw new Error('账号已切换');this.state={...this.state,downloads:[{...result.job,engine:'native'},...this.state.downloads]};this.compactDownloadHistory();await this.persist();return result.job;
+    }
+    if(this.serverConnection&&completedChapterIDs.length<targets.length){
+      const created=await serverDownloads.create(this.serverConnection,book.id,targets.filter(c=>!completedChapterIDs.includes(c.id)));
+      if(!this.active)throw new Error('账号已切换');const ownDB=await this.db,owned=await ownDB.get('meta','server-downloads-owned')??{};owned[created.id]=true;await ownDB.put('meta',owned,'server-downloads-owned');this.state={...this.state,downloads:[created,...this.state.downloads.filter(j=>j.id!==created.id)]};await this.persist();return created;
+    }
     this.state={...this.state,downloads:[job,...this.state.downloads]};this.compactDownloadHistory();await this.persist();this.startDownloadRunner();return this.state.downloads.find(value=>value.id===job.id)??job;
   }
-  async pauseDownload(id:string){const job=this.state.downloads.find(value=>value.id===id);if(!job||!['queued','running'].includes(job.status))return;if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(id,{status:'paused'});await this.persist();}
-  async resumeDownload(id:string){await this.initialized;const job=this.state.downloads.find(value=>value.id===id);if(!job||!['paused','failed'].includes(job.status))return;const book=this.state.shelf.find(entry=>entry.book.id===job.bookID)?.book;if(!this.active||!book||book.sourceID!==job.sourceID||book.url!==job.sourceURL||this.state.disabledSourceIDs.includes(job.sourceID))throw new Error('当前书源不可用');this.patchDownload(id,{status:'queued',error:undefined,failedChapterIDs:[]});await this.persist();this.startDownloadRunner();}
+  async pauseDownload(id:string){if(this.state.downloads.some(j=>j.id===id&&j.engine==='server')&&this.serverConnection){await serverDownloads.action(this.serverConnection,id,'pause');await this.syncServerDownloads();return;}if(isAndroidApp()&&this.state.downloads.some(j=>j.id===id&&j.engine==='native')){await nativeBackground.pause({profile:this.profile,id});await this.syncNativeBackground();return;}const job=this.state.downloads.find(value=>value.id===id);if(!job||!['queued','running'].includes(job.status))return;if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(id,{status:'paused'});await this.persist();}
+  async resumeDownload(id:string){const candidate=this.state.downloads.find(j=>j.id===id),current=candidate&&this.state.shelf.find(e=>e.book.id===candidate.bookID)?.book;if(candidate&&(!this.active||!current||current.sourceID!==candidate.sourceID||current.url!==candidate.sourceURL||this.state.disabledSourceIDs.includes(candidate.sourceID)))throw new Error('当前书源不可用');if(this.state.downloads.some(j=>j.id===id&&j.engine==='server')&&this.serverConnection){await serverDownloads.action(this.serverConnection,id,'resume');await this.syncServerDownloads();return;}await this.initialized;const job=this.state.downloads.find(value=>value.id===id);if(!job||!['paused','failed'].includes(job.status))return;const book=this.state.shelf.find(entry=>entry.book.id===job.bookID)?.book;if(!this.active||!book||book.sourceID!==job.sourceID||book.url!==job.sourceURL||this.state.disabledSourceIDs.includes(job.sourceID))throw new Error('当前书源不可用');if(isAndroidApp()){const native=(await nativeBackground.list({profile:this.profile})).jobs.find(j=>j.id===id);if(native)await nativeBackground.resume({profile:this.profile,id});else{const chapters=(await this.getChapters(book)??await api.chapters(book)).filter(c=>job.chapterIDs.includes(c.id));await nativeBackground.enqueue({profile:this.profile,job:{id,book,chapters,completedChapterIDs:job.completedChapterIDs}});}await this.syncNativeBackground();return;}this.patchDownload(id,{status:'queued',error:undefined,failedChapterIDs:[]});await this.persist();this.startDownloadRunner();}
   async retryDownload(id:string){return this.resumeDownload(id);}
-  async cancelDownload(id:string){const job=this.state.downloads.find(value=>value.id===id);if(!job)return;if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(id,{status:'cancelled'});await this.persist();}
-  async pauseDownloadsForBackground(){for(const job of this.state.downloads)if(['queued','running'].includes(job.status))this.patchDownload(job.id,{status:'paused'});this.downloadAbort?.abort();await this.persist();}
-  private startDownloadRunner(){if(this.downloadRunner||!this.active)return;this.downloadRunner=this.runDownloads().catch(async error=>{for(const job of this.state.downloads)if(job.status==='running')this.patchDownload(job.id,{status:'failed',error:error instanceof Error?error.message:'下载失败'});await this.persist();}).finally(()=>{this.downloadRunner=undefined;if(this.active&&this.state.downloads.some(job=>job.status==='queued'))this.startDownloadRunner();});}
+  async cancelDownload(id:string){if(this.state.downloads.some(j=>j.id===id&&j.engine==='server')&&this.serverConnection){await serverDownloads.action(this.serverConnection,id,'cancel');await this.syncServerDownloads();return;}if(isAndroidApp()&&this.state.downloads.some(j=>j.id===id&&j.engine==='native')){await nativeBackground.cancel({profile:this.profile,id});await this.syncNativeBackground();return;}const job=this.state.downloads.find(value=>value.id===id);if(!job)return;if(job.status==='running')this.downloadAbort?.abort();this.patchDownload(id,{status:'cancelled'});await this.persist();}
+  async pauseDownloadsForBackground(){if(isAndroidApp())return;for(const job of this.state.downloads)if(job.engine!=='server'&&['queued','running'].includes(job.status))this.patchDownload(job.id,{status:'paused'});this.downloadAbort?.abort();await this.persist();}
+  private startDownloadRunner(){if(isAndroidApp()||this.downloadRunner||!this.active)return;this.downloadRunner=this.runDownloads().catch(async error=>{for(const job of this.state.downloads)if(job.status==='running')this.patchDownload(job.id,{status:'failed',error:error instanceof Error?error.message:'下载失败'});await this.persist();}).finally(()=>{this.downloadRunner=undefined;if(this.active&&this.state.downloads.some(job=>job.engine!=='server'&&job.engine!=='native'&&job.status==='queued'))this.startDownloadRunner();});}
+  async syncNativeBackground(){
+    if(!isAndroidApp()||!this.active||this.nativeSyncing)return;this.nativeSyncing=true;
+    try{
+      const generation=this.generation,db=await this.db;
+      for(let round=0;round<10;round++){
+        const {items}=await nativeBackground.readCompleted({profile:this.profile,limit:20});if(!this.active||generation!==this.generation)return;
+        const ids:string[]=[];
+        for(const item of items){
+          const current=this.state.shelf.find(e=>e.book.id===item.book.id)?.book;
+          if(!current||this.invalidatingBooks.has(current.id)||this.state.disabledSourceIDs.includes(current.sourceID))continue;
+          if(current.sourceID===item.book.sourceID&&current.url===item.book.url)await db.put('contents',item.content,contentKey(current,item.content.chapter));
+          if(!this.active||generation!==this.generation)return;ids.push(item.id);
+        }
+        if(ids.length)await nativeBackground.acknowledge({profile:this.profile,ids});if(items.length<20)break;
+      }
+      const [{jobs},{updates}]=await Promise.all([nativeBackground.list({profile:this.profile}),nativeBackground.updates({profile:this.profile})]);if(!this.active||generation!==this.generation)return;
+      const safe=jobs.map(job=>({...job,engine:'native' as const})).filter(job=>this.state.shelf.some(e=>e.book.id===job.bookID&&e.book.sourceID===job.sourceID&&e.book.url===job.sourceURL));
+      this.state={...this.state,updates:{...this.state.updates}};
+      for(const [id,value]of Object.entries(updates)){const entry=this.state.shelf.find(e=>e.book.id===id);if(!entry||Date.parse(value.checkedAt??'')<(Date.parse(this.state.updates[id]?.checkedAt??'')||0)||!value.checkedAt)continue;const chapters=await this.getChapters(entry.book)??[];if(!this.active||generation!==this.generation)return;const current=this.state.shelf.find(e=>e.book.id===id);if(!current||current.book.sourceID!==entry.book.sourceID||current.book.url!==entry.book.url)continue;const read=chapters.findIndex(c=>c.id===current.position?.chapterID);this.state.updates[id]={...value,unreadChapterIDs:value.unreadChapterIDs.filter(chapterID=>{const index=chapters.findIndex(c=>c.id===chapterID);return index<0||index>read;})};}
+      if(safe.some(job=>this.state.downloads.find(old=>old.id===job.id)?.updatedAt!==job.updatedAt)||safe.length!==this.state.downloads.length)this.state={...this.state,downloads:[...safe,...this.state.downloads.filter(job=>job.engine!=='native'&&!safe.some(n=>n.id===job.id))]};
+      await this.persist();
+    }catch(e){if(this.active)this.report(e);}finally{this.nativeSyncing=false;}
+  }
+  async syncServerDownloads(){
+    const connection=this.serverConnection;if(isAndroidApp()||!connection||!this.active||this.serverSyncing)return;this.serverSyncing=true;
+    try{
+      const db=await this.db,{jobs}=await serverDownloads.list(connection);if(!this.active||this.serverConnection!==connection)return;
+      const saved=(await db.get('meta','server-downloads-saved')??{}) as Record<string,string>,owned=await db.get('meta','server-downloads-owned')??{},ignored=await db.get('meta','server-downloads-ignored')??{};
+      const valid=jobs.filter(job=>this.state.shelf.some(e=>e.book.id===job.bookID&&e.book.sourceID===job.sourceID&&e.book.url===job.sourceURL));
+      this.state={...this.state,downloads:[...valid.map(job=>({...job,storedOnDevice:saved[job.id]===job.updatedAt&&!ignored[job.id]})),...this.state.downloads.filter(job=>job.engine!=='server')]};this.compactDownloadHistory();this.emit();
+      for(const job of valid){
+        if(!owned[job.id]||ignored[job.id]||job.status!=='completed'||saved[job.id]===job.updatedAt||Date.now()-(this.serverSaveAttempts.get(job.id)??0)<60_000||this.state.disabledSourceIDs.includes(job.sourceID))continue;
+        this.serverSaveAttempts.set(job.id,Date.now());await this.saveServerDownload(job,connection);if(!this.active||this.serverConnection!==connection)return;saved[job.id]=job.updatedAt;
+      }
+      await this.persist();
+    }catch(e){if(this.active)this.report(e);}finally{this.serverSyncing=false;}
+  }
+  async savePreparedDownload(id:string){const connection=this.serverConnection;if(!connection||!this.active)throw new Error('请先登录');const job=(await serverDownloads.list(connection)).jobs.find(j=>j.id===id);if(!job)throw new Error('云端任务已失效');const db=await this.db,owned=await db.get('meta','server-downloads-owned')??{},ignored=await db.get('meta','server-downloads-ignored')??{};owned[id]=true;delete ignored[id];await db.put('meta',owned,'server-downloads-owned');await db.put('meta',ignored,'server-downloads-ignored');await this.saveServerDownload(job,connection);await this.persist();}
+  private async saveServerDownload(job:ServerDownloadJob,connection:ServerDownloadConnection){
+    const generation=this.generation,db=await this.db;
+    await serverDownloads.save(connection,job.id,async content=>{
+      const current=this.state.shelf.find(e=>e.book.id===job.bookID)?.book;
+      if(!this.active||generation!==this.generation||this.serverConnection!==connection||!current||current.sourceID!==job.sourceID||current.url!==job.sourceURL||this.state.disabledSourceIDs.includes(job.sourceID))throw new Error('账号或书源已变更');
+      await db.put('contents',content,contentKey(current,content.chapter));
+    });
+    if(!this.active||generation!==this.generation||this.serverConnection!==connection)return;
+    const saved=await db.get('meta','server-downloads-saved')??{};saved[job.id]=job.updatedAt;await db.put('meta',saved,'server-downloads-saved');this.patchDownload(job.id,{storedOnDevice:true});
+  }
   private async runDownloads(){
     while(this.active){
-      const job=[...this.state.downloads].reverse().find(value=>value.status==='queued');if(!job)return;
+      const job=[...this.state.downloads].reverse().find(value=>value.engine!=='server'&&value.engine!=='native'&&value.status==='queued');if(!job)return;
       const book=this.state.shelf.find(entry=>entry.book.id===job.bookID)?.book;
       if(!book||book.sourceID!==job.sourceID||book.url!==job.sourceURL||this.state.disabledSourceIDs.includes(job.sourceID)){this.patchDownload(job.id,{status:'paused',error:'书籍或书源已变更'});await this.persist();continue;}
       const controller=new AbortController();this.downloadAbort=controller;this.patchDownload(job.id,{status:'running',error:undefined});await this.persist();
@@ -435,9 +538,9 @@ export class BrowserLibrary {
       if(this.downloadAbort===controller)this.downloadAbort=undefined;await this.persist();
     }
   }
-  async setProfileActive(active:boolean){this.active=active;if(!active){this.generation++;this.workflowGeneration++;this.switchPlans=new WeakMap();this.updateAbort?.abort();await this.pauseDownloadsForBackground();}}
+  async setProfileActive(active:boolean){this.active=active;if(!active){this.serverConnection=undefined;this.generation++;this.workflowGeneration++;this.switchPlans=new WeakMap();this.updateAbort?.abort();await this.pauseDownloadsForBackground();}}
 
-  async syncRequest(){await this.initialized;await this.writing;return{cursor:this.cloud.cursor,mutations:structuredClone(this.cloud.pending.slice(0,50))};}
+  async syncRequest(){await this.initialized;await this.writing;const mutations:CloudMutation[]=[];let bytes=0;for(const m of this.cloud.pending.slice(0,50)){const size=new TextEncoder().encode(JSON.stringify(m)).length;if(mutations.length&&bytes+size>2*1024*1024)break;mutations.push(m);bytes+=size;}return{cursor:this.cloud.cursor,mutations:structuredClone(mutations)};}
   hasPendingSync(){return this.cloud.pending.length>0;}
   async acceptSync(snapshot:CloudSnapshot){
     await this.initialized;await Promise.allSettled([...this.switchCommits.values()]);

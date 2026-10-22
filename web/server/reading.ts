@@ -10,6 +10,7 @@ export const sources = definitions as SourceDefinition[];
 export const categories: Category[] = [
   { id: '1', title: '玄幻奇幻' }, { id: '2', title: '修真武侠' }, { id: '3', title: '都市言情' },
   { id: '4', title: '穿越历史' }, { id: '5', title: '网游竞技' }, { id: '6', title: '科幻灵异' },
+  {id:'literature',title:'经典文学'},{id:'textbooks',title:'开放教材'},{id:'completed',title:'完结作品'},
 ];
 const toTraditional: (s: string) => string = OpenCC.Converter({ from: 'cn', to: 'tw' });
 const toSimplified: (s: string) => string = OpenCC.Converter({ from: 'tw', to: 'cn' });
@@ -211,13 +212,40 @@ function discoveryRows(html: string, source: SourceDefinition, recommendedOnly =
   const classic = unique(rows.toArray().flatMap(row => { const anchor = $(row).find('.s2 a[href]').first(), url = resolve(anchor.attr('href'), source.homeURL, source); return url && clean(anchor.text()) ? [makeBook(source, url, anchor.text(), { author: text($, row, '.s4') || text($, row, '.s5') })] : []; }));
   return [{ id: 'featured', title: '热门推荐', books: featured }, { id: 'classic', title: '经典推荐', books: classic }].filter(s => s.books.length);
 }
+/** Completion is taken from an explicit final-chapter label, never a book title. */
+export function completedRows(html: string, source: SourceDefinition): Book[] {
+  const $ = cheerio.load(html);
+  return unique($('.txt-list li').toArray().flatMap(row => {
+    const finalChapter = text($, row, '.s3');
+    if (!/全书完|完结感言|完结随笔|[（(]完结[）)]/.test(finalChapter)) return [];
+    const anchor = $(row).find('.s2 a[href]').first();
+    const url = resolve(anchor.attr('href'), source.homeURL, source);
+    return url && clean(anchor.text()) ? [makeBook(source, url, anchor.text(), {author:text($, row, '.s4')})] : [];
+  }));
+}
+async function discoveryWithin(load:Promise<Book[]>,ms=3000):Promise<Book[]>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([load.catch(()=>[]),new Promise<Book[]>(resolve=>{timer=setTimeout(()=>resolve([]),ms);timer.unref?.();})]);}finally{clearTimeout(timer);}}
 export async function recommendations(): Promise<{ sections: DiscoverySection[] }> {
-  return cached('recommendations', 10 * 60_000, async () => {
-    const source = sourceFor('biequgei'), result = await page(source.homeURL, source), sections = discoveryRows(result.html, source, true);
-    if (!sections.length) throw new ServiceError('暂时没有获取到推荐书目，请稍后重试。'); return { sections };
+  return cached('recommendations', 60_000, async () => {
+    const classics=await searchSource('',sourceFor('chinese-classics'));
+    const [novels,textbooks]=await Promise.all([discoveryWithin((async()=>{const source=sourceFor('biequgei'),result=await page(source.homeURL,source);return discoveryRows(result.html,source,true).flatMap(section=>section.books);})()),discoveryWithin(searchSource('',sourceFor('openstax')))]);
+    const sections:DiscoverySection[]=[{id:'literature',title:'古典文学精选',books:classics}];
+    if(textbooks.length)sections.push({id:'textbooks',title:'开放大学教材',books:textbooks.slice(0,12)});
+    if(novels.length)sections.push({id:'novels',title:'网络小说推荐',books:unique(novels).slice(0,24)});
+    return{sections};
   });
 }
+
 export async function category(id: string): Promise<Book[]> {
+  if(id==='literature')return searchSource('',sourceFor('chinese-classics'));
+  if(id==='textbooks')return (await searchSource('',sourceFor('openstax'))).slice(0,100);
+  if(id==='completed')return cached('completed-books',60_000,async()=>{
+    const classics=await searchSource('',sourceFor('chinese-classics'));
+    const novels=await discoveryWithin(cached('completed-novels',60*60_000,async()=>{
+      const source=sourceFor('biequgei'),result=await page(new URL('/all.html',source.homeURL),source);
+      return completedRows(result.html,source);
+    }));
+    return unique([...novels,...classics]);
+  });
   if (!categories.some(c => c.id === id)) throw new ServiceError('不存在这个分类。', 404);
   return cached(`category|${id}`, 10 * 60_000, async () => {
     const source = sourceFor('biequgei'), result = await page(new URL(`/lists/${id}.html`, source.homeURL), source), books = unique(discoveryRows(result.html, source).flatMap(s => s.books));
@@ -268,4 +296,13 @@ export async function downloadURL(value: unknown): Promise<{ url: string; book: 
     return { url, book: { ...book, publicationFormat: 'epub' }, source };
   }
   throw new ServiceError('来源没有返回可以直接下载的 EPUB。');
+}
+
+/** An author page lists only works whose returned attribution actually matches. */
+export async function authorBooks(name:string):Promise<{author:string;books:Book[]}>{
+  name=name.normalize('NFKC').trim();if(!name||name.length>100)throw new ServiceError('作者名无效。',400);
+  const local=(await searchSource(name,sourceFor('chinese-classics'))).filter(book=>normalize(book.author).includes(normalize(name)));
+  if(local.length)return{author:name,books:local};
+  const result=await search(name,['biequgei','gutenberg','standard-ebooks']);
+  return{author:name,books:unique([...local,...result.books.filter(book=>normalize(book.author).includes(normalize(name)))])};
 }

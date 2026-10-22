@@ -94,6 +94,8 @@ public struct ChapterDownloadTask: Codable, Identifiable, Sendable {
     public var failedIDs: Set<String>
     public var status: ChapterDownloadStatus
     public var lastError: String?
+    public var backgroundManaged: Bool?
+    public var backgroundAttempts: [String: Int]?
     public let createdAt: Date
     public init(book: Book, chapters: [Chapter]) {
         id = UUID(); self.book = book; self.chapters = chapters; completedIDs = []; failedIDs = []

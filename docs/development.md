@@ -6,7 +6,7 @@
 
 以下 iPhone 和 Swift 命令均在仓库根目录执行。Web 与 Android 的命令分别见本文后续入口。
 
-当前 iPhone 版本为 0.9.0/build 11。需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
+当前 iPhone 版本为 0.10.0/build 12。需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
 
 1. 打开 `QingRead.xcodeproj`，选择 `QingRead` scheme。
 2. 先选择 iPhone 模拟器运行，无需付费开发者账号。
@@ -72,6 +72,8 @@ npm run build
 ```
 
 常规测试使用本地样例与模拟响应，不依赖书源在线。真实来源检查需显式启用，命令见 Web 指南。账号数据库、文件与部署参数的维护见 [服务端说明](../web/server/README.md) 和 [部署指南](../web/deploy/README.md)。
+
+`tests/fixtures/workflow-preview.ts` 是仅本机使用的虚构书源服务，监听固定 `127.0.0.1:8791`，提供章节追加与指定失败控制，便于检查追更、换源和暂停。它不读真实账号、不请求外网，也不能作为生产书源部署；运行前先以默认根路径构建 Web，然后在 `web/` 执行 `node --import tsx tests/fixtures/workflow-preview.ts`。
 
 ## Android
 

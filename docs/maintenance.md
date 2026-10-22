@@ -34,9 +34,9 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 
 ## 公开源码中的签名与同步数据
 
-公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`，当前 iPhone 应用与后台续签副本均为 0.8.2/build 10。
+公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`；当前源码为 0.10.0，安装包与后台续签副本版本见[验证记录](verification.md)。
 
-服务器 `app-data` 保存持久化账号、书架数据库和 `files` 原文件，清理时必须完整保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。只删除已成功加载且有原镜像可回滚的 incoming 安装归档和确认可重建的本机构建缓存。`.private/backups/phone-before-sync-06` 保存同步升级前的手机数据，不进入 Git。
+服务器 `app-data` 保存账号、书架、恢复码哈希、原文件，以及可选通知订阅与云端准备任务，清理时必须整体保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。VAPID 私钥与部署环境只在私有配置中保存，不能随源码或公开日志上传。只删除已成功加载且有原镜像可回滚的 incoming 归档和确认可重建的缓存；手机数据备份不进入 Git。
 
 
 ## 构建与交付件的清理边界

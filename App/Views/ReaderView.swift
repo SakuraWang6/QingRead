@@ -14,6 +14,9 @@ struct ReaderView: View {
     @State private var wasSavedAtOpen = false
     @State private var showSourceSwitch = false
     @State private var showDownload = false
+    @State private var showAnnotations = false
+    @State private var showTextSelection = false
+    @State private var selectionOffset = 0
     @State private var checkingEnd = false
     @State private var chapters: [Chapter] = []
     @State private var index = 0
@@ -55,7 +58,8 @@ struct ReaderView: View {
                 if controlsVisible {
                     ReaderTopBar(title: currentBook.title, theme: theme, onClose: exitReader,
                                  onSource: currentBook.publicationFormat == nil ? { persistPosition(); speech.pause(); showSourceSwitch = true } : nil,
-                                 onDownload: currentBook.publicationFormat == nil ? { showDownload = true } : nil)
+                                 onDownload: currentBook.publicationFormat == nil ? { showDownload = true } : nil,
+                                 onAnnotations: { persistPosition(); speech.pause(); showAnnotations = true })
                         .transition(.move(edge: .top).combined(with: .opacity))
                 } else {
                     HStack {
@@ -138,6 +142,14 @@ struct ReaderView: View {
             applyBrightness()
             speech.updateSettings(updated)
         }
+        .sheet(isPresented: $showAnnotations) {
+            ReaderAnnotationsView(book: currentBook, chapters: chapters, currentChapter: content?.chapter,
+                                  bodyOffset: content.map { ReaderBodyAnchor.bodyOffset(documentOffset: characterOffset, content: $0) } ?? 0,
+                                  onSelect: openAnnotation, onSelectText: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { selectionOffset = characterOffset; showTextSelection = true } })
+        }
+        .sheet(isPresented: $showTextSelection) {
+            if let content { ReaderTextSelectionView(book: currentBook, content: content, initialBodyOffset: ReaderBodyAnchor.bodyOffset(documentOffset: selectionOffset, content: content)) }
+        }
         .sheet(isPresented: $showSourceSwitch) { SourceSwitchView(book: currentBook, currentChapters: chapters) }
         .sheet(isPresented: $showDownload) { DownloadSelectionView(book: currentBook, chapters: chapters) }
         .sheet(isPresented: $showSettings) {
@@ -183,7 +195,9 @@ struct ReaderView: View {
                 chapterPageStarts = starts; unitsPerPage = capacity
                 if pageSize != size { pageSize = size; estimatedPages = [:] }
                 schedulePageEstimates()
-            }, onTurn: hideControls, onToggleControls: toggleControls, onBoundary: { moveChapter($0, fromPageBoundary: true) }, onExit: exitReader)
+            }, onTurn: hideControls, onToggleControls: toggleControls, onBoundary: { moveChapter($0, fromPageBoundary: true) }, onExit: exitReader,
+                             onAnnotate: { offset in speech.pause(); selectionOffset = offset; showTextSelection = true },
+                             annotationRanges: store.annotations(for: currentBook).filter { $0.kind == .note && $0.chapterID == content.chapter.id && $0.sourceID == currentBook.sourceID && $0.sourceURL == currentBook.url.absoluteString }.map { NSRange(location: ReaderBodyAnchor.prefixLength(content) + $0.characterOffset, length: $0.characterLength) })
 
         }
     }
@@ -284,6 +298,16 @@ struct ReaderView: View {
         }
     }
 
+    private func openAnnotation(chapterID: String, bodyOffset: Int) {
+        guard let target = chapters.firstIndex(where: { $0.id == chapterID }) else { return }
+        persistPosition(); showAnnotations = false
+        if target == index, let content {
+            characterOffset = ReaderBodyAnchor.documentOffset(bodyOffset: bodyOffset, content: content)
+            chapterFraction = ReaderBodyAnchor.fraction(documentOffset: characterOffset, content: content)
+            seek = ReaderSeekRequest(utf16Offset: characterOffset); persistPosition()
+        } else { beginLoadChapter(target, restore: false, targetBodyOffset: bodyOffset) }
+    }
+
     private func hideControls() { if controlsVisible { withAnimation(.easeOut(duration: 0.15)) { controlsVisible = false } } }
     private func toggleControls() { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
     private func toggleNight() {
@@ -355,18 +379,18 @@ struct ReaderView: View {
     }
 
     private func beginLoadChapter(_ requestedIndex: Int, restore: Bool, autoplay: Bool = false, startAtEnd: Bool = false,
-                                  targetFraction: Double? = nil) {
+                                  targetFraction: Double? = nil, targetBodyOffset: Int? = nil) {
         guard chapters.indices.contains(requestedIndex), isVisible else { return }
         loadTask?.cancel()
         progressEstimateTask?.cancel()
         store.cancelPrefetch(for: currentBook)
         let speechIntent = speech.beginChapterTransition(autoplay: autoplay)
         loadTask = Task { await loadChapter(requestedIndex, restore: restore, speechIntent: speechIntent,
-                                          startAtEnd: startAtEnd, targetFraction: targetFraction) }
+                                          startAtEnd: startAtEnd, targetFraction: targetFraction, targetBodyOffset: targetBodyOffset) }
     }
 
     private func loadChapter(_ requestedIndex: Int, restore: Bool, speechIntent: UUID?, startAtEnd: Bool = false,
-                             targetFraction: Double? = nil) async {
+                             targetFraction: Double? = nil, targetBodyOffset: Int? = nil) async {
         guard chapters.indices.contains(requestedIndex) else { return }
         let generation = UUID()
         loadGeneration = generation
@@ -397,6 +421,10 @@ struct ReaderView: View {
             if restore, let saved = store.position(for: currentBook), saved.chapterID == chapter.id {
                 characterOffset = ReaderBodyAnchor.documentOffset(bodyOffset: saved.characterOffset, content: loaded)
                 chapterFraction = saved.chapterFraction
+            }
+            if let targetBodyOffset {
+                characterOffset = ReaderBodyAnchor.documentOffset(bodyOffset: targetBodyOffset, content: loaded)
+                chapterFraction = ReaderBodyAnchor.fraction(documentOffset: characterOffset, content: loaded)
             }
             if let fraction = targetFraction ?? (startAtEnd ? 1 : nil) {
                 let bodyOffset = SourceProgressMatcher.utf16Offset(fraction: fraction, content: loaded)

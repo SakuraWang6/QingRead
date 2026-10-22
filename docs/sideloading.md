@@ -4,7 +4,7 @@
 
 本机已实际验证：在 iPhone 数据线拔掉、Mac 连接该 iPhone 个人热点的情况下，使用已登录的 Xcode 账号获取新签名，确认到期时间确实延后，校验代码签名后无线安装清读，并成功无线启动。没有额外安装手机 App，没有导出签名密钥或保存新的 Apple 密码。
 
-已验证后台完整续期和无线安装。当前 iPhone 应用与独立续签副本为 0.8.2/build 10；签名有效期以设备和本机运行日志中的实际日期为准。后台任务每四小时检查，剩余三天以内才尝试续期。
+已验证后台完整续期和无线安装。当前源码为 0.10.0/build 12，设备安装与独立续签副本的最终版本以[验证记录](verification.md)为准；签名有效期以实际描述文件日期为准。后台任务每四小时检查，剩余三天以内才尝试续期。
 
 安装后台任务（先完成一次签名构建及手机安装；设备标识由使用者在本机传入）：
 
@@ -25,6 +25,8 @@ python3 scripts/install-refresh-agent.py --uninstall
 ```
 
 校园网相同 SSID 不代表设备可互访。本次校园网下手机拔线即不可达，换个人热点后实时连接和无线安装成功。因此在校园网内不能保证自动续期；需要在到期前让两台设备接入可互访的网络，或暂时把 Mac 连到手机个人热点。热点使用手机流量，不需要一直保持。
+
+免费个人签名不具备原生 APNs 推送能力。原生追更使用系统允许的后台检查与本地通知；需要远程推送时，可在 iOS 16.4+ 将 HTTPS Web 添加到主屏幕，登录并主动开启 Web Push。推送不改变签名有效期，也不能用于应用后台保活，见[通知说明](reading-workflows.md)。
 
 依据：[Apple 的 profile 缓存与重新请求规则](https://developer.apple.com/help/account/provisioning-profiles/edit-download-or-delete-profiles/)、[Personal Team 七天限制](https://developer.apple.com/help/account/basics/about-your-developer-account/)、[Device Hub 无线连接](https://developer.apple.com/documentation/xcode/managing-your-simulated-and-physical-devices-in-device-hub)。仅重复 build 并不能证明有效期延长；本工具核对实际 profile 日期后才安装。
 

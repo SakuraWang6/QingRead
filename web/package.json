@@ -1,6 +1,6 @@
 {
   "name": "qingread-web",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,7 +30,8 @@
     "pdfjs-dist": "^6.4.299",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@capacitor/android": "^8.0.0",
@@ -40,6 +41,7 @@
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/web-push": "3.6.4",
     "@vitejs/plugin-react": "^5.1.2",
     "concurrently": "^9.2.1",
     "fake-indexeddb": "^6.2.6",

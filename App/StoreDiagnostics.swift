@@ -80,6 +80,8 @@ import UIKit
             store.remove(imported)
             assert(store.importedBooks[imported.id] == nil && store.publicationURL(for: imported) == nil)
             try await ReadingWorkflowDiagnostics.run()
+            try BackgroundTransferDiagnostics.run()
+            try ShelfMetadataDiagnostics.run()
             print("QINGREAD_IMPORT_SELFTEST txt=passed pdf=passed dedup=passed offlineReopen=passed cachePreservation=passed removal=passed")
             print("QINGREAD_STORAGE_SELFTEST progress=passed legacy=passed coalescing=passed prefetch10=passed clearInflight=passed catalogGeneration=passed")
         } catch { assertionFailure("Storage diagnostics failed: \(error)") }
@@ -113,6 +115,8 @@ private actor DiagnosticContentClient: HTTPClient {
         let updated = try await store.refreshedEndCatalog(for: book)
         assert(updated.count == 3 && store.newChapterCount(for: book) == 1)
         store.savePosition(book: book, chapter: updated[2], index: 2, characterOffset: 4, fraction: 0.5)
+        store.organizeBooks([book.id], pinned: true, status: .later, group: "测试组")
+        try store.saveAnnotation(book: book, kind: .note, chapter: updated[2], offset: 4, length: 2, quote: "正文", note: "换源前笔记")
         assert(store.newChapterCount(for: book) == 0)
         _ = try await store.content(for: updated[0], in: book)
         let firstCalls = await client.calls(updated[0].url)
@@ -124,6 +128,8 @@ private actor DiagnosticContentClient: HTTPClient {
         assert(store.downloads.first?.completedCount == 3)
         let afterCalls = await client.calls(updated[0].url)
         assert(firstCalls == afterCalls, "A cached chapter must be skipped")
+        let search = await store.searchCachedText("离线缓存", book: book, chapters: updated)
+        assert(search.count == 3 && search.allSatisfy { $0.characterOffset > 0 }, "Search must use downloaded chapter bodies")
         let plan = try await store.prepareSourceSwitch(from: book, to: candidate, currentChapters: updated)
         assert(plan.matchedIndex == 2)
         await client.setBlocked(true)
@@ -134,6 +140,8 @@ private actor DiagnosticContentClient: HTTPClient {
         await client.setBlocked(false)
         let switched = try await store.commitSourceSwitch(plan, chapterIndex: 2)
         assert(switched.id == book.id && switched.url == candidate.url && store.shelf.count == 1)
+        assert(store.shelf.first?.organization?.pinned == true && store.shelf.first?.organization?.group == "测试组")
+        assert(store.annotations(for: switched).first?.sourceURL == book.url.absoluteString, "Source switching must preserve annotations with their original source anchors")
         let switchedPosition = store.position(for: switched)!
         assert(switchedPosition.chapterFraction == 0.5 && switchedPosition.characterOffset > 0)
         store.savePosition(book: book, chapter: updated[0], index: 0, characterOffset: 0, fraction: 0)
@@ -210,6 +218,76 @@ private actor WorkflowContentClient: HTTPClient {
             html = "<div class='read-content'>这是用于换源和离线缓存的正文。<br>下一段继续。</div>"
         }
         return (Data(html.utf8), HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+@MainActor private enum BackgroundTransferDiagnostics {
+    static func run() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("QingRead-background-test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let book = Book(id: "background-book", title: "后台测试", sourceID: "biequgei", sourceName: "测试", url: URL(string: "https://example.invalid/book")!)
+        let chapters = (0..<2).map { Chapter(id: "background-\($0)", title: "第\($0 + 1)章", url: URL(string: "https://example.invalid/\($0)")!, index: $0) }
+        let store = AppStore(storageRoot: directory)
+        store.cloud.address = "https://example.invalid"
+        let verbose = Book(id: book.id, title: book.title, summary: String(repeating: "长摘要", count: 4000), coverURL: URL(string: "https://example.invalid/cover")!, sourceID: book.sourceID, sourceName: book.sourceName, url: book.url)
+        let request = try store.cloud.backgroundChapterRequest(book: verbose, chapters: chapters)
+        let encoded = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!.first!.value!
+        var base64 = encoded.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        let payload = try JSONSerialization.jsonObject(with: Data(base64Encoded: base64)!) as! [String: Any]
+        let payloadBook = payload["book"] as! [String: Any]
+        assert(encoded.count < 12_000 && payloadBook["summary"] as? String == "" && payloadBook["coverURL"] == nil && payloadBook["id"] as? String == book.id)
+        let transfer = store.seedBackgroundDiagnostic(book: book, chapters: chapters)
+        let reopened = AppStore(storageRoot: directory)
+        reopened.restoreBackgroundDiagnostic([transfer])
+        assert(reopened.downloads.last?.status == .running)
+        reopened.receiveBackgroundDiagnostic(transfer, batch: BackgroundChapterBatch(contents: [ChapterContent(chapter: chapters[0], paragraphs: ["第一章正文"])]))
+        assert(reopened.hasCachedContent(for: chapters[0], in: book) && reopened.downloads.last?.completedCount == 1)
+        reopened.pauseDownload(transfer.jobID)
+        reopened.receiveBackgroundDiagnostic(transfer, batch: BackgroundChapterBatch(contents: [ChapterContent(chapter: chapters[1], paragraphs: ["迟到的正文"])]))
+        assert(!reopened.hasCachedContent(for: chapters[1], in: book))
+        try reopened.selectCloudProfile("second-account")
+        reopened.receiveBackgroundDiagnostic(transfer, batch: BackgroundChapterBatch(contents: [ChapterContent(chapter: chapters[0], paragraphs: ["错误账户正文"])]))
+        assert(reopened.shelf.isEmpty && reopened.cachedCount(for: book) == 0)
+        try reopened.selectCloudProfile(nil)
+        assert(reopened.downloads.last?.status == .paused && reopened.hasCachedContent(for: chapters[0], in: book))
+        let orphan = reopened.seedBackgroundDiagnostic(book: book, chapters: chapters)
+        let afterRestart = AppStore(storageRoot: directory)
+        afterRestart.restoreBackgroundDiagnostic([])
+        assert(afterRestart.downloads.first(where: { $0.id == orphan.jobID })?.status == .paused)
+        let beforeClear = afterRestart.seedBackgroundDiagnostic(book: book, chapters: chapters)
+        afterRestart.clearCache()
+        afterRestart.receiveBackgroundDiagnostic(beforeClear, batch: BackgroundChapterBatch(contents: [ChapterContent(chapter: chapters[0], paragraphs: ["清理之后迟到"])]))
+        assert(afterRestart.cachedCount(for: book) == 0)
+        let throttled = afterRestart.seedBackgroundDiagnostic(book: book, chapters: chapters)
+        afterRestart.throttleBackgroundDiagnostic(throttled)
+        assert(afterRestart.downloads.last?.status == .paused && afterRestart.downloads.last?.failedIDs.isEmpty == true)
+        afterRestart.receiveBackgroundDiagnostic(throttled, batch: BackgroundChapterBatch(contents: [ChapterContent(chapter: chapters[0], paragraphs: ["暂停后迟到"])]))
+        assert(afterRestart.cachedCount(for: book) == 0)
+        print("QINGREAD_BACKGROUND_SELFTEST compactPayload=passed persistedReconnect=passed stagedBody=passed pausedLateResponse=passed accountIsolation=passed orphanPause=passed clearLateResponse=passed rateLimitPause=passed")
+    }
+}
+
+@MainActor private enum ShelfMetadataDiagnostics {
+    static func run() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("QingRead-metadata-test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let book = Book(id: "metadata-book", title: "笔记测试", sourceID: "biequgei", sourceName: "测试", url: URL(string: "https://example.invalid/book")!)
+        let chapter = Chapter(id: "metadata-chapter", title: "中文😀章节", url: URL(string: "https://example.invalid/chapter")!, index: 0)
+        let store = AppStore(storageRoot: directory)
+        store.add(book); store.organizeBooks([book.id], pinned: true, status: .finished, group: "文学")
+        try store.saveAnnotation(book: book, kind: .note, chapter: chapter, offset: 3, length: 2, quote: "😀", note: "笔记")
+        let note = store.annotations(for: book).first!
+        store.savePosition(book: book, chapter: chapter, index: 0, characterOffset: 8, fraction: 0.5)
+        assert(store.shelf.first?.organization?.pinned == true && store.annotations(for: book).first?.characterOffset == 3)
+        store.deleteAnnotation(note, in: book)
+        let reopened = AppStore(storageRoot: directory)
+        assert(reopened.shelf.first?.organization?.status == .finished && reopened.annotations(for: book).isEmpty && reopened.shelf.first?.annotations?.first?.deletedAt != nil)
+        try reopened.selectCloudProfile("other-account")
+        assert(reopened.shelf.isEmpty)
+        try reopened.selectCloudProfile(nil)
+        assert(reopened.shelf.first?.organization?.group == "文学" && reopened.shelf.first?.annotations?.first?.deletedAt != nil)
+        print("QINGREAD_METADATA_SELFTEST progressPreserves=passed organizationPersistence=passed deletionTombstone=passed accountIsolation=passed")
     }
 }
 #endif
