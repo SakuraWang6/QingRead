@@ -19,6 +19,7 @@ struct EPUBBookReader: View {
     let book: Book
     let url: URL
     var initialChapterID: String? = nil
+    var onText: (() -> Void)? = nil
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     @State private var publication: EPUBOriginalPublication?
@@ -48,7 +49,7 @@ struct EPUBBookReader: View {
                         }
                     }, onError: { error = $0 })
                 } else if let error {
-                    VStack(spacing: 18) { Text(error).foregroundStyle(.secondary); Button("使用文字模式") { showText = true } }.padding(24)
+                    VStack(spacing: 18) { Text(error).foregroundStyle(.secondary); Button("使用文字模式", action: openText) }.padding(24)
                 } else { ProgressView("正在打开原版…") }
             }
             .background(Palette.paper)
@@ -56,7 +57,7 @@ struct EPUBBookReader: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("返回") { dismiss() } }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button("文字") { showText = true }
+                    Button("文字", action: openText)
                     Menu { Stepper("缩放 \(Int(zoom * 100))%", value: $zoom, in: 0.8...1.8, step: 0.1) } label: { Image(systemName: "textformat.size") }.accessibilityLabel("原版缩放")
                 }
                 ToolbarItemGroup(placement: .bottomBar) {
@@ -84,11 +85,16 @@ struct EPUBBookReader: View {
             }
             .fullScreenCover(isPresented: $showText) { ReaderView(book: book, initialChapterID: initialChapterID) }
             .alert("原版阅读", isPresented: Binding(get: { error != nil && publication != nil }, set: { if !$0 { error = nil } })) {
-                Button("文字模式") { error = nil; showText = true }; Button("好", role: .cancel) { error = nil }
+                Button("文字模式") { error = nil; openText() }; Button("好", role: .cancel) { error = nil }
             } message: { Text(error ?? "") }
             .onChange(of: store.profileRevision) { _ in publication = nil; contentRoot = nil; dismiss() }
             .onChange(of: store.isSaved(book)) { saved in if originallySaved && !saved { publication = nil; contentRoot = nil; dismiss() } }
         }
+    }
+
+    private func openText() {
+        if let onText { onText() }
+        else { showText = true }
     }
 
     private func move(_ delta: Int) {

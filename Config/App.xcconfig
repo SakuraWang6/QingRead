@@ -16,7 +16,7 @@ INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPo
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
 MARKETING_VERSION = 0.10.0
-CURRENT_PROJECT_VERSION = 12
+CURRENT_PROJECT_VERSION = 13
 // Keep personal signing settings in the ignored Config/local.xcconfig file.
 #include? "local.xcconfig"
 

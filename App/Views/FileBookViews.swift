@@ -19,8 +19,6 @@ struct BookReadingView: View {
             }
         } else if store.importedBooks[book.id]?.format == .pdf, let url = store.publicationURL(for: book) {
             PDFBookReader(book: book, url: url)
-        } else if store.importedBooks[book.id]?.format == .epub, let url = store.publicationURL(for: book) {
-            EPUBBookReader(book: book, url: url, initialChapterID: initialChapterID)
         } else { ReaderView(book: book, initialChapterID: initialChapterID) }
       }
       .overlay { if cloudLoading { ProgressView("下载中…").padding(24).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)) } }

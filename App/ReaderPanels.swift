@@ -8,6 +8,7 @@ struct ReaderTopBar: View {
     var onSource: (() -> Void)? = nil
     var onDownload: (() -> Void)? = nil
     var onAnnotations: (() -> Void)? = nil
+    var onOriginalEPUB: (() -> Void)? = nil
     var body: some View {
         HStack(spacing: 14) {
             Button(action: onClose) {
@@ -15,9 +16,10 @@ struct ReaderTopBar: View {
             }.accessibilityLabel("关闭阅读器").accessibilityIdentifier("reader.close")
             Text(title).font(.system(size: 16, weight: .medium)).lineLimit(1)
             Spacer(minLength: 0)
-            if onSource != nil || onDownload != nil || onAnnotations != nil {
+            if onSource != nil || onDownload != nil || onAnnotations != nil || onOriginalEPUB != nil {
                 Menu {
                     if let onAnnotations { Button(action: onAnnotations) { Label("书签与搜索", systemImage: "bookmark") } }
+                    if let onOriginalEPUB { Button(action: onOriginalEPUB) { Label("原版排版（本机进度）", systemImage: "doc.richtext") } }
                     if let onSource { Button(action: onSource) { Label("换源", systemImage: "arrow.triangle.swap") } }
                     if let onDownload { Button(action: onDownload) { Label("下载章节", systemImage: "arrow.down.circle") } }
                 } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }

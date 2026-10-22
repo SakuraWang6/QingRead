@@ -16,6 +16,7 @@ struct ReaderView: View {
     @State private var showDownload = false
     @State private var showAnnotations = false
     @State private var showTextSelection = false
+    @State private var showOriginalEPUB = false
     @State private var selectionOffset = 0
     @State private var checkingEnd = false
     @State private var chapters: [Chapter] = []
@@ -49,6 +50,10 @@ struct ReaderView: View {
     private var currentBook: Book { activeBook ?? book }
     private var librarySource: String { store.sourceFingerprint(store.currentBook(book)) }
     private var theme: ReadingTheme { store.settings.activeTheme }
+    private var originalEPUBURL: URL? {
+        guard store.importedBooks[currentBook.id]?.format == .epub else { return nil }
+        return store.publicationURL(for: currentBook)
+    }
 
     var body: some View {
         ZStack {
@@ -59,7 +64,8 @@ struct ReaderView: View {
                     ReaderTopBar(title: currentBook.title, theme: theme, onClose: exitReader,
                                  onSource: currentBook.publicationFormat == nil ? { persistPosition(); speech.pause(); showSourceSwitch = true } : nil,
                                  onDownload: currentBook.publicationFormat == nil ? { showDownload = true } : nil,
-                                 onAnnotations: { persistPosition(); speech.pause(); showAnnotations = true })
+                                 onAnnotations: { persistPosition(); speech.pause(); showAnnotations = true },
+                                 onOriginalEPUB: originalEPUBURL == nil ? nil : { persistPosition(); speech.stop(); showOriginalEPUB = true })
                         .transition(.move(edge: .top).combined(with: .opacity))
                 } else {
                     HStack {
@@ -149,6 +155,11 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showTextSelection) {
             if let content { ReaderTextSelectionView(book: currentBook, content: content, initialBodyOffset: ReaderBodyAnchor.bodyOffset(documentOffset: selectionOffset, content: content)) }
+        }
+        .fullScreenCover(isPresented: $showOriginalEPUB) {
+            if let url = originalEPUBURL {
+                EPUBBookReader(book: currentBook, url: url, initialChapterID: content?.chapter.id, onText: { showOriginalEPUB = false })
+            }
         }
         .sheet(isPresented: $showSourceSwitch) { SourceSwitchView(book: currentBook, currentChapters: chapters) }
         .sheet(isPresented: $showDownload) { DownloadSelectionView(book: currentBook, chapters: chapters) }
