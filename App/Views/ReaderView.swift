@@ -17,6 +17,7 @@ struct ReaderView: View {
     @State private var showAnnotations = false
     @State private var showTextSelection = false
     @State private var showOriginalEPUB = false
+    @State private var returningFromOriginalEPUB = false
     @State private var selectionOffset = 0
     @State private var checkingEnd = false
     @State private var chapters: [Chapter] = []
@@ -65,7 +66,7 @@ struct ReaderView: View {
                                  onSource: currentBook.publicationFormat == nil ? { persistPosition(); speech.pause(); showSourceSwitch = true } : nil,
                                  onDownload: currentBook.publicationFormat == nil ? { showDownload = true } : nil,
                                  onAnnotations: { persistPosition(); speech.pause(); showAnnotations = true },
-                                 onOriginalEPUB: originalEPUBURL == nil ? nil : { persistPosition(); speech.stop(); showOriginalEPUB = true })
+                                 onOriginalEPUB: originalEPUBURL == nil ? nil : { persistPosition(); speech.stop(); returningFromOriginalEPUB = true; showOriginalEPUB = true })
                         .transition(.move(edge: .top).combined(with: .opacity))
                 } else {
                     HStack {
@@ -106,6 +107,12 @@ struct ReaderView: View {
         .statusBarHidden(true)
         .task {
             isVisible = true
+            if returningFromOriginalEPUB, openedProfileRevision == store.profileRevision, content != nil {
+                returningFromOriginalEPUB = false
+                applyBrightness()
+                return
+            }
+            returningFromOriginalEPUB = false
             openedProfileRevision = store.profileRevision
             wasSavedAtOpen = store.isSaved(book)
             initialBrightness = UIScreen.main.brightness
