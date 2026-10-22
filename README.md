@@ -1,62 +1,34 @@
 # 清读 · QingRead
 
-面向 iPhone、Web 和 Android 的阅读器，支持多源搜书、EPUB / PDF / TXT、离线阅读与自建服务器同步。
-
-把喜欢的书放进书架，在手机或浏览器里打开；换个设备，接着上次的位置读。
+面向 iPhone、Web 和 Android 的免费无广告阅读器，支持多源搜书、EPUB / PDF / TXT、离线阅读与自建服务器同步。
 
 [开始使用](#开始使用) · [自建服务器](web/deploy/README.md) · [文档](docs/README.md) · [反馈问题](https://github.com/SakuraWang6/QingRead/issues)
 
 ## 界面预览
 
-iPhone 0.8.2 原生 App（模拟器）与 Web 0.8.1 移动视口的实际截图。
+iPhone 原生与 Web 0.10 的实际分类页，截图中可见封面均已加载。
 
 <table>
   <tr>
-    <th>iPhone · 书架</th>
-    <th>iPhone · 阅读</th>
-    <th>Web · 手机书架</th>
+    <th>iPhone · 分类</th>
+    <th>Web · 手机分类</th>
   </tr>
   <tr>
-    <td align="center"><img src="docs/previews/iphone-library.png" alt="iPhone 0.8.2 三列封面书架" width="230" /></td>
-    <td align="center"><img src="docs/previews/iphone-reader.png" alt="iPhone 0.8.2 沉浸阅读与底部页码" width="230" /></td>
-    <td align="center"><img src="docs/previews/web-mobile-library.jpg" alt="Web 0.8.1 手机宽度下的书架" width="230" /></td>
+    <td align="center"><img src="docs/previews/iphone-categories.png" alt="iPhone 0.10 玄幻奇幻分类，九张真实封面已加载" width="260" /></td>
+    <td align="center"><img src="docs/previews/web-mobile-categories.png" alt="Web 0.10 修真武侠分类，六张真实封面已加载" width="260" /></td>
   </tr>
 </table>
 
-<details>
-<summary>阅读菜单、目录与桌面 Web</summary>
-
-<table>
-  <tr>
-    <th>iPhone · 阅读菜单</th>
-    <th>iPhone · 侧边目录</th>
-    <th>Web · 阅读菜单</th>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/previews/iphone-controls.png" alt="iPhone 页数进度条与阅读设置入口" width="230" /></td>
-    <td align="center"><img src="docs/previews/iphone-catalog.png" alt="iPhone 左侧目录、逐章进度和缓存状态" width="230" /></td>
-    <td align="center"><img src="docs/previews/web-mobile-controls.jpg" alt="Web 手机阅读菜单与页数进度条" width="230" /></td>
-  </tr>
-</table>
-
-![Web 桌面阅读器](docs/previews/web-desktop-reader.jpg)
-
-[全部截图与版本信息](docs/previews/README.md)
-
-</details>
+[截图与版本信息](docs/previews/README.md)
 
 ## 核心功能
 
-- **搜书与发现**：多来源搜索、文学与开放教材、完结书单、作者作品；单个来源失败时保留其他搜索结果。
-- **自己的书架**：三列封面、置顶、分组、在读 / 待读 / 读完，支持批量整理。
-- **追更与换源**：新增章节角标、可选系统通知；切换同书来源时匹配章节并保留章内进度，匹配不确定时可手动选章。
-- **自由调整阅读**：滑动、覆盖、上下滚动，配合夜间模式、背景、字体、字号、行距和独立段距设置。
-- **目录与离线缓存**：侧边目录显示逐章进度和缓存状态，阅读时自动预读后续章节，已缓存正文可离线打开。
-- **下载管理**：后续 50 / 100 章、整本或自选范围，集中暂停、继续和重试；原生端接入系统后台下载，浏览器可选云端准备。
-- **书签、笔记与搜索**：标记文字位置、引用正文记笔记，搜索本机已缓存正文；PDF 支持按页笔记与本地文字搜索。
-- **电子书导入**：EPUB 默认文字阅读，可主动进入「原版」查看插图、标题层级与脚注；PDF 保留页面与图表，TXT 按章节阅读。
-- **跨设备续读**：自建服务同步书架整理、阅读位置、书签笔记与导入原文件，账号各自隔离；支持密码修改与离线恢复码。
-- **听书**：系统语音、语速调整和定时停止；iPhone 可额外下载 Kokoro / Melo 离线 AI 声库，在设备上合成，无需 API key。
+- **搜书与发现**：多来源搜索、文学与开放教材、完结书单、作者作品。
+- **阅读与听书**：滑动、覆盖、滚动翻页，调整字号、行距、段距与背景；系统语音与定时停止，iPhone 可选离线 AI 音色。
+- **追更与离线**：新增章节提醒、换源保留进度、自动预读、可暂停和重试的下载管理。
+- **书架与同步**：置顶、分组、在读／待读／读完；自建服务同步书架、阅读位置、笔记与原文件，账号各自隔离。
+- **书签与搜索**：引用正文记笔记、搜索本机已缓存正文，PDF 支持页书签与本地文字搜索。
+- **电子书**：EPUB 默认文字阅读，可进入「原版」查看插图、层级标题与脚注；PDF 保留页面图表，TXT 按章节阅读。
 
 ## 平台
 
@@ -81,13 +53,13 @@ npm ci
 npm run dev
 ```
 
-打开 <http://127.0.0.1:5173>。命令会同时启动网页和书源服务；书架内置《桃花源记》，可直接体验阅读。
+打开 <http://127.0.0.1:5173>。命令会同时启动网页和书源服务；内置公版《桃花源记》，可直接体验阅读。
 
 完整命令与浏览器说明见 [Web 指南](web/README.md)。
 
 ### 安装到手机
 
-- **iPhone**：用 Xcode 打开 `QingRead.xcodeproj`，选择模拟器运行；真机安装需配置自己的 Apple Team。见 [iPhone 构建](docs/development.md#iphone) 与 [签名和续签](docs/sideloading.md)。
+- **iPhone**：用 Xcode 打开 `QingRead.xcodeproj`，选择模拟器运行；真机安装需配置自己的 Apple Team，免费个人签名通常 7 天有效。见 [iPhone 构建](docs/development.md#iphone) 与 [签名和续签](docs/sideloading.md)。
 - **Android**：按 [Android 指南](web/android/README.md) 构建 APK，或使用仓库的 Android debug APK 工作流。长期分发需自行保管固定签名。
 
 ### 开启跨设备同步

@@ -41,7 +41,16 @@ struct RecommendationsView: View {
 struct CategoriesView: View {
     @EnvironmentObject private var store: AppStore
     @State private var categories: [NativeDiscoveryCategory] = []
-    @State private var selected = "literature"
+    @State private var selected: String = {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let flag = arguments.firstIndex(of: "--qingread-category"),
+           arguments.indices.contains(flag + 1) {
+            return arguments[flag + 1]
+        }
+        #endif
+        return "literature"
+    }()
     @State private var books: [Book] = []
     @State private var loading = false
     @State private var error: String?
