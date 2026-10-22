@@ -40,9 +40,9 @@ export function PDFReader({ book, onClose }: { book: Book; onClose: () => void }
       if (canceled) return;
       task = getDocument({
         data, useSystemFonts: true,
-        cMapUrl: new URL('/pdfjs/cmaps/', location.href).href, cMapPacked: true,
-        standardFontDataUrl: new URL('/pdfjs/standard_fonts/', location.href).href,
-        wasmUrl: new URL('/pdfjs/wasm/', location.href).href,
+        cMapUrl: new URL(import.meta.env.BASE_URL + 'pdfjs/cmaps/', location.href).href, cMapPacked: true,
+        standardFontDataUrl: new URL(import.meta.env.BASE_URL + 'pdfjs/standard_fonts/', location.href).href,
+        wasmUrl: new URL(import.meta.env.BASE_URL + 'pdfjs/wasm/', location.href).href,
       });
       task.onPassword = () => { setError('这份 PDF 需要密码，请先导入已解锁的文件。'); setLoading(false); };
       const pdf = await task.promise;

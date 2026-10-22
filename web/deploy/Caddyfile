@@ -1,3 +1,5 @@
+# Dedicated QingRead host only. On a shared host, merge explicit routes instead
+# of replacing its root/catch-all. See shared-host/README.md.
 {
     log default {
         format filter {

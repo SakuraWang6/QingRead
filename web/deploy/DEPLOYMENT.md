@@ -1,6 +1,6 @@
 # 部署维护基线
 
-更新于 2026-10-21（Asia/Shanghai），Web/API 版本 0.8.1，运行代码基线 `37955bc`。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
+更新于 2026-10-22（Asia/Shanghai），Web/API 版本 0.8.1，运行代码基线 `37955bc`。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
 
 iPhone 原生版单独维护，当前为 0.8.2/build 10；原生阅读动画更新不改变服务器与 Android 的 0.8.1 版本号。
 
@@ -10,8 +10,8 @@ iPhone 原生版单独维护，当前为 0.8.2/build 10；原生阅读动画更�
 |---|---|
 | 平台 | Ubuntu、`linux/amd64` Docker 镜像 |
 | 部署目录与项目 | `/srv/qingread`，Compose 项目 `qingread` |
-| 应用镜像 | `qingread-web:0.8.1` |
-| HTTPS | Caddy `2.11.7-alpine`，公网 TCP 443 |
+| 应用镜像 | Web/API 0.8.1；保留运行实例已修复的基础镜像 |
+| HTTPS | 共享 Caddy 入口，清读路径 `/qingread/`；根路径为应用导航 |
 | 应用入口 | Compose 私有网络 `qingread:8787` |
 | 资源上限 | 应用 384 MiB / 0.75 CPU；Caddy 128 MiB / 0.25 CPU |
 | 书源访问 | 显式 `QINGREAD_PUBLIC_ACCESS=true`、访问码留空 |
@@ -30,7 +30,7 @@ iPhone 原生版单独维护，当前为 0.8.2/build 10；原生阅读动画更�
 | `app-data/files/` | 按账号存放的原文件，目录 700、文件 600 |
 | `app-data/covers/` | 可重新获取的公共封面缓存 |
 | `caddy-data/`、`caddy-config/` | HTTPS 证书与代理持久数据 |
-| `downloads/` | 已验签的发布 APK；`QingRead-Android-latest.apk` 指向当前版本 |
+| `downloads/` | 已验签 APK，以及 `sites/` 中只读的导航页与清读子路径网页；`qingread-current` 指向当前网页目录 |
 | 私有备份目录 | 升级前配置及一致的数据快照 |
 
 备份数据库和原文件时，应在低峰仅暂停清读应用服务，复制整个 `app-data` 后立即恢复；不要只复制运行中的 SQLite 主文件。还原使用同一份数据库与文件目录。保留上一版本镜像与配置，备份不进入 Git。完整步骤见 [部署说明](README.md)。
@@ -71,3 +71,14 @@ Mac 上可用 `scripts/ssh-en0-connector.py` 作为 SSH 的 `ProxyCommand`，仅
 公网 HTTPS 健康接口返回 0.8.1，来源列表接口正常返回 10 项，浏览器完成旧 PWA 更新。仅重建清读应用；更新后内存约 125 MiB / 384 MiB，清读及原有三个应用容器均健康、OOM=false。账号数据库、原文件和证书未迁移或清理。上传构建上下文与 APK 暂存已清除。
 
 个人 Android 0.8.1 已通过 CI 测试、编译、lint、固定升级证书 v2 签名与 ZIP 校验；公网 latest 下载与本机包 SHA-256 相同。尚未在安卓设备运行。
+
+
+## 共享入口路由修复（2026-10-22）
+
+原 HTTPS 根路径的 catch-all 指向清读，导致服务器 IP 直接显示阅读器。现已将根页面改为应用导航，清读位于 `/qingread/`；现有课程系统路径与积分面板监听保持不变。免登录可操作的管理面板不列入公开导航。未匹配的页面返回 404，不再兜底到清读。
+
+静态网页在开发电脑以 `QINGREAD_WEB_BASE=/qingread/` 构建，上传到 `downloads/sites/` 的版本目录，由 Caddy 只读提供。新 PWA scope、启动地址、PDF 辅助资源均限定在 `/qingread/`，原 `/sw.js` 提供注销脚本以处理旧根路径缓存，不删除用户存储。`/api/` 保留以兼容已安装的 iPhone / Android；课程系统更具体的 API 前缀先匹配。旧根静态资源暂留供已打开的旧网页使用。
+
+共享 Caddy 配置已经包含其他项目维护的规则，**不要直接用本仓库独立主机模板覆盖生产 Caddyfile 或 Compose**。本次仅热更新路由和静态网页，没有更换镜像或重启业务容器；备份位于实例私有 `backups/routing-20261022/`。后续部署需保留 `downloads/sites/`、全部共享路由、原端口及已有基础镜像修复。见[多项目部署与 PWA 迁移](shared-host/README.md)。
+
+验证：子路径与默认根路径构建均通过；连接、静态服务、文件解析、启动相关 31 项测试通过（启动测试在允许本机监听的环境复跑）。浏览器实际完成旧根缓存退出、导航→清读、导航→课程访问验证页，手机 390×844 布局正常，原本机两本书仍在。根页面与三个应用入口、清读健康、PWA manifest / worker、PDF cmap、APK 下载均正常响应；缺失页面与资源返回 404。全部 6 个容器的 ID 和启动时间未变，无 OOM，可用内存约 1 GiB。未改动业务数据库、原文件、账号和签名。
