@@ -180,5 +180,147 @@ class SimulatorBootTests(unittest.TestCase):
         self.assertEqual(self.calls(runner), [("boot", 60)])
 
 
+class ReaderReadinessTests(unittest.TestCase):
+    markers = ["QINGREAD_SPEECH_SELFTEST", "QINGREAD_READER_SELFTEST",
+               "QINGREAD_CHAPTER_TURN mode=cover direction=1"]
+    ready = "QINGREAD_READER_DIAGNOSTICS_STARTED uptime=40.0\n"
+
+    def setUp(self):
+        self.elapsed = 0
+
+    def sleep(self, seconds):
+        self.elapsed += seconds
+
+    def wait(self, read_output):
+        return preview.wait_reader_diagnostics(read_output, self.markers, clock=lambda: self.elapsed, sleeper=self.sleep)
+
+    def test_delayed_reader_initialization_keeps_separate_self_test_budget(self):
+        def read_output():
+            if self.elapsed < 40:
+                return ""
+            return self.ready + ("\n".join(self.markers) if self.elapsed >= 45 else "")
+
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            output = self.wait(read_output)
+        self.assertTrue(all(marker in output for marker in self.markers))
+        self.assertEqual(self.elapsed, 45)
+        self.assertIn("phase=startup completed waitSeconds=40.0", log.getvalue())
+        self.assertIn("phase=self-test completed waitSeconds=5.0", log.getvalue())
+
+    def test_already_ready_reader_does_not_wait_or_sleep(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            output = self.wait(lambda: self.ready + "\n".join(self.markers))
+        self.assertEqual(self.elapsed, 0)
+        self.assertTrue(all(marker in output for marker in self.markers))
+
+    def test_missing_start_signal_fails_after_120_seconds_even_with_success_markers(self):
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log), self.assertRaises(preview.ReaderDiagnosticsTimeout) as caught:
+            self.wait(lambda: "\n".join(self.markers))
+        self.assertEqual(self.elapsed, 120)
+        self.assertEqual(caught.exception.phase, "startup")
+        self.assertEqual(caught.exception.wait_seconds, 120)
+        self.assertEqual(caught.exception.missing, ["QINGREAD_READER_DIAGNOSTICS_STARTED"])
+        self.assertIn("phase=startup failed waitSeconds=120.0", log.getvalue())
+        self.assertNotIn("phase=self-test started", log.getvalue())
+
+    def test_ready_reader_missing_success_marker_still_fails_after_30_seconds(self):
+        def read_output():
+            return "" if self.elapsed < 40 else self.ready + "\n".join(self.markers[:-1])
+
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log), self.assertRaises(preview.ReaderDiagnosticsTimeout) as caught:
+            self.wait(read_output)
+        self.assertEqual(self.elapsed, 70)
+        self.assertEqual(caught.exception.phase, "self-test")
+        self.assertEqual(caught.exception.wait_seconds, 30)
+        self.assertEqual(caught.exception.missing, [self.markers[-1]])
+        self.assertIn("phase=self-test failed waitSeconds=30.0", log.getvalue())
+
+    def test_main_preserves_original_failure_even_if_failure_screenshot_fails(self):
+        for screenshot_fails in [False, True]:
+            with self.subTest(screenshot_fails=screenshot_fails), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                failure = preview.ReaderDiagnosticsTimeout("startup", 120, [self.ready], "")
+                screenshots = []
+
+                def runner(*args, **kwargs):
+                    command = args[2]
+                    if command == "list":
+                        return '{"devices":{"iOS-test":[{"name":"iPhone fixture","udid":"fixture","state":"Booted"}]}}'
+                    if command == "launch":
+                        stdout = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--stdout=")))
+                        stdout.write_text("QINGREAD_STORAGE_SELFTEST QINGREAD_COVER_SELFTEST QINGREAD_AI_MODEL_SELFTEST"
+                                          if "--storage-self-test" in args else "")
+                        return "app.qingread.personal: 1"
+                    if command == "io":
+                        screenshots.append((Path(args[-1]).name, kwargs.get("timeout")))
+                        if args[-1].endswith("reader-failure.png") and screenshot_fails:
+                            raise subprocess.TimeoutExpired(["screenshot"], 30)
+                    return ""
+
+                with patch.object(preview, "ROOT", root), patch.object(preview, "prepare_simulator"), \
+                        patch.object(preview, "run", side_effect=runner), patch.object(preview.time, "sleep"), \
+                        patch.object(preview, "wait_reader_diagnostics", side_effect=failure), \
+                        contextlib.redirect_stdout(io.StringIO()), self.assertRaises(preview.ReaderDiagnosticsTimeout) as caught:
+                    preview.main()
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(screenshots[-1], ("reader-failure.png", 30))
+                self.assertEqual(len(screenshots), 4)
+
+    def test_main_uses_fresh_process_and_empty_logs_without_accepting_old_success_markers(self):
+        screens = ["library", "search", "sources", "reader", "recommendations", "categories",
+                   "reader-controls", "catalog", "audio", "about"]
+        original_wait = preview.wait_reader_diagnostics
+        for new_reader_markers_complete in [False, True]:
+            with self.subTest(new_reader_markers_complete=new_reader_markers_complete), tempfile.TemporaryDirectory() as temporary:
+                self.elapsed = 0
+                root = Path(temporary)
+                directory = root / ".build/previews"
+                directory.mkdir(parents=True)
+                for screen in screens:
+                    (directory / f"{screen}.stdout.log").write_text(self.ready + "\n".join(self.markers))
+                    (directory / f"{screen}.stderr.log").write_text("stale stderr")
+                launches = []
+
+                def runner(*args, **kwargs):
+                    if args[2] == "list":
+                        return '{"devices":{"iOS-test":[{"name":"iPhone fixture","udid":"fixture","state":"Booted"}]}}'
+                    if args[2] == "launch":
+                        stdout = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--stdout=")))
+                        stderr = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--stderr=")))
+                        self.assertEqual(stdout.read_text(), "")
+                        self.assertEqual(stderr.read_text(), "")
+                        self.assertEqual("--terminate-running-process" in args, len(launches) == 0)
+                        launches.append(stdout.name)
+                        if "--storage-self-test" in args:
+                            stdout.write_text("QINGREAD_STORAGE_SELFTEST QINGREAD_COVER_SELFTEST QINGREAD_AI_MODEL_SELFTEST")
+                        if "--reader-self-test" in args:
+                            current = self.markers if new_reader_markers_complete else self.markers[:-1]
+                            stdout.write_text(self.ready + "\n".join(current))
+                        return "app.qingread.personal: 1"
+                    return ""
+
+                def wait_current_reader(read_output, markers):
+                    return original_wait(read_output, markers, clock=lambda: self.elapsed, sleeper=self.sleep)
+
+                with patch.object(preview, "ROOT", root), patch.object(preview, "prepare_simulator"), \
+                        patch.object(preview, "run", side_effect=runner), patch.object(preview.time, "sleep") as settle, \
+                        patch.object(preview, "wait_reader_diagnostics", side_effect=wait_current_reader), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    if new_reader_markers_complete:
+                        preview.main()
+                        self.assertEqual(len(launches), 10)
+                    else:
+                        with self.assertRaises(preview.ReaderDiagnosticsTimeout) as caught:
+                            preview.main()
+                        self.assertEqual(caught.exception.phase, "self-test")
+                        self.assertEqual(caught.exception.missing, [self.markers[-1]])
+                        self.assertEqual(self.elapsed, 30)
+                        self.assertEqual(len(launches), 4)
+                self.assertEqual([call.args for call in settle.call_args_list], [(6,)] * len(launches))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -107,6 +107,44 @@ def prepare_simulator(runtime, device, directory, runner=run):
             command("boot", udid, timeout=60)
 
 
+class ReaderDiagnosticsTimeout(SystemExit):
+    def __init__(self, phase, wait_seconds, missing, output):
+        super().__init__(f"Missing reader diagnostics: phase={phase} waitSeconds={wait_seconds:.1f} missing={missing}")
+        self.phase = phase
+        self.wait_seconds = wait_seconds
+        self.missing = missing
+        self.output = output
+
+
+def wait_reader_diagnostics(read_output, markers, clock=time.monotonic, sleeper=time.sleep):
+    # First-reader system initialization is separate from the existing self-test budget.
+    phases = [("startup", ["QINGREAD_READER_DIAGNOSTICS_STARTED"], 120), ("self-test", markers, 30)]
+    for phase, required, timeout in phases:
+        started = clock()
+        print(f"Reader diagnostics phase={phase} started timeoutSeconds={timeout}", flush=True)
+        while True:
+            output = read_output()
+            missing = [marker for marker in required if marker not in output]
+            elapsed = clock() - started
+            if not missing:
+                print(f"Reader diagnostics phase={phase} completed waitSeconds={elapsed:.1f}", flush=True)
+                break
+            if elapsed >= timeout:
+                print(f"Reader diagnostics phase={phase} failed waitSeconds={elapsed:.1f} missing={missing}", flush=True)
+                raise ReaderDiagnosticsTimeout(phase, elapsed, missing, output)
+            sleeper(min(0.25, timeout - elapsed))
+    return output
+
+
+def capture_reader_failure(udid, directory, runner=None):
+    # Best-effort evidence for this public-domain preview; preserve its original failure.
+    runner = runner or run
+    try:
+        runner("xcrun", "simctl", "io", udid, "screenshot", str(directory / "reader-failure.png"), timeout=30)
+    except Exception as error:
+        print(f"Reader failure screenshot unavailable: {type(error).__name__}", flush=True)
+
+
 def main():
     # Create this before booting so a cold-start failure still uploads evidence.
     directory = ROOT / ".build/previews"
@@ -132,35 +170,47 @@ def main():
             if screen == "reader": arguments.append("--reader-self-test")
         stdout = directory / f"{screen}.stdout.log"
         stderr = directory / f"{screen}.stderr.log"
-        launch = run("xcrun", "simctl", "launch", f"--stdout={stdout}", f"--stderr={stderr}", udid, "app.qingread.personal", *arguments)
+        # simctl appends to existing redirects. Never accept markers from a prior run.
+        stdout.write_text("")
+        stderr.write_text("")
+        fresh_process = ["--terminate-running-process"] if index == 0 else []
+        launch = run("xcrun", "simctl", "launch", *fresh_process, f"--stdout={stdout}", f"--stderr={stderr}", udid, "app.qingread.personal", *arguments)
         print(launch.strip(), flush=True)
         time.sleep(6)
         markers = {"library": ["QINGREAD_STORAGE_SELFTEST", "QINGREAD_COVER_SELFTEST", "QINGREAD_AI_MODEL_SELFTEST"],
                    "reader": ["QINGREAD_SPEECH_SELFTEST", "QINGREAD_READER_SELFTEST",
                               "QINGREAD_CHAPTER_TURN mode=cover direction=1"]}.get(screen, [])
         if markers:
-            output = stdout.read_text() if stdout.exists() else ""
-            wait_started = time.monotonic()
-            deadline = wait_started + 30
-            while not all(marker in output for marker in markers) and time.monotonic() < deadline:
-                time.sleep(0.25)
-                output = stdout.read_text() if stdout.exists() else ""
-            if not all(marker in output for marker in markers):
-                missing = [marker for marker in markers if marker not in output]
-                errors = stderr.read_text(errors="replace") if stderr.exists() else ""
-                print(f"Diagnostics incomplete: screen={screen} launch={launch.strip()} "
-                      f"waitSeconds={time.monotonic() - wait_started:.1f} "
-                      f"stdoutBytes={stdout.stat().st_size if stdout.exists() else 0} "
-                      f"stderrBytes={stderr.stat().st_size if stderr.exists() else 0} "
-                      f"missing={missing}", flush=True)
-                # Only the public-domain reader preview runs these diagnostics.
-                # Surface its crash/marker context without dumping account data
-                # from any other preview or from the simulator's app container.
-                if screen == "reader":
-                    for label, contents in [("reader.stdout.log", output), ("reader.stderr.log", errors)]:
+            if screen == "reader":
+                try:
+                    wait_reader_diagnostics(lambda: stdout.read_text() if stdout.exists() else "", markers)
+                except ReaderDiagnosticsTimeout as error:
+                    print(f"Diagnostics incomplete: screen=reader phase={error.phase} "
+                          f"waitSeconds={error.wait_seconds:.1f} "
+                          f"stdoutBytes={stdout.stat().st_size if stdout.exists() else 0} "
+                          f"stderrBytes={stderr.stat().st_size if stderr.exists() else 0} "
+                          f"missing={error.missing}", flush=True)
+                    errors = stderr.read_text(errors="replace") if stderr.exists() else ""
+                    for label, contents in [("reader.stdout.log", error.output), ("reader.stderr.log", errors)]:
                         tail = "\n".join(contents.splitlines()[-80:])[-12000:]
                         print(f"{label} (last 80 lines, at most 12000 characters):\n{tail or '[empty]'}", flush=True)
-                raise SystemExit(f"Missing diagnostics for {screen}; inspect {stdout} and {stderr}")
+                    capture_reader_failure(udid, directory)
+                    raise
+            else:
+                output = stdout.read_text() if stdout.exists() else ""
+                wait_started = time.monotonic()
+                deadline = wait_started + 30
+                while not all(marker in output for marker in markers) and time.monotonic() < deadline:
+                    time.sleep(0.25)
+                    output = stdout.read_text() if stdout.exists() else ""
+                if not all(marker in output for marker in markers):
+                    missing = [marker for marker in markers if marker not in output]
+                    print(f"Diagnostics incomplete: screen={screen} launch={launch.strip()} "
+                          f"waitSeconds={time.monotonic() - wait_started:.1f} "
+                          f"stdoutBytes={stdout.stat().st_size if stdout.exists() else 0} "
+                          f"stderrBytes={stderr.stat().st_size if stderr.exists() else 0} "
+                          f"missing={missing}", flush=True)
+                    raise SystemExit(f"Missing diagnostics for {screen}; inspect {stdout} and {stderr}")
             print("Verified " + ", ".join(markers), flush=True)
         destination = directory / f"{screen}.png"
         run("xcrun", "simctl", "io", udid, "screenshot", str(destination))

@@ -56,6 +56,9 @@ private struct RootView: View {
                 previewConfigured = true
                 let arguments = ProcessInfo.processInfo.arguments
                 if arguments.contains(where: { $0.hasSuffix("self-test") }) { setbuf(stdout, nil) }
+                if arguments.contains("--reader-self-test") {
+                    FileHandle.standardOutput.write(Data("QINGREAD_READER_STARTUP stage=root-task uptime=\(ProcessInfo.processInfo.systemUptime)\n".utf8))
+                }
                 if arguments.contains("--storage-self-test") { await StoreDiagnostics.run() }
                 if arguments.contains("--cover-self-test") { await CoverDiagnostics.run() }
                 if arguments.contains("--ai-self-test") { await AIVoiceDiagnostics.run(downloadModel: arguments.contains("--download-ai-model")) }

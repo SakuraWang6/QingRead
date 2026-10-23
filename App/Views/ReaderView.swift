@@ -547,7 +547,10 @@ struct ReaderView: View {
     private func applyDebugArguments() {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--reader-self-test") { ReaderDiagnostics.run() }
+        if arguments.contains("--reader-self-test") {
+            FileHandle.standardOutput.write(Data("QINGREAD_READER_DIAGNOSTICS_STARTED uptime=\(ProcessInfo.processInfo.systemUptime)\n".utf8))
+            ReaderDiagnostics.run()
+        }
         controlsVisible = arguments.contains("--reader-controls")
         showSettings = arguments.contains("--reader-settings")
         showCatalog = arguments.contains("--reader-catalog")
