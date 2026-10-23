@@ -16,11 +16,12 @@ describe('Harmony shell boundary', () => {
     bootstrap({ bridgeVersion: 1, version: '0.11.0', build: '1' });
     expect(isHarmonyApp()).toBe(true); expect(isNativeApp()).toBe(true); expect(canRememberCredentials()).toBe(false);
     expect(harmonyIdentity()).toEqual({ bridgeVersion: 1, version: '0.11.0', build: '1' });
+    bootstrap({ bridgeVersion: 2, version: '1.0.0', build: '2', capabilities: [] }); expect(harmonyIdentity()).toEqual({ bridgeVersion: 2, version: '1.0.0', build: '2' });
     vi.stubGlobal('window', { location: { origin: 'https://untrusted.example' }, navigator: { userAgent: 'QingReadHarmony/1' }, __QINGREAD_HARMONY__: { bridgeVersion: 1, version: '0.11.0', build: '1' } });
     expect(isHarmonyApp()).toBe(false); expect(() => harmonyIdentity()).toThrow('读取已安装版本');
   });
   it('fails closed on missing or corrupt installed identity instead of falling back to the Web version', () => {
-    for (const info of [{ bridgeVersion: 2, version: '0.11.0', build: '1' }, { bridgeVersion: 1, version: 11, build: '1' }, { bridgeVersion: 1, version: '0.11.0', build: '' }, { bridgeVersion: 1, version: '999999999999999999', build: '1' }]) {
+    for (const info of [{ bridgeVersion: 3, version: '0.11.0', build: '1' }, { bridgeVersion: 1, version: 11, build: '1' }, { bridgeVersion: 1, version: '0.11.0', build: '' }, { bridgeVersion: 1, version: '999999999999999999', build: '1' }]) {
       bootstrap(info); expect(isHarmonyApp()).toBe(true); expect(() => harmonyIdentity()).toThrow('读取已安装版本');
     }
   });

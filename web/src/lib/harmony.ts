@@ -1,5 +1,5 @@
 /** The native shell injects identity before the bundled application starts. */
-export interface HarmonyBootstrap { bridgeVersion: 1; version: string; build: string }
+export interface HarmonyBootstrap { bridgeVersion: 1 | 2; version: string; build: string; capabilities?: readonly string[] }
 declare global {
   interface Window {
     readonly __QINGREAD_HARMONY__?: HarmonyBootstrap;
@@ -12,11 +12,11 @@ export function isHarmonyApp(): boolean {
 }
 export function harmonyIdentity(): HarmonyBootstrap {
   const info = typeof window === 'undefined' ? undefined : window.__QINGREAD_HARMONY__;
-  if (!isHarmonyApp() || info?.bridgeVersion !== 1 || typeof info.version !== 'string' || typeof info.build !== 'string' || !/^(0|[1-9]\d*)(?:\.(0|[1-9]\d*)){0,3}$/.test(info.version) || info.version.length > 40 || !/^\d{1,15}$/.test(info.build)) {
+  if (!isHarmonyApp() || (info?.bridgeVersion !== 1 && info?.bridgeVersion !== 2) || typeof info.version !== 'string' || typeof info.build !== 'string' || !/^(0|[1-9]\d*)(?:\.(0|[1-9]\d*)){0,3}$/.test(info.version) || info.version.length > 40 || !/^\d{1,15}$/.test(info.build)) {
     throw new Error('暂时无法读取已安装版本，请重新打开后重试');
   }
   if (info.version.split('.').some(part => !Number.isSafeInteger(Number(part)))) throw new Error('暂时无法读取已安装版本，请重新打开后重试');
-  return { bridgeVersion: 1, version: info.version, build: info.build };
+  return { bridgeVersion: info.bridgeVersion, version: info.version, build: info.build };
 }
 
 export const harmonyActiveEvent = 'qingread:harmony-active';

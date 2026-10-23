@@ -9,7 +9,7 @@
 | [Web](../web/README.md) | 本地运行、生产预览、浏览器阅读与离线能力 |
 | [iPhone](development.md#iphone) | Xcode 构建、模拟器与真机安装 |
 | [Android](../web/android/README.md) | SDK 环境、APK 构建与签名 |
-| [HarmonyOS（开发中）](harmony-build.md) | ArkTS / ArkWeb、离线资源、官方 SDK 与签名边界 |
+| [HarmonyOS（测试版）](harmony-build.md) | ArkTS / ArkWeb、原生能力、官方 SDK 与签名边界 |
 | [服务器部署](../web/deploy/README.md) | HTTPS、资源限制、数据持久化与备份 |
 | [部署维护基线](../web/deploy/DEPLOYMENT.md) | 当前部署方式、验证范围与回滚 |
 | [云同步](cloud-sync.md) | 账号隔离、原文件、阅读位置与冲突处理 |
@@ -29,12 +29,13 @@
 | [服务端 API](../web/server/README.md) | 搜索、正文、账号与云文件接口 |
 | [本地维护](maintenance.md) | 可重建产物、签名材料与数据保留边界 |
 | [验证记录](verification.md) | 已测版本、设备与已知限制 |
-| [界面截图](previews/README.md) | 当前 iPhone 与 Web 截图、视口及版本 |
+| [界面截图](previews/README.md) | iPhone、Web 与鸿蒙截图、视口及版本 |
 | [问题反馈](../CONTRIBUTING.md) | 报错信息与提交前说明 |
 
 ## 背景与历史
 
 - [竞品研究](market-research.md)
+- [0.11 关于、更新与鸿蒙首版验证](history/reader-0.11-verification.md)
 - [0.10.1 排版与段落笔记验证](history/reader-0.10.1-verification.md)
 - [0.10 功能与交付验证](history/reader-0.10-verification.md)
 - [0.9 工作流、安装与部署](history/reader-0.9-verification.md)

@@ -5,6 +5,7 @@ import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
 import { AppMetadata } from '../web/AppMetadata';
 import { LocalOrigin } from '../web/LocalOrigin';
 import { ResourceIndex } from '../web/ResourceIndex';
+import { NativeBridge } from '../web/NativeBridge';
 
 const BACK_SCRIPT: string = "(() => { if (window !== window.top || location.origin !== 'https://localhost') " +
   "return false; return typeof window.__qingreadHandleNativeBack === 'function' && " +
@@ -23,6 +24,7 @@ struct Index {
   private documentSerial: number = 0;
   private selectingFile: boolean = false;
   private foreground: boolean = true;
+  private native?: NativeBridge;
   @State private ready: boolean = false;
   @State private startupError: boolean = false;
   @State private scripts: ScriptItem[] = [];
@@ -37,15 +39,18 @@ struct Index {
     this.alive = false;
     this.attached = false;
     this.cancelPendingBack();
+    this.native?.dispose();
   }
 
   onPageShow(): void {
     this.foreground = true;
+    this.native?.setForeground(true);
     this.emitLifecycle(true);
   }
 
   onPageHide(): void {
     this.foreground = false;
+    this.native?.setForeground(false);
     this.cancelPendingBack();
     this.emitLifecycle(false);
   }
@@ -78,7 +83,11 @@ struct Index {
         throw new Error('No application context');
       }
       this.resources.load(context);
-      const script: string = await AppMetadata.documentScript();
+      const native: NativeBridge = new NativeBridge(this.controller, context,
+        (): boolean => this.alive && this.isLocalPage());
+      this.native = native;
+      const capabilities: string[] = await native.initialize();
+      const script: string = await AppMetadata.documentScript(capabilities, native.nonce);
       if (this.alive) {
         this.scripts = [{ script: script, scriptRules: [LocalOrigin.ORIGIN] }];
         this.ready = true;
@@ -270,8 +279,10 @@ struct Index {
           .onPageBegin((): void => {
             this.documentSerial++;
             this.cancelPendingBack();
+            this.native?.beginDocument();
           })
           .onPageEnd((): void => {
+            this.native?.connect();
             this.emitLifecycle(this.foreground);
           })
           .onSslErrorEvent((event: SslErrorEvent): void => {

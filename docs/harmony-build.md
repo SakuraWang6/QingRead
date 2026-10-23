@@ -41,13 +41,14 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 
 `harmony:sync` 先执行完整 Web 构建，再由 `scripts/prepare-harmony.py` 校验并复制离线资源。它拒绝 `/qingread/` 等前缀构建、缺失资源、符号链接、私有文件后缀及超限文件，生成资源清单和 SHA-256。不要手动把 `.env`、账号数据、证书或签名目录复制到 rawfile。生成的 Web 资源和构建产物不提交 Git。
 
-2026-10-23 已使用官方 CLT 26.0.0.851 / Hvigor 6.26.8 实际编译出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。该工具的模块 SemVer 检查拒绝主版本为 `0`，因而对合法的 `0.11.0` 输出警告；未为消除警告而修改版本或厂商工具。未配置签名也会输出相应提示。
+2026-10-23 已使用官方 CLT 26.0.0.851 / Hvigor 6.26.8 实际编译出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。该工具的模块 SemVer 检查拒绝主版本为 `0`，因而对 `0.x` 版本输出警告；未为消除警告而修改版本或厂商工具。未配置签名也会输出相应提示。当前源码为 0.12.0 / versionCode 2，原生能力与实际验证分别见[工程说明](../harmony/README.md)和[验证记录](verification.md)。
 
 在仓库根目录可运行不依赖鸿蒙 SDK 的检查：
 
 ```sh
 python3 -m unittest discover -s scripts -p 'test_release_manifest.py' -v
 python3 -m unittest discover -s scripts -p 'test_prepare_harmony.py' -v
+node --test harmony/tests/*.test.mjs
 ```
 
 ## 本地模拟器

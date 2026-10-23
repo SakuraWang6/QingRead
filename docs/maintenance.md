@@ -8,6 +8,8 @@ Web/Android 可连接自建 HTTPS 服务；当前维护实例明确启用免访�
 |---|---|
 | `.private/android-signing/` | 固定 Android 测试签名；覆盖升级需要同一密钥，不能重新生成替代 |
 | `.private/backups/` | 历次 iPhone 阅读数据备份，已从临时构建目录移入 |
+| `.private/harmony-toolchain/` | 正在使用的华为官方 CLT、SDK、模拟器镜像与实例；不是一次性下载缓存 |
+| `.private/artifacts/harmony/` | 已校验的鸿蒙 HAP 交付件；未签名包仅供相应模拟器测试 |
 | `.private/server/production.env` | 本机保管的服务器部署参数，当前显式启用公共访问 |
 | `Config/local.xcconfig` | 本机 iOS 签名配置，不提交 Git |
 | `work/signing-backup/` | 原生 iOS 续签基线，由维护脚本使用，不能当普通临时文件删除 |
@@ -15,7 +17,7 @@ Web/Android 可连接自建 HTTPS 服务；当前维护实例明确启用免访�
 | `~/Library/Application Support/QingReadRefresh` | 独立后台续签运行副本及签名基线，不依赖仓库编译缓存 |
 | `~/Library/LaunchAgents/app.qingread.refresh.plist` | 当前 Xcode 自动续签任务 |
 
-以上私有文件仍被 Git 忽略。Apple 账号、钥匙串、服务器 SSH 私钥及手机/模拟器里的阅读数据不属于构建垃圾；本次没有删除这些内容。
+以上私有文件仍被 Git 忽略。Apple 账号、钥匙串、服务器 SSH 私钥及手机/模拟器里的阅读数据不属于构建垃圾；本次没有删除这些内容。用户自行下载的官方工具安装包也应保留，除非确认已有可恢复副本且不再需要。
 
 ## 可重新生成
 
@@ -34,7 +36,7 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 
 ## 公开源码中的签名与同步数据
 
-公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`；当前源码为 0.11.0，安装包与后台续签副本版本见[验证记录](verification.md)。
+公开仓库及公共 CI 不保存个人签名 Secret。固定 Android keystore 只保留在 `.private/android-signing` 与用户自己的私有备份，个人升级安装包仍用原证书；公开 CI 产物用临时调试签名，不能据此覆盖个人包。iPhone 签名设置留在忽略的 `Config/local.xcconfig`；源码、安装包与后台续签副本可能处于不同版本，分别以[验证记录](verification.md)为准。
 
 服务器 `app-data` 保存账号、书架、恢复码哈希、原文件，以及可选通知订阅与云端准备任务，清理时必须整体保留；`caddy-data` 是证书，`caddy-config` 是代理配置，也必须保留。VAPID 私钥与部署环境只在私有配置中保存，不能随源码或公开日志上传。只删除已成功加载且有原镜像可回滚的 incoming 归档和确认可重建的缓存；手机数据备份不进入 Git。
 
@@ -42,11 +44,12 @@ AltServer 路线已停用，本机 App 及配置已移入废纸篓，可恢复�
 ## 构建与交付件的清理边界
 
 - 可清理 `.build/out`、真机构建的 `Intermediates.noindex`、索引、日志和编译模块缓存；保留 `SourcePackages` 与当前 `Build/Products/Debug-iphoneos/QingRead.app`。
+- 鸿蒙编译结束并归档最终 HAP 后，可以清理 `harmony/.hvigor` 与 `entry/build` 中的中间文件。`rawfile/web` 和资源索引可通过 `npm run harmony:sync` 重建；模拟器实例、镜像和实例内图书数据必须保留。
 - 语音推理依赖、`web/node_modules` 是仍在使用的开发依赖，不按临时下载处理。全局 Docker 构建缓存还被其他项目使用，不做全局清空。
 - 临时页面、封面测速副本、设备枚举和一次性部署脚本完成任务后移除；验证结论保留在 [验证记录](verification.md)。
 - 当前交付件保留在工作区 outputs；较早截图、试听和旧版 APK 归档，服务器连接参数和设备日志进入私有目录。
 - `.private` 目录权限应为 700，签名配置与密钥文件为 600。整理后仍需检查当前 App 严格签名校验与后台续签任务。
 
-## 阅读修复后的整理（2026-10-21）
+## 历史整理：阅读修复（2026-10-21）
 
 Web/API 与 Android 为 0.8.1，iPhone 为 0.8.2/build 10。本轮专用模拟器的重复构建目录（约 1.2 GB）、未签名 APK、传输归档与临时测试数据库已清理，本地 8791 测试服务已停止；当前设备构建、独立续签副本、固定签名与手机数据备份保留。诊断日志位于忽略的 `.private/audit/reader-08`，旧安装包和截图保留在工作区归档中。

@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { cloudSync } from '../lib/cloud';
 import { isAndroidApp } from '../lib/android';
 import { isHarmonyApp } from '../lib/harmony';
+import { supportsHarmonyDownloads } from '../lib/harmonyBackground';
 import { library, useLibrary } from '../lib/store';
 import { useAndroidBack } from '../lib/android';
 import './ReadingWorkflows.css';
@@ -148,19 +149,19 @@ export function DownloadManager({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('');
   async function action(run: () => Promise<void>) { try { setError(''); await run(); } catch (reason) { setError(errorMessage(reason)); } }
   return <WorkflowDialog title="下载管理" onClose={onClose}>
-    {isHarmonyApp() && <p className="workflow-hint">本机下载请保持前台；云端已备妥的章节需保存到本机才能离线阅读。</p>}
+    {isHarmonyApp() && <p className="workflow-hint">{supportsHarmonyDownloads()?'云端备妥后交给系统传输；显示「本机已缓存」后可离线阅读。':'本机下载请保持前台；云端已备妥的章节需保存到本机才能离线阅读。'}</p>}
     {error && <p className="workflow-error" role="alert">{error}</p>}
-    {!downloads.length ? <p className="workflow-empty">暂无下载任务</p> : <div className="workflow-jobs">{downloads.map(job => <article className="workflow-job" key={job.id}>
-      <div className="workflow-job-heading"><strong>{job.bookTitle}</strong><span>{job.engine==='server'&&job.status==='completed'&&!job.storedOnDevice?'云端已备妥':job.engine==='server'&&job.status==='running'?'云端准备中':downloadLabels[job.status]}</span></div>
-      <progress aria-label={`${job.bookTitle}下载进度`} max={Math.max(1, job.total)} value={job.completed}/>
-      <div className="workflow-job-foot"><span>{job.completed} / {job.total} 章{job.failedChapterIDs.length ? ` · ${job.failedChapterIDs.length} 章失败` : ''}</span><div>
-        {job.engine==='server'&&job.completed>0&&!job.storedOnDevice&&<button aria-label={`保存到本机${job.bookTitle}`} onClick={()=>void action(()=>library.savePreparedDownload(job.id))}><Download size={18}/></button>}
-        {(job.status === 'running' || job.status === 'queued') && <button aria-label={`暂停下载${job.bookTitle}`} onClick={() => void action(() => library.pauseDownload(job.id))}><Pause size={18}/></button>}
-        {job.status === 'paused' && <button aria-label={`继续下载${job.bookTitle}`} onClick={() => void action(() => library.resumeDownload(job.id))}><Play size={18}/></button>}
-        {job.status === 'failed' && <button aria-label={`重试下载${job.bookTitle}`} onClick={() => void action(() => library.retryDownload(job.id))}><RefreshCw size={18}/></button>}
-        {!['completed', 'cancelled'].includes(job.status) && <button aria-label={`取消下载${job.bookTitle}`} onClick={() => void action(() => library.cancelDownload(job.id))}><X size={18}/></button>}
+    {!downloads.length ? <p className="workflow-empty">暂无下载任务</p> : <div className="workflow-jobs">{downloads.map(job => {const local=job.systemTransfer&&!job.storedOnDevice?job.systemTransfer:undefined,status=local?.status??job.status;return <article className="workflow-job" key={job.id}>
+      <div className="workflow-job-heading"><strong>{job.bookTitle}</strong><span>{job.storedOnDevice?'本机已缓存':local?local.status==='completed'?local.importing?'正在校验入库':'系统已下载':local.status==='running'?'系统传输中':'系统'+downloadLabels[local.status]:job.engine==='server'&&job.status==='completed'?'云端已备妥':job.engine==='server'&&job.status==='running'?'云端准备中':job.engine==='server'&&job.status==='queued'?'云端等待中':downloadLabels[job.status]}</span></div>
+      <progress aria-label={`${job.bookTitle}下载进度`} max={local?Math.max(1,local.totalBytes??job.total):Math.max(1, job.total)} value={local?local.receivedBytes:job.completed}/>
+      <div className="workflow-job-foot"><span>{local?`${(local.receivedBytes/1048576).toFixed(1)}${local.totalBytes?` / ${(local.totalBytes/1048576).toFixed(1)}`:''} MB`:`${job.completed} / ${job.total} 章`}{job.failedChapterIDs.length ? ` · ${job.failedChapterIDs.length} 章失败` : ''}</span><div>
+        {job.engine==='server'&&job.completed>0&&!job.storedOnDevice&&(!local||local.status==='completed'&&!local.importing||local.status==='cancelled')&&<button aria-label={`保存到本机${job.bookTitle}`} onClick={()=>void action(()=>library.savePreparedDownload(job.id))}><Download size={18}/></button>}
+        {(status === 'running' || status === 'queued') && <button aria-label={`暂停下载${job.bookTitle}`} onClick={() => void action(() => library.pauseDownload(job.id))}><Pause size={18}/></button>}
+        {status === 'paused' && <button aria-label={`继续下载${job.bookTitle}`} onClick={() => void action(() => library.resumeDownload(job.id))}><Play size={18}/></button>}
+        {status === 'failed' && <button aria-label={`重试下载${job.bookTitle}`} onClick={() => void action(() => library.retryDownload(job.id))}><RefreshCw size={18}/></button>}
+        {!job.storedOnDevice&&!['completed', 'cancelled'].includes(status) && <button aria-label={`取消下载${job.bookTitle}`} onClick={() => void action(() => library.cancelDownload(job.id))}><X size={18}/></button>}
       </div></div>
-      {job.error && <p className="workflow-error">{job.error}</p>}
-    </article>)}</div>}
+      {(local?.error||job.error) && <p className="workflow-error">{local?.error||job.error}</p>}
+    </article>;})}</div>}
   </WorkflowDialog>;
 }

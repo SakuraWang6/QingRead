@@ -3,15 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserLibrary } from '../src/lib/store';
 import { api } from '../src/lib/api';
 import { nativeBackground } from '../src/lib/androidBackground';
+import { harmonyDownloads, type HarmonyTransfer } from '../src/lib/harmonyBackground';
 import { serverDownloads, type ServerDownloadJob } from '../src/lib/serverDownloads';
 import type { Book, BookUpdateState, Chapter, ChapterContent } from '../src/shared/types';
 
-const platform=vi.hoisted(()=>({android:false}));
+const platform=vi.hoisted(()=>({android:false,harmony:false}));
 vi.mock('../src/lib/android',()=>({isAndroidApp:()=>platform.android}));
 vi.mock('../src/lib/androidBackground',()=>({nativeBackground:{
   readCompleted:vi.fn(),acknowledge:vi.fn(),list:vi.fn(),updates:vi.fn(),
   clearCache:vi.fn(),removeBook:vi.fn(),pause:vi.fn(),resume:vi.fn(),cancel:vi.fn(),enqueue:vi.fn(),
 }}));
+vi.mock('../src/lib/harmonyBackground',()=>({supportsHarmonyDownloads:()=>platform.harmony,harmonyDownloads:{list:vi.fn(),enqueue:vi.fn(),action:vi.fn(),removeBook:vi.fn(),clearCache:vi.fn(),acknowledge:vi.fn(),save:vi.fn()}}));
 const book:Book={id:'a|https://books.test/book',title:'测试书',author:'作者',summary:'',sourceID:'a',sourceName:'甲',url:'https://books.test/book'};
 const chapters:Chapter[]=Array.from({length:3},(_,index)=>({id:'chapter-'+index,title:`第${index+1}章`,url:`https://books.test/chapter/${index}`,index}));
 const contents:ChapterContent[]=chapters.map(chapter=>({chapter,paragraphs:['已经保存的正文']}));
@@ -34,7 +36,8 @@ function mockServer(job=prepared()){
   return{job,list,create,action,save};
 }
 beforeEach(()=>{
-  platform.android=false;
+  platform.android=false;platform.harmony=false;
+  vi.mocked(harmonyDownloads.list).mockResolvedValue([]);vi.mocked(harmonyDownloads.enqueue).mockResolvedValue();vi.mocked(harmonyDownloads.action).mockResolvedValue();vi.mocked(harmonyDownloads.removeBook).mockResolvedValue();vi.mocked(harmonyDownloads.clearCache).mockResolvedValue();vi.mocked(harmonyDownloads.acknowledge).mockResolvedValue();vi.mocked(harmonyDownloads.save).mockImplementation(async(_profile,_transfer,onChapter)=>{for(const value of contents)await onChapter(value);});
   vi.mocked(nativeBackground.readCompleted).mockResolvedValue({items:[]});
   vi.mocked(nativeBackground.list).mockResolvedValue({jobs:[]});
   vi.mocked(nativeBackground.updates).mockResolvedValue({updates:{}});
@@ -117,5 +120,42 @@ describe('server-prepared downloads on each device',()=>{
     await store.enqueueDownload(book,{kind:'all'});const pump=store.syncServerDownloads();await vi.waitFor(()=>expect(mocks.save).toHaveBeenCalled());
     await store.setProfileActive(false);gate.resolve();await pump;expect(await store.hasContent(book,chapters[0])).toBe(false);
     const other=await fresh();other.configureServerDownloads(credentials);await other.syncServerDownloads();expect(mocks.save).toHaveBeenCalledTimes(1);expect(await other.hasContent(book,chapters[0])).toBe(false);
+  });
+});
+
+const nativeTransfer=(job:ServerDownloadJob,status:HarmonyTransfer['status']='completed'):HarmonyTransfer=>({id:job.id,bookID:job.bookID,sourceID:job.sourceID,sourceURL:job.sourceURL,revision:job.updatedAt,status,receivedBytes:100,totalBytes:100});
+describe('Harmony prepared-transfer ownership and cache acknowledgement',()=>{
+  it('imports a completed system file only once when manual saves race each other',async()=>{
+    platform.harmony=true;const store=await fresh(),mocks=mockServer(),listing=deferred<HarmonyTransfer[]>(),saving=deferred<void>();store.configureServerDownloads(credentials);
+    vi.mocked(harmonyDownloads.list).mockReturnValue(listing.promise);vi.mocked(harmonyDownloads.save).mockImplementation(async(_profile,_transfer,onChapter)=>{await saving.promise;for(const value of contents)await onChapter(value);});
+    const first=store.savePreparedDownload(mocks.job.id),second=store.savePreparedDownload(mocks.job.id);await vi.waitFor(()=>expect(harmonyDownloads.list).toHaveBeenCalledTimes(2));listing.resolve([nativeTransfer(mocks.job)]);
+    await vi.waitFor(()=>expect(harmonyDownloads.save).toHaveBeenCalledOnce());await new Promise(resolve=>setTimeout(resolve,20));expect(harmonyDownloads.save).toHaveBeenCalledOnce();saving.resolve();await Promise.all([first,second]);
+    expect(harmonyDownloads.save).toHaveBeenCalledOnce();expect(await store.hasContent(book,chapters[0])).toBe(true);expect(harmonyDownloads.acknowledge).toHaveBeenCalled();
+  });
+  it('keeps cloud preparation, system transfer and cached chapters distinct',async()=>{
+    platform.harmony=true;const store=await fresh(),mocks=mockServer();store.configureServerDownloads(credentials);await store.enqueueDownload(book,{kind:'all'});await store.syncServerDownloads();
+    expect(harmonyDownloads.enqueue).toHaveBeenCalled();expect(harmonyDownloads.save).not.toHaveBeenCalled();expect(await store.hasContent(book,chapters[0])).toBe(false);expect(store.getSnapshot().downloads[0].storedOnDevice).toBe(false);
+    vi.mocked(harmonyDownloads.list).mockResolvedValue([nativeTransfer(mocks.job,'running')]);await store.syncServerDownloads();expect(store.getSnapshot().downloads[0].systemTransfer?.status).toBe('running');expect(harmonyDownloads.save).not.toHaveBeenCalled();
+    vi.mocked(harmonyDownloads.list).mockResolvedValue([nativeTransfer(mocks.job)]);vi.mocked(harmonyDownloads.acknowledge).mockImplementation(async()=>{for(const chapter of chapters)expect(await store.hasContent(book,chapter)).toBe(true);expect(store.getSnapshot().downloads[0].storedOnDevice).toBe(true);});
+    await store.syncServerDownloads();expect(harmonyDownloads.save).toHaveBeenCalledOnce();expect(harmonyDownloads.acknowledge).toHaveBeenCalledOnce();expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it('does not delete native staging or mark cached when local writes fail; explicit retry is required',async()=>{
+    platform.harmony=true;const store=await fresh(),mocks=mockServer();store.configureServerDownloads(credentials);await store.enqueueDownload(book,{kind:'all'});vi.mocked(harmonyDownloads.list).mockResolvedValue([nativeTransfer(mocks.job)]);
+    vi.mocked(harmonyDownloads.save).mockRejectedValue(new Error('本机空间不足'));await store.syncServerDownloads();expect(harmonyDownloads.acknowledge).not.toHaveBeenCalled();expect(store.getSnapshot().downloads[0]).toMatchObject({storedOnDevice:false,systemTransfer:{status:'failed',error:'本机空间不足'}});
+    await store.syncServerDownloads();expect(harmonyDownloads.save).toHaveBeenCalledOnce();await store.retryDownload(mocks.job.id);expect(harmonyDownloads.action).toHaveBeenCalledWith(store.profile,mocks.job.id,'resume');
+  });
+  it('rejects a late native chapter after account deactivation before writing or acknowledgement',async()=>{
+    platform.harmony=true;const store=await fresh(),mocks=mockServer(),gate=deferred<void>();store.configureServerDownloads(credentials);await store.enqueueDownload(book,{kind:'all'});vi.mocked(harmonyDownloads.list).mockResolvedValue([nativeTransfer(mocks.job)]);
+    vi.mocked(harmonyDownloads.save).mockImplementation(async(_profile,_transfer,onChapter)=>{await gate.promise;await onChapter(contents[0]);});const work=store.syncServerDownloads();await vi.waitFor(()=>expect(harmonyDownloads.save).toHaveBeenCalled());await store.setProfileActive(false);gate.resolve();await work;
+    expect(await store.hasContent(book,chapters[0])).toBe(false);expect(harmonyDownloads.acknowledge).not.toHaveBeenCalled();
+  });
+  it('pauses a system transfer when its source is disabled even though cloud preparation is complete',async()=>{
+    platform.harmony=true;const store=await fresh(),mocks=mockServer();store.configureServerDownloads(credentials);await store.enqueueDownload(book,{kind:'all'});vi.mocked(harmonyDownloads.list).mockResolvedValue([nativeTransfer(mocks.job,'running')]);await store.syncServerDownloads();await store.toggleSource(book.sourceID);
+    expect(harmonyDownloads.action).toHaveBeenCalledWith(store.profile,mocks.job.id,'pause');await expect(store.resumeDownload(mocks.job.id)).rejects.toThrow('当前书源不可用');expect(harmonyDownloads.save).not.toHaveBeenCalled();
+  });
+  it('accepts update badges only for the same source and removes chapters already read',async()=>{
+    platform.harmony=true;const store=await fresh();await store.savePosition(book,chapters[1],.5,4);
+    const value:BookUpdateState={knownChapterCount:4,lastKnownChapterID:'new',unreadChapterIDs:[chapters[0].id,chapters[1].id,chapters[2].id,'new'],checkedAt:'2026-10-25T00:00:00Z'};
+    await store.acceptHarmonyUpdates({[book.id]:value},[{...book,sourceID:'other'}]);expect(store.getSnapshot().updates[book.id]).toBeUndefined();await store.acceptHarmonyUpdates({[book.id]:value},[book]);expect(store.getSnapshot().updates[book.id].unreadChapterIDs).toEqual([chapters[2].id,'new']);
   });
 });

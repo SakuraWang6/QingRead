@@ -3,18 +3,21 @@ import { registerPlugin } from '@capacitor/core';
 import { apiBase } from './api';
 import { isAndroidApp } from './android';
 import { isHarmonyApp } from './harmony';
+import { canRememberCredentials } from './nativePlatform';
+import { clearHarmonyCredential, hasHarmonyCapability, loadHarmonyCredential, saveHarmonyCredential } from './harmonyNative';
 import { disablePush, cancelPendingPushChanges } from './pushNotifications';
 import { guestLibrary, library, switchLibraryProfile } from './store';
 import type { Book } from '../shared/types';
 import { anchorFormat, type CloudSession, type CloudSnapshot, type CloudFileSnapshot, type CloudFile } from '../shared/sync';
 
 const storageKey='qingread.cloud-session.v1';
+const harmonyRestoreBlockedKey='qingread.harmony-session-restore-disabled';
 const secureSession=registerPlugin<{load():Promise<{value:string|null}>;save(options:{value:string}):Promise<void>;clear():Promise<void>}>('QingReadSession');
 interface SavedSession { address:string; session:CloudSession }
-interface CloudState { initialized:boolean; session:CloudSession|null; busy:boolean; error:string; lastSync:string; expired:boolean;files:CloudFile[];fileBusy:boolean;fileMessage:string;usedBytes:number;limitBytes:number }
+interface CloudState { initialized:boolean; credentialNotice:string; session:CloudSession|null; busy:boolean; error:string; lastSync:string; expired:boolean;files:CloudFile[];fileBusy:boolean;fileMessage:string;usedBytes:number;limitBytes:number }
 
 export class CloudSync {
-  private state:CloudState={initialized:false,session:null,busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0};
+  private state:CloudState={initialized:false,credentialNotice:'',session:null,busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0};
   private listeners=new Set<()=>void>();
   private generation=0;
   private accountRevision=0;
@@ -47,7 +50,11 @@ export class CloudSync {
     const revision=this.accountRevision;
     try{
       this.address=apiBase();
-      const native=isAndroidApp()?(await secureSession.load()).value:null;
+      let native:string|null=null;
+      if(isAndroidApp())native=(await secureSession.load()).value;
+      else if(hasHarmonyCapability('secureStorage')&&localStorage.getItem(harmonyRestoreBlockedKey)!=='true'){
+        try{native=await loadHarmonyCredential('cloud');}catch{this.update({credentialNotice:'无法读取已保存的登录信息，可重新登录。'});}
+      }
       this.requireAccount(revision);
       if(isHarmonyApp())localStorage.removeItem(storageKey);
       const raw=sessionStorage.getItem(storageKey)||native||localStorage.getItem(storageKey);
@@ -177,11 +184,21 @@ export class CloudSync {
   }
   async mergeGuest(){if(!this.state.session)throw new Error('请先登录');await library.mergeFrom(guestLibrary);await this.sync();}
   private async renewedSession(session:CloudSession,remember:boolean,revision:number){
-    remember=remember&&!isHarmonyApp();
+    remember=remember&&canRememberCredentials();
     await this.sessionTransition(async()=>{
       this.requireAccount(revision);
       const saved=JSON.stringify({address:this.address,session});sessionStorage.setItem(storageKey,saved);localStorage.removeItem(storageKey);
-      if(isAndroidApp()){if(remember)await secureSession.save({value:saved});else await secureSession.clear();}else if(remember)localStorage.setItem(storageKey,saved);
+      if(isAndroidApp()){if(remember)await secureSession.save({value:saved});else await secureSession.clear();}
+      else if(isHarmonyApp()){
+        // This non-secret marker prevents an old account being restored if the
+        // system credential service fails during replacement or logout.
+        localStorage.setItem(harmonyRestoreBlockedKey,'true');
+        if(hasHarmonyCapability('secureStorage')){
+          try{if(remember){await saveHarmonyCredential('cloud',saved);if(revision===this.accountRevision)localStorage.removeItem(harmonyRestoreBlockedKey);}else await clearHarmonyCredential('cloud');this.update({credentialNotice:''});}
+          catch{remember=false;await clearHarmonyCredential('cloud').catch(()=>{});this.update({credentialNotice:'本次已登录，未能安全保存登录信息，重新打开后请登录。'});}
+        }
+      }
+      else if(remember)localStorage.setItem(storageKey,saved);
       this.requireAccount(revision);this.remembered=remember;await this.activate(session);this.requireAccount(revision);this.update({session,lastSync:'',expired:false,error:''});
     });
   }
@@ -198,15 +215,16 @@ export class CloudSync {
   }
   async logout(){
     const revision=++this.accountRevision;this.accountBusy=revision;this.invalidate();
+    if(isHarmonyApp())localStorage.setItem(harmonyRestoreBlockedKey,'true');
     try{
       cancelPendingPushChanges();if(this.state.session)await disablePush({apiAddress:this.address,session:this.state.session}).catch(()=>{});
       // Revocation is best effort offline; local credentials are always removed.
       try{this.requireAccount(revision);await this.request('/auth/logout',{});}catch{ /* session will expire server-side */ }
       await this.sessionTransition(async()=>{
         this.requireAccount(revision);sessionStorage.removeItem(storageKey);localStorage.removeItem(storageKey);
-        if(isAndroidApp())await secureSession.clear();this.requireAccount(revision);
+        if(isAndroidApp())await secureSession.clear();else if(isHarmonyApp()){localStorage.setItem(harmonyRestoreBlockedKey,'true');if(hasHarmonyCapability('secureStorage'))await clearHarmonyCredential('cloud').catch(()=>{});}this.requireAccount(revision);
         await switchLibraryProfile(null);this.requireAccount(revision);this.remembered=false;
-        this.update({session:null,busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0});
+        this.update({session:null,credentialNotice:'',busy:false,error:'',lastSync:'',expired:false,files:[],fileBusy:false,fileMessage:'',usedBytes:0,limitBytes:0});
       });
     }finally{if(this.accountBusy===revision)this.accountBusy=undefined;}
   }

@@ -8,6 +8,9 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    "extensionAbilities": [
+      { "name": "QingReadUpdateExtension", "srcEntry": "./ets/updates/QingReadUpdateExtension.ets", "type": "workScheduler", "exported": false }
+    ],
     "abilities": [
       {
         "name": "EntryAbility",

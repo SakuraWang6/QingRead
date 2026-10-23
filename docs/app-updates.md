@@ -11,6 +11,7 @@
 | iPhone | 当前 App 的实际版本与构建号 | 显示更新说明，通过已有 Mac / Xcode 签名流程覆盖安装；此入口不能解除个人签名有效期限制 |
 | Web / PWA | 当前网页构建版本 | 检查新资源，待资源就绪后由用户确认更新页面；遵循现有 PWA 更新流程 |
 | Android | 系统返回的实际安装版本与构建号 | 服务器已发布匹配 APK 时提供下载入口；使用同一签名并按系统提示覆盖安装，不能静默安装 |
+| HarmonyOS | BundleInfo 的实际安装版本与构建号 | 显示更新日志与手动签名覆盖安装说明；不展示 APK 链接或自动安装未签名 HAP |
 
 仓库默认清单不含 APK 下载项。只有实际安装包完成版本、包名及签名验证后，部署者才生成下载信息；没有发布安装包时，不显示可用下载。
 
@@ -54,8 +55,8 @@ python3 scripts/generate-release-manifest.py
 
 ```sh
 python3 scripts/generate-release-manifest.py \
-  --android-apk /absolute/private/path/QingRead-Android-0.11.0.apk \
-  --android-url /downloads/QingRead-Android-0.11.0.apk \
+  --android-apk /absolute/private/path/QingRead-Android-0.12.0.apk \
+  --android-url /downloads/QingRead-Android-0.12.0.apk \
   --apksigner /absolute/path/to/apksigner.jar \
   --published-at 2026-10-23T18:00:00+08:00 \
   --output /absolute/private/path/release-site/releases.json

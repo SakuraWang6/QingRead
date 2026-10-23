@@ -1,3 +1,4 @@
+import { hasHarmonyCapability } from '../lib/harmonyNative';
 import { useBodyScrollLock } from '../lib/bodyScrollLock';
 import { harmonyBackgroundEvent, isHarmonyApp } from '../lib/harmony';
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
@@ -8,7 +9,7 @@ import { library, useLibrary } from '../lib/store';
 import { pageForOffset, paginateText, paragraphAtOffset, paragraphSlices, safeOffset, type TextPage } from '../lib/readerLayout';
 import { bookPageNumber, estimateBookPages, pageAtFraction, pageFraction, pageLocation, swipeTurn } from '../lib/bookProgress';
 import { ReaderDeviceStatus } from './ReaderDeviceStatus';
-import { ReaderSpeech } from '../lib/speech';
+import { ReaderSpeech, observeSpeechVoices, type ReaderVoice } from '../lib/speech';
 import { canManageChapters, DownloadManager, DownloadOptions, SourcePicker } from './ReadingWorkflows';
 import { useAndroidBack } from '../lib/android';
 import { ReadingNotes, type TextSelection } from './LibraryTools';
@@ -74,7 +75,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   const [laidOutSignature, setLaidOutSignature] = useState('');
   const [query, setQuery] = useState('');
   const [chapterStates, setChapterStates] = useState<Record<string, { cached: boolean; progress?: number }>>({});
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voices, setVoices] = useState<ReaderVoice[]>([]);
   const [speechState, setSpeechState] = useState({ speaking: false, paused: false });
   const [cacheNotice, setCacheNotice] = useState('');
   const [sliderValue, setSliderValue] = useState<number | null>(null);
@@ -296,10 +297,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   }, [panel]);
 
   useEffect(() => {
-    if (!ReaderSpeech.supported) return;
-    const update = () => setVoices(window.speechSynthesis.getVoices());
-    update(); window.speechSynthesis.addEventListener('voiceschanged', update);
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', update);
+    return observeSpeechVoices(setVoices, setCacheNotice);
   }, []);
 
   useEffect(() => { speech.current.update(settings.speechRate, settings.speechVoiceIdentifier); }, [settings.speechRate, settings.speechVoiceIdentifier]);
@@ -550,7 +548,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
           <div className="reader-catalog-list">{visibleChapters.map(chapter => { const status = chapterStates[chapter.id]; const selected = chapter.id === currentChapter?.id; return <button key={chapter.id} className={selected ? 'reader-current-chapter' : ''} onClick={() => changeChapter(chapters.findIndex(item => item.id === chapter.id))}><span>{chapter.title}</span><small>{selected ? `读至 ${Math.round(fraction * 100)}%` : status?.progress !== undefined ? `读过 ${Math.round(status.progress * 100)}%` : '未读'}<i>·</i>{status?.cached ? '已缓存' : '未缓存'}</small></button>; })}{!visibleChapters.length && <p className="reader-empty">没有找到章节</p>}</div>
           {canManageChapters(book) && <div className="reader-download-actions"><button className="reader-cache-all" onClick={() => openWorkflow('download')}><Download size={17}/>下载章节</button><button className="reader-cache-all" onClick={() => openWorkflow('manager')}>下载管理</button></div>}
         </> : panel === 'settings' ? <ReaderSettingsControls settings={settings}/> : <div className="reader-speech-controls">
-          <p className="reader-muted">使用浏览器系统音色。可用音色和离线能力由设备决定；锁屏与后台播放受浏览器限制。</p>
+          <p className="reader-muted">{hasHarmonyCapability('speech') ? '使用设备已安装的离线音色，切到后台时暂停。' : '使用设备系统音色，锁屏与后台播放由设备决定。'}</p>
           <label>音色<select value={settings.speechVoiceIdentifier} onChange={event => void library.updateSettings({ speechVoiceIdentifier: event.target.value })}><option value="">系统默认中文</option>{voices.map(voice => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}{voice.localService ? ' · 本机' : ''}</option>)}</select></label>
           <label>语速 <span>{settings.speechRate.toFixed(1)}×</span><input aria-label="听书语速" type="range" min="0.5" max="2" step="0.1" value={settings.speechRate} onChange={event => void library.updateSettings({ speechRate: Number(event.target.value) })}/></label>
           <div className="reader-playback"><button onClick={() => { const previous = Math.max(0, text.lastIndexOf('\n', Math.max(0, anchorRef.current - 2))); moveToOffset(previous); if (speech.current.speaking) { speech.current.stop(); startSpeech(); } }} aria-label="上一段"><ChevronLeft/></button><button className="reader-play-button" disabled={!ReaderSpeech.supported || !content} onClick={() => { if (!speechState.speaking) startSpeech(); else if (speechState.paused) speech.current.resume(); else speech.current.pause(); }}>{speechState.speaking && !speechState.paused ? <Pause/> : <Play/>}<span>{speechState.speaking && !speechState.paused ? '暂停' : speechState.paused ? '继续' : '开始听书'}</span></button><button onClick={() => { const next = text.indexOf('\n', anchorRef.current + 1); moveToOffset(next < 0 ? text.length : next + 1); if (speech.current.speaking) { speech.current.stop(); startSpeech(); } }} aria-label="下一段"><ChevronRight/></button></div>

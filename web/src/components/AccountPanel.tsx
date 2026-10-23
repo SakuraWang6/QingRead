@@ -21,6 +21,7 @@ export function AccountPanel(){
     <h2>{cloud.session.user.username}</h2>
     <p role="status">{cloud.busy?'正在同步…':cloud.lastSync?'上次同步 '+new Date(cloud.lastSync).toLocaleTimeString():'等待同步'}</p>
     {cloud.error&&<p className="error-banner">{cloud.error}</p>}
+    {cloud.credentialNotice&&<p role="status" className="muted">{cloud.credentialNotice}</p>}
     <button className="primary-button" disabled={cloud.busy} onClick={()=>cloud.expired?setRelogin(true):void cloudSync.sync()}>{cloud.expired?'重新登录':'立即同步'}</button>
     {guestLibrary.getSnapshot().shelf.length>0&&<button className="secondary-button" disabled={cloud.busy} onClick={()=>void cloudSync.mergeGuest().catch(e=>setError(e.message))}>合并本机未登录书架（{guestLibrary.getSnapshot().shelf.length} 本）</button>}
     <p className="muted">云文件 {cloud.files.length} · {(cloud.usedBytes/1024**2).toFixed(1)} MB</p>

@@ -68,9 +68,9 @@ jobs:
         run: npm test
       - name: Typecheck and build PWA including PDF resources
         run: npm run build
-      - name: Verify HarmonyOS resource policy and offline packaging
+      - name: Verify HarmonyOS policies, native workflows and packaging
         run: |
-          node --test ../harmony/tests/resource-policy.test.mjs
+          node --test ../harmony/tests/*.test.mjs
           python3 ../scripts/prepare-harmony.py --web-dist dist
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

@@ -2,25 +2,25 @@
 
 [文档导航](README.md) · [开发与验证](development.md)
 
-更新于 2026-10-23。当前源码为 0.11.0：iPhone build 15、Android versionCode 11、HarmonyOS versionCode 1；交付验证见[验证记录](verification.md)。
+更新于 2026-10-24。当前源码为 0.12.0：iPhone build 16、Android versionCode 12、HarmonyOS versionCode 2；交付验证见[验证记录](verification.md)。
 
 ## 客户端与服务端
 
-清读有两个界面实现：iPhone 使用 SwiftUI 与 UIKit，Web 使用 React 与 TypeScript，Android 通过 Capacitor 8 复用 Web 界面。开发中的第四端 HarmonyOS 使用原生 ArkTS Stage 工程与 ArkWeb，打包同一套 Web 界面，目标 SDK 26，最低兼容 HarmonyOS 5.0（API 12）。现有三端支持书架、搜书、分类、章节阅读、文件导入和可选账号同步；鸿蒙版已完成官方 SDK 编译和 HarmonyOS 7 模拟器基本流程验证，尚未完成签名分发、真机或旧系统验证。平台差异见 [Web](../web/README.md)、[Android](../web/android/README.md)、[HarmonyOS](../harmony/README.md) 和 [离线语音](offline-voice.md)。
+清读有两个界面实现：iPhone 使用 SwiftUI 与 UIKit，Web 使用 React 与 TypeScript，Android 通过 Capacitor 8 复用 Web 界面。HarmonyOS 测试版使用原生 ArkTS Stage 工程与 ArkWeb，打包同一套 Web 界面，目标 SDK 26，最低兼容 HarmonyOS 5.0（API 12）。各端支持书架、搜书、分类、章节阅读、文件导入和可选账号同步；鸿蒙版已接入设备能力桥接，并完成官方 SDK 编译和 HarmonyOS 7 模拟器流程验证，尚未完成签名分发、真机或旧系统验证。平台差异见 [Web](../web/README.md)、[Android](../web/android/README.md)、[HarmonyOS](../harmony/README.md) 和 [离线语音](offline-voice.md)。
 
 | 模块 | 职责 |
 | --- | --- |
 | `Sources/ReadingCore/` | Swift 书源模型、网络传输、搜索、目录与正文解析、整本书库及导入契约 |
 | `App/` | 原生界面、持久化、阅读排版、封面缓存、语音和账号同步 |
-| `web/src/` | Web、Android 与开发中鸿蒙版共用界面、IndexedDB 存储、阅读器与同步客户端 |
+| `web/src/` | Web、Android 与鸿蒙版共用界面、IndexedDB 存储、阅读器与同步客户端 |
 | `web/server/` | Node 24 书源 API、账号会话、SQLite 同步、私有云文件、可选推送与云端准备 |
 | `web/src/shared/` | Web/API 共用的书源、类型与同步协议 |
 | `web/android/` | Android 壳、返回键、安全区、KeyStore、电量、前台下载服务与 WorkManager |
-| `harmony/` | ArkTS / ArkWeb 宿主、本地资源白名单、文件选择器、系统返回与只读安装身份 |
+| `harmony/` | ArkTS / ArkWeb 宿主、本地资源白名单、系统文件选择、返回、版本及能力桥接 |
 
 Swift 与 TypeScript 书源引擎分别维护。iPhone 普通搜索与正文可直接请求来源，统一发现与后台批次下载使用配置的 API；Web、Android 与鸿蒙工程通过自建 Node 服务请求已登记来源。未登录时本地阅读，登录后同步个人书架、整理状态、笔记和文件。
 
-鸿蒙宿主将包内静态资源映射到固定 `https://localhost/` 虚拟来源，通过精确白名单拦截读取，不启动本地服务，也不代理 API。远程 API 使用普通 HTTPS 与 CORS，凭据不传入资源拦截器；只读启动元数据提供实际安装版本，不开放 JavaScriptProxy。原生文件选择器衔接已有文件导入流程，系统返回复用共用的弹层与阅读器返回栈。现已通过官方 SDK 编译，在 HarmonyOS 7.0.0（API 26）模拟器实际验证系统选择器导入 EPUB、PDF、TXT 与阅读、分类书目和封面、安装版本读取及覆盖安装后保留阅读进度；旧系统与真机仍待测试。资源和构建约定见 [HarmonyOS 工程](../harmony/README.md)与[构建说明](harmony-build.md)。
+鸿蒙宿主将包内静态资源映射到固定 `https://localhost/` 虚拟来源，通过精确白名单拦截读取，不启动本地服务，也不代理 API。远程 API 使用普通 HTTPS 与 CORS，凭据不传入资源拦截器；只读启动元数据提供实际安装版本和探测成功的能力。原生使用仅交给固定来源主文档的 WebMessagePort，不开放 JavaScriptProxy、任意路径或通用命令接口；闭包握手、请求白名单、消息大小与速率限制共同约束调用，重载后旧通道和迟到请求失效。原生文件选择器衔接已有文件导入流程，系统返回复用共用的弹层与阅读器返回栈。现已通过官方 SDK 编译，在 HarmonyOS 7.0.0（API 26）模拟器实际验证系统选择器导入 EPUB、PDF、TXT 与阅读、分类书目和封面、安装版本读取及覆盖安装后保留阅读进度；旧系统与真机仍待测试。资源和构建约定见 [HarmonyOS 工程](../harmony/README.md)与[构建说明](harmony-build.md)。
 
 ## 来源与搜索
 
@@ -48,7 +48,9 @@ iPhone 使用系统后台 URLSession 传输有限章节批次，BGAppRefresh 尝
 
 浏览器本机下载依赖页面活跃；可选账号云端准备在服务器单并发抓取，返回前台再保存正文。Web Push 使用独立订阅数据库，仅检查主动启用用户的选书，默认泛化通知，按书与账号去重限频；iPhone 需主屏幕 PWA。所有后台路径都有账号、书籍和来源校验，不靠无限保活。
 
-鸿蒙首版未接系统通知或后台任务，不启用 PWA 推送及 Android 插件。章节下载仅使用前台流程或已有云端准备；前后台事件尽力保存阅读位置并暂停前台任务，不提供后台持续运行保证。
+鸿蒙使用 request.agent 下载当前服务已准备的单个 NDJSON 文件，原生仅接受固定云任务地址，绑定账号、服务与来源修订。私有暂存经过两遍 SHA-256 与章节内容检查后导入 IndexedDB，成功后才确认本机缓存；恢复下载使用新的完整文件，避免 Range 拼接破坏行协议。最多两个活动任务、单文件 128 MiB，不通过 WorkScheduler 串联无限下载。
+
+API 23 及以上的鸿蒙设备可主动开启 WorkScheduler 定期追更与本地通知，不接远程 Push 或 PWA 订阅。检查至少间隔两小时，每轮最多三本、80 秒，每请求限 20 秒且禁止重定向；通过跨进程锁与账号、服务、来源世代防止旧任务写回。访问码仅读取用户已选择记住的 ASSET 值，不持久保存云会话到任务文件。旧系统保留前台检查，系统调度和强制退出行为不作保证。
 
 ## 账号与文件同步
 
@@ -56,13 +58,13 @@ iPhone 使用系统后台 URLSession 传输有限章节批次，BGAppRefresh 尝
 
 书架操作持久化排队并按操作 ID 去重，服务端修订号处理分页与删除墓碑。进度、书架整理及逐条笔记分别合并；来源切换需要当前修订号，旧源位置不能回滚新源。文件使用 SHA-256 校验并按需下载，章节缓存与语音模型不做书架同步。恢复码仅存哈希，修改或恢复密码撤销旧会话。身份、冲突与配额见 [云同步](cloud-sync.md)。
 
-鸿蒙尚未接入系统加密会话存储，登录与访问码只保留当前会话，不提供持久登录。文件导出也尚未接原生保存能力，界面禁用备份导出；文件导入已在 HarmonyOS 7 模拟器实际验证，云文件同步沿用共用逻辑，鸿蒙端账号与云文件链路仍需单独验证。
+鸿蒙通过系统 ASSET 保存固定 cloud / connection 两类会话信息，要求设备解锁，不提供任意键读取；每项上限 1024 UTF-8 字节，失败或超限保留本次会话并提示。退出账号、取消记住或切换服务会清理旧凭据；异步保存有账号与文档世代保护。备份导出按块传输，限 16 MiB，由系统保存选择器决定 URI；取消或失败清除暂存，不覆盖非空文件。整本文件导入使用原有系统选择器；账号云同步仍复用共用客户端，鸿蒙真机链路需另行验证。
 
 ## 听书与依赖
 
 `ReaderSpeechController` 管理系统朗读、音频会话、锁屏控制、定时停止和播放意图。切章、停止和退出使用取消边界，过期回调不能重新启动播放；系统语速或音色变化从当前文字位置继续。
 
-原生 Melo 与 Kokoro 经固定版本的 sherpa-onnx 在设备端合成。模型下载需用户主动触发，逐文件检查大小与 SHA-256，整批通过后才可选用；推理在后台串行队列完成，准备后续短句并缓存 WAV，语速调整使用播放器。Web/Android 当前使用系统 Web Speech 能力，不含这两个原生离线引擎。
+原生 Melo 与 Kokoro 经固定版本的 sherpa-onnx 在设备端合成。模型下载需用户主动触发，逐文件检查大小与 SHA-256，整批通过后才可选用；推理在后台串行队列完成，准备后续短句并缓存 WAV，语速调整使用播放器。Web/Android 当前使用系统 Web Speech 能力；鸿蒙通过 Core Speech Kit 使用设备已安装的系统离线音色，不包含 Melo / Kokoro。系统仅回报短句完成，鸿蒙按短句更新位置；语速在下一句生效，避免从当前页重读。切后台暂停，不声明锁屏或后台播放能力。
 
 项目不引入广告 SDK、内购或付费身份服务。各模型与预编译依赖的实际组成、固定版本和第三方许可见 [离线语音说明](offline-voice.md) 与 [第三方声明](../THIRD_PARTY_NOTICES.md)。
 

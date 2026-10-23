@@ -50,6 +50,24 @@ describe('cloud client account boundaries',()=>{
     expect(localStorage.getItem('qingread.cloud-session.v1')).toBeNull(); expect(context.native.save).not.toHaveBeenCalled();
     await cloud.logout();
   });
+  it('stores remembered Harmony sessions only in the advertised system credential service', async()=>{
+    let secureValue:string|null=null;
+    const nativeRequest=vi.fn(async(raw:string)=>{const request=JSON.parse(raw);let result:unknown={};if(request.method==='credentials.load')result={value:secureValue};if(request.method==='credentials.save')secureValue=request.params.value;if(request.method==='credentials.clear')secureValue=null;return JSON.stringify({id:request.id,ok:true,result});});
+    vi.stubGlobal('window',{location:{origin:'https://localhost'},__QINGREAD_HARMONY__:{bridgeVersion:2,version:'1.0.0',build:'1',capabilities:['secureStorage']},QingReadNative:{request:nativeRequest}});
+    const cloud=new CloudSync();await cloud.login('a','password',false,true);
+    expect(secureValue).toContain('reader-a');expect(localStorage.getItem('qingread.cloud-session.v1')).toBeNull();
+    sessionStorage.removeItem('qingread.cloud-session.v1');const reopened=new CloudSync();await reopened.initialize();expect(reopened.getSnapshot().session?.user.id).toBe('a');
+    await cloud.logout();expect(secureValue).toBeNull();expect(localStorage.getItem('qingread.harmony-session-restore-disabled')).toBe('true');
+  });
+  it('keeps a usable Harmony session after a secure save error and prevents stale account restoration', async()=>{
+    const nativeRequest=vi.fn(async(raw:string)=>{const request=JSON.parse(raw);return JSON.stringify(request.method==='credentials.save'||request.method==='credentials.clear'?{id:request.id,ok:false,error:'系统凭据不可用'}:{id:request.id,ok:true,result:{value:JSON.stringify({address:'https://reader.test/api',session:session('b')})}});});
+    vi.stubGlobal('window',{location:{origin:'https://localhost'},__QINGREAD_HARMONY__:{bridgeVersion:2,version:'1.0.0',build:'1',capabilities:['secureStorage']},QingReadNative:{request:nativeRequest}});
+    const cloud=new CloudSync();await cloud.login('a','password',false,true);
+    expect(cloud.getSnapshot().session?.user.id).toBe('a');expect(cloud.getSnapshot().credentialNotice).toContain('未能安全保存');
+    expect(localStorage.getItem('qingread.cloud-session.v1')).toBeNull();expect(localStorage.getItem('qingread.harmony-session-restore-disabled')).toBe('true');
+    sessionStorage.removeItem('qingread.cloud-session.v1');nativeRequest.mockClear();const reopened=new CloudSync();await reopened.initialize();
+    expect(reopened.getSnapshot().session).toBeNull();expect(nativeRequest).not.toHaveBeenCalled();
+  });
   it('does not let a late login replace the account chosen after logout',async()=>{
     const cloud=new CloudSync(),response=deferred<Response>();await cloud.initialize();
     fetcher.mockImplementationOnce(()=>response.promise);const oldLogin=cloud.login('a','password',false,true).catch(error=>error);

@@ -19,7 +19,14 @@ export const serverDownloads={
   async save(credentials:ServerDownloadConnection,id:string,onChapter:(content:ChapterContent)=>Promise<void>,signal?:AbortSignal):Promise<{chapters:number;job:ServerDownloadJob}>{
     const value=connection(credentials),response=await checked(await fetch(value.address+'/offline/jobs/'+encodeURIComponent(id)+'/content',{headers:value.headers,signal,redirect:'error'}));
     if(!response.body)throw new Error('当前浏览器不支持流式保存');
-    const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',count=0,complete=false,job:ServerDownloadJob|undefined;const seen=new Set<string>();
+    return savePreparedDownloadStream(id,response.body,onChapter,signal);
+
+  },
+};
+
+/** The same validator protects network streams and native downloaded NDJSON. */
+export async function savePreparedDownloadStream(id:string,stream:ReadableStream<Uint8Array>,onChapter:(content:ChapterContent)=>Promise<void>,signal?:AbortSignal):Promise<{chapters:number;job:ServerDownloadJob}>{
+    const reader=stream.getReader(),decoder=new TextDecoder();let pending='',count=0,complete=false,job:ServerDownloadJob|undefined;const seen=new Set<string>();
     const line=async(text:string)=>{
       if(!text.trim())return;if(signal?.aborted)throw new DOMException('已取消','AbortError');let record:Record<string,unknown>;try{record=JSON.parse(text);}catch{throw new Error('云端章节数据无效');}
       if(record.type==='manifest'){
@@ -36,5 +43,4 @@ export const serverDownloads={
       for(;;){if(signal?.aborted)throw new DOMException('已取消','AbortError');const {value,done}=await reader.read();pending+=decoder.decode(value,{stream:!done});if(pending.length>8*1024*1024)throw new Error('云端章节数据过大');const lines=pending.split('\n');pending=lines.pop()??'';for(const text of lines)await line(text);if(done)break;}
       if(pending.trim())await line(pending);if(signal?.aborted)throw new DOMException('已取消','AbortError');if(!complete||!job)throw new Error('连接中断，已保存章节会保留');return{chapters:count,job};
     }finally{signal?.removeEventListener('abort',abort);await reader.cancel().catch(()=>{});reader.releaseLock();}
-  },
-};
+}

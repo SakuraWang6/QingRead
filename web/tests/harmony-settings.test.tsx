@@ -21,6 +21,12 @@ describe('Harmony capability disclosure', () => {
     expect(host.querySelector('#cloud-username')).not.toBeNull(); expect(host.querySelector('#cloud-password')).not.toBeNull();
     expect(host.querySelector('input[type="checkbox"]')).toBeNull(); expect(host.textContent).toContain('仅保留本次登录');
   });
+  it('shows persistent login only after a v2 secure-storage bridge is advertised', async () => {
+    Object.defineProperty(window, '__QINGREAD_HARMONY__', { configurable: true, value: { bridgeVersion: 2, version: '1.0.0', build: '1', capabilities: ['secureStorage'] } });
+    Object.defineProperty(window, 'QingReadNative', { configurable: true, value: { request: vi.fn() } });
+    try { await act(async () => root.render(<AccountPanel/>)); expect(host.querySelector('input[type="checkbox"]')).not.toBeNull(); expect(host.textContent).toContain('保持登录'); expect(host.textContent).not.toContain('仅保留本次登录'); }
+    finally { delete (window as unknown as Record<string, unknown>).QingReadNative; }
+  });
   it('offers no Web Push or Android notification switches when the shell has no native notification bridge', async () => {
     await act(async () => root.render(<NotificationSettings/>));
     expect(host.textContent).toContain('暂不支持系统追更通知和本机后台下载');

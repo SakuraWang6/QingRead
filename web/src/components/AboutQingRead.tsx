@@ -8,6 +8,8 @@ import { compareRelease, fetchReleaseManifest, resolveManifestURL, type ClientId
 import { serverConnectionStore } from '../lib/connection';
 import { isAndroidApp, useAndroidBack } from '../lib/android';
 import { isHarmonyApp } from '../lib/harmony';
+import { supportsHarmonyDownloads, supportsHarmonyUpdates } from '../lib/harmonyBackground';
+import { hasHarmonyCapability } from '../lib/harmonyNative';
 import { useWebUpdates, webUpdates } from '../lib/webUpdates';
 import './AboutQingRead.css';
 
@@ -64,7 +66,7 @@ export function AboutQingRead() {
   if (view !== 'main') return <div className="panel-content about-content">
     <button className="text-button about-back" onClick={() => setView('main')}><ArrowLeft size={16}/>关于清读</button><h3 className="about-page-title">{viewNames[view]}</h3>
     {view === 'log' && appInfo.releases.map(release => <article className="about-release" key={release.version}><h4>{release.version}<time>{release.date}</time></h4><ul>{release.changes.map(change => <li key={change}>{change}</li>)}</ul></article>)}
-    {view === 'help' && appInfo.help.map(item => <article className="about-help" key={item.id}><h4>{item.title}</h4><p>{harmony && item.id === 'updates' ? '检查当前服务发布的鸿蒙版本。使用同一签名的 HAP 通过 DevEco Studio 或系统支持的安装方式覆盖安装，请勿先卸载。' : harmony && item.id === 'audio' ? '听书仅在当前设备提供可用系统音色时使用。暂不支持原生 AI 音色、锁屏控制和后台播放。' : harmony && item.id === 'offline' ? '章节下载请保持应用在前台；云端准备完成后需保存到本机才能离线阅读。当前版本暂不支持本机后台下载和系统追更通知。' : item.body}</p></article>)}
+    {view === 'help' && appInfo.help.map(item => <article className="about-help" key={item.id}><h4>{item.title}</h4><p>{harmony && item.id === 'updates' ? '检查当前服务发布的鸿蒙版本。使用同一签名的 HAP 通过 DevEco Studio 或系统支持的安装方式覆盖安装，请勿先卸载。' : harmony && item.id === 'audio' ? hasHarmonyCapability('speech') ? '使用设备已安装的系统离线音色，可调语速和定时停止；切到后台时暂停。暂未接入离线 AI 和锁屏控制。' : '当前设备暂未提供可用的系统离线音色。'  : harmony && item.id === 'offline' ? (supportsHarmonyDownloads() ? '登录后可在云端准备章节；备妥后交给系统传输，重新打开清读完成校验入库。显示「本机已缓存」后可离线阅读。未登录时请保持前台下载。' : '章节下载请保持应用在前台；云端备妥的章节需保存到本机才能离线阅读。') + (supportsHarmonyUpdates() ? '追更通知由系统择机检查，省电或长期未使用可能延后。' : '当前系统暂不支持后台追更通知。') : item.body}</p></article>)}
     {view === 'feedback' && <><p className="about-note">提交时写下操作步骤和遇到的问题，可附截图。</p><a className="primary-button full-width" href={appInfo.feedbackURL} target="_blank" rel="noopener noreferrer">打开问题反馈<ExternalLink size={16}/></a><button className="secondary-button full-width" disabled={!identity} onClick={() => void copyDiagnostics()}><Copy size={16}/>复制版本信息</button>{identity && <pre className="about-diagnostics">{versionDiagnostics(identity)}</pre>}{copied && <p className="about-note" role="status">{copied}</p>}</>}
     {view === 'license' && <><h4>{appInfo.license.name}</h4><pre className="about-license">{licenseText}</pre><h4>第三方许可</h4><pre className="about-license">{thirdPartyText}</pre></>}
   </div>;

@@ -2,15 +2,44 @@
 """Install, launch, and capture the actual Debug build in an available iPhone simulator."""
 import json
 from pathlib import Path
+import re
 import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOT_TIMEOUT = 300
+ERROR_OUTPUT_LIMIT = 4000
+
+
+def diagnostic_tail(value):
+    """Bound CLI failure evidence without publishing account or device details."""
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    value = value or ""
+    value = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[email]", value, flags=re.I)
+    value = re.sub(r"\b(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{8}-[0-9a-f]{16})\b",
+                   "[device]", value, flags=re.I)
+    value = re.sub(r"/(?:Users|home|Volumes|private|var|tmp)(?:/[^\s'\"<>]*)?", "[path]", value)
+    return value[-ERROR_OUTPUT_LIMIT:] or "[empty]"
 
 
 def run(*args, timeout=180):
-    return subprocess.run(args, check=True, text=True, capture_output=True, timeout=timeout).stdout
+    # Do not log argv: install/launch arguments contain paths and simulator IDs.
+    command = f"simctl {args[2]}" if args[:2] == ("xcrun", "simctl") and len(args) > 2 else Path(args[0]).name
+    started = time.monotonic()
+    print(f"Preview command={command} started timeoutSeconds={timeout}", flush=True)
+    try:
+        result = subprocess.run(args, check=True, text=True, capture_output=True, timeout=timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
+        return_code = f" returnCode={error.returncode}" if isinstance(error, subprocess.CalledProcessError) else ""
+        print(f"Preview command={command} failed={type(error).__name__}{return_code} "
+              f"elapsedSeconds={time.monotonic() - started:.1f}", flush=True)
+        for label in ("stdout", "stderr"):
+            print(f"{label} tail (at most {ERROR_OUTPUT_LIMIT} characters):\n"
+                  f"{diagnostic_tail(getattr(error, label, None))}", flush=True)
+        raise
+    print(f"Preview command={command} completed elapsedSeconds={time.monotonic() - started:.1f}", flush=True)
+    return result.stdout
 
 
 def select_device(inventory):

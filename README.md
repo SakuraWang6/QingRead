@@ -1,12 +1,12 @@
 # 清读 · QingRead
 
-面向 iPhone、Web 和 Android 的免费无广告阅读器，支持多源搜书、EPUB / PDF / TXT、离线阅读与自建服务器同步。HarmonyOS 版开发中。
+免费无广告的多端阅读器，支持多源搜书、EPUB / PDF / TXT、离线阅读与自建服务器同步。提供 iPhone、Web、Android 和 HarmonyOS 测试版。
 
 [开始使用](#开始使用) · [自建服务器](web/deploy/README.md) · [文档](docs/README.md) · [反馈问题](https://github.com/SakuraWang6/QingRead/issues)
 
 ## 界面预览
 
-iPhone、Web 与开发中鸿蒙版的实际分类页，截图中可见封面均已加载。版本与测试设备见[截图说明](docs/previews/README.md)。
+iPhone、Web 与鸿蒙版的实际分类页，截图中可见封面均已加载。版本与测试设备见[截图说明](docs/previews/README.md)。
 
 <table>
   <tr>
@@ -15,9 +15,9 @@ iPhone、Web 与开发中鸿蒙版的实际分类页，截图中可见封面均�
     <th>HarmonyOS · 模拟器</th>
   </tr>
   <tr>
-    <td align="center"><img src="docs/previews/iphone-categories.png" alt="iPhone 0.10 玄幻奇幻分类，九张真实封面已加载" width="260" /></td>
-    <td align="center"><img src="docs/previews/web-mobile-categories.jpg" alt="Web 0.10 修真武侠分类，六张真实封面已加载" width="260" /></td>
-    <td align="center"><img src="docs/previews/harmony-categories.png" alt="HarmonyOS 7 模拟器中清读 0.11 分类页，可见四张封面已加载" width="260" /></td>
+    <td align="center"><img src="docs/previews/iphone-categories.png" alt="iPhone 0.12 玄幻奇幻分类，九张可见来源封面已加载" width="260" /></td>
+    <td align="center"><img src="docs/previews/web-mobile-categories.jpg" alt="Web 0.12 修真武侠分类，六张真实封面已加载" width="260" /></td>
+    <td align="center"><img src="docs/previews/harmony-categories.png" alt="HarmonyOS 模拟器中的分类页，可见来源封面已加载" width="260" /></td>
   </tr>
 </table>
 
@@ -40,11 +40,11 @@ iPhone、Web 与开发中鸿蒙版的实际分类页，截图中可见封面均�
 | iPhone | SwiftUI 原生 App | PDFKit、系统后台传输、可选离线 AI 听书；通过 Xcode 构建安装 |
 | Web | 手机或桌面浏览器 | 移动端布局、PWA、可选 Web Push 与云端准备章节 |
 | Android | Capacitor App | 复用 Web 阅读器，接入前台下载服务、WorkManager、系统返回键与 KeyStore |
-| HarmonyOS · 开发中 | ArkTS / ArkWeb Stage App | 目标 SDK 26，最低兼容配置为 HarmonyOS 5.0（API 12）；已在 HarmonyOS 7 模拟器验证，真机与旧系统待测 |
+| HarmonyOS · 测试版 | ArkTS / ArkWeb Stage App | 系统离线语音、电量、安全存储、备份保存和后台传输；较新系统支持定期追更本地通知 |
 
 后台能力由系统控制：iPhone 免费个人签名不支持原生 APNs，远程推送请使用 iOS 16.4+ 的主屏幕 PWA，并登录、主动授权。浏览器关闭后，云端准备可继续，但需回到前台把正文保存到本机。Web / Android 听书使用系统语音；Android 尚无真机验证。详见[平台工作流](docs/reading-workflows.md)。
 
-鸿蒙版暂未接入系统通知、后台任务、安全持久登录和文件导出，不代表已有可安装的发布包。工程入口见 [HarmonyOS 指南](harmony/README.md)，工具链见[构建说明](docs/harmony-build.md)。
+鸿蒙版目标 SDK 26，最低兼容配置为 HarmonyOS 5.0（API 12），已在官方 HarmonyOS 7 模拟器验证。定期追更通知仅在 API 23 及以上启用，由系统尽力调度；后台下载需登录自建服务并先完成云端准备，返回前台校验后才计入本机缓存。锁屏听书、远程推送及 iPhone 的离线 AI 引擎尚未接入。当前 HAP 未签名，真机与旧系统待测，安装需自行配置签名。见 [HarmonyOS 指南](harmony/README.md)与[构建说明](docs/harmony-build.md)。
 
 ## 开始使用
 
@@ -67,7 +67,7 @@ npm run dev
 
 - **iPhone**：用 Xcode 打开 `QingRead.xcodeproj`，选择模拟器运行；真机安装需配置自己的 Apple Team，免费个人签名通常 7 天有效。见 [iPhone 构建](docs/development.md#iphone) 与 [签名和续签](docs/sideloading.md)。
 - **Android**：按 [Android 指南](web/android/README.md) 构建 APK，或使用仓库的 Android debug APK 工作流。长期分发需自行保管固定签名。
-- **HarmonyOS（开发中）**：使用官方 DevEco Studio / Command Line Tools 打开 `harmony/`，生成 Web 资源并配置自己的签名；见[构建说明](docs/harmony-build.md)。
+- **HarmonyOS（测试版）**：使用官方 DevEco Studio / Command Line Tools 打开 `harmony/`，生成 Web 资源并配置自己的签名；见[构建说明](docs/harmony-build.md)。
 
 ### 开启跨设备同步
 
@@ -90,7 +90,7 @@ EPUB 默认使用文字模式续读，并提供「原版」入口；原版禁止
 | `Sources/ReadingProbe/` | 实际书源链路检查工具 |
 | `Tests/` | Swift 核心回归测试 |
 | `web/` | Web 界面、API、账号同步与 Android 工程 |
-| `harmony/` | 开发中的 HarmonyOS ArkTS / ArkWeb 工程 |
+| `harmony/` | HarmonyOS ArkTS / ArkWeb 工程与原生能力桥接 |
 | `scripts/` | 工程生成、诊断、签名与维护工具 |
 | `docs/` | 使用、开发、部署及验证文档 |
 

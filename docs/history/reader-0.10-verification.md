@@ -48,4 +48,4 @@ Android 尚无模拟器或真机运行结果；CI 成功不能代替设备测试
 
 - [0.9 工作流、安装与部署](reader-0.9-verification.md)
 - [iPhone 0.1–0.7、云同步与离线语音](reader-0.1-0.7-verification.md)
-- [Web 0.5–0.6](history/web-0.5-0.6-verification.md)
+- [Web 0.5–0.6](web-0.5-0.6-verification.md)

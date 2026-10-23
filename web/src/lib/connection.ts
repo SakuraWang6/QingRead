@@ -1,4 +1,6 @@
 import { isHarmonyApp } from './harmony';
+import { hasHarmonyCapability } from './harmonyNative';
+import { harmonyConnectionStorage } from './harmonyConnection';
 const baseKey = 'qingread.apiBase';
 const legacyTokenKey = 'qingread.accessToken';
 const sessionKey = 'qingread.connection.session.v1';
@@ -29,7 +31,7 @@ function credential(storage: StorageLike, key: string): Credential | undefined {
 }
 
 export class ConnectionStore {
-  constructor(private local: StorageLike, private session: StorageLike, private origin: string, private defaultBase = '', private allowRemember = true) {}
+  constructor(private local: StorageLike, private session: StorageLike, private origin: string, private defaultBase = '', private allowRemember = true, private rememberedStorage: StorageLike = local) {}
 
   apiAddress(): string { return normalizeApiAddress(this.local.getItem(baseKey)?.trim() || this.defaultBase, this.origin); }
 
@@ -49,7 +51,7 @@ export class ConnectionStore {
     const active = credential(this.session, sessionKey);
     if (active?.address === normalized) return active.token;
     if (!this.allowRemember) return '';
-    const remembered = credential(this.local, rememberedKey);
+    const remembered = credential(this.rememberedStorage, rememberedKey);
     if (remembered?.address === normalized) {
       // Once opened, this session can keep reading if the user unchecks remember.
       this.session.setItem(sessionKey, JSON.stringify(remembered));
@@ -61,7 +63,7 @@ export class ConnectionStore {
   load(): ServerConnection {
     const address = this.apiAddress();
     const token = this.tokenFor(address);
-    return { base: this.local.getItem(baseKey) || '', address, token, remember: this.allowRemember && credential(this.local, rememberedKey)?.address === address && !!token };
+    return { base: this.local.getItem(baseKey) || '', address, token, remember: this.allowRemember && credential(this.rememberedStorage, rememberedKey)?.address === address && !!token };
   }
 
   save(base: string, token: string, remember: boolean): void {
@@ -73,16 +75,18 @@ export class ConnectionStore {
     base.trim() ? this.local.setItem(baseKey, base.trim().replace(/\/+$/, '')) : this.local.removeItem(baseKey);
     if (value.token) {
       this.session.setItem(sessionKey, JSON.stringify(value));
-      if (remember && this.allowRemember) this.local.setItem(rememberedKey, JSON.stringify(value));
+      if (remember && this.allowRemember) this.rememberedStorage.setItem(rememberedKey, JSON.stringify(value));
     }
   }
 
-  forgetRemembered(): void { this.local.removeItem(rememberedKey); }
-  clearToken(): void { this.session.removeItem(legacyTokenKey); this.session.removeItem(sessionKey); this.local.removeItem(rememberedKey); }
+  forgetRemembered(): void { this.rememberedStorage.removeItem(rememberedKey); }
+  clearToken(): void { this.session.removeItem(legacyTokenKey); this.session.removeItem(sessionKey); this.rememberedStorage.removeItem(rememberedKey); }
 }
 
 export function serverConnectionStore(): ConnectionStore {
-  return new ConnectionStore(localStorage, sessionStorage, location.origin, import.meta.env.VITE_API_BASE || '', !isHarmonyApp());
+  const harmony = isHarmonyApp();
+  if (harmony) localStorage.removeItem(rememberedKey);
+  return new ConnectionStore(localStorage, sessionStorage, location.origin, import.meta.env.VITE_API_BASE || '', !harmony || hasHarmonyCapability('secureStorage'), harmony ? harmonyConnectionStorage : localStorage);
 }
 
 export const authenticationRequiredEvent = 'qingread:server-auth-required';

@@ -56,6 +56,7 @@ export type ChapterDownloadStatus = 'queued' | 'running' | 'paused' | 'completed
 export interface ChapterDownloadJob {
   engine?: 'native'|'server';
   storedOnDevice?: boolean;
+  systemTransfer?: { status: ChapterDownloadStatus; receivedBytes: number; totalBytes?: number; error?: string; importing?: boolean };
   id: string; bookID: string; bookTitle: string; sourceID: string; sourceURL: string;
   status: ChapterDownloadStatus; chapterIDs: string[]; total: number; completed: number;
   completedChapterIDs: string[]; failedChapterIDs: string[]; error?: string;
