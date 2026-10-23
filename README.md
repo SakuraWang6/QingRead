@@ -17,7 +17,7 @@ iPhone、Web 与鸿蒙版的实际分类页，截图中可见封面均已加载�
   <tr>
     <td align="center"><img src="docs/previews/iphone-categories.png" alt="iPhone 0.12 玄幻奇幻分类，九张可见来源封面已加载" width="260" /></td>
     <td align="center"><img src="docs/previews/web-mobile-categories.jpg" alt="Web 0.12 修真武侠分类，六张真实封面已加载" width="260" /></td>
-    <td align="center"><img src="docs/previews/harmony-categories.png" alt="HarmonyOS 模拟器中的分类页，可见来源封面已加载" width="260" /></td>
+    <td align="center"><img src="docs/previews/harmony-categories.png" alt="HarmonyOS 7 模拟器中清读 0.12 分类页，可见四张来源封面已加载" width="260" /></td>
   </tr>
 </table>
 

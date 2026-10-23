@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | iPhone 原生 · 玄幻奇幻分类 | 0.12.0 / build 16 | 1206 × 2622 | [iphone-categories.png](iphone-categories.png)，首屏九张真实来源 JPEG 封面全部加载，无加载圈或文字占位 |
 | Web · 修真武侠分类 | 0.12.0 | 390 × 844 | [web-mobile-categories.jpg](web-mobile-categories.jpg)，首屏六张封面 complete 为真、naturalWidth 大于零，实际页面与截图均已核对 |
-| HarmonyOS · 玄幻奇幻分类 | 0.11.0 / versionCode 1，开发中 | 1320 × 2232 | [harmony-categories.png](harmony-categories.png)，来自官方 HarmonyOS 7.0.0 / API 26 手机模拟器，可见四张来源封面已实际加载 |
+| HarmonyOS · 玄幻奇幻分类 | 0.12.0 / versionCode 2 | 1320 × 2232 | [harmony-categories.png](harmony-categories.png)，来自官方 HarmonyOS 7.0.0 / API 26 手机模拟器，可见四张来源封面已实际加载 |
 
 所有展示图来自实际运行页面，不用生成图片或设计稿替代界面。截图均没有账号、私人服务器地址、令牌或设备标识；原图直接采集，未编辑封面或拼接页面。模拟器与响应式视口检查不代替真机兼容性验证；鸿蒙图不代表已有已签名发布包。
 
