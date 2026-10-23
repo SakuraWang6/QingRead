@@ -1,8 +1,8 @@
 # 部署维护基线
 
-更新于 2026-10-23（Asia/Shanghai），Web/API 0.10.0 已上线，健康与共享服务检查通过。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
+更新于 2026-10-23（Asia/Shanghai），Web 0.10.1 / API 0.10.0 已上线，健康与共享服务检查通过。地址示例使用 `https://read.example.com`；部署者需替换为自己的主机，仓库没有默认公共共享服务器。
 
-iPhone 原生版为 0.10.0/build 13，Android 源码为 0.10.0/versionCode 9。本轮加入通知与后台任务、书架整理与笔记、EPUB 原版、PDF 页笔记搜索和账号恢复；具体构建、安装与分发状态见[验证记录](../../docs/verification.md)。
+iPhone 原生源码为 0.10.1/build 14（签名构建通过，设备待连接安装），Android 源码为 0.10.1/versionCode 10。本轮修复分页排版与段落笔记入口；既有通知、后台任务、书架同步、EPUB 原版、PDF 页笔记搜索和账号恢复继续保留；具体构建、安装与分发状态见[验证记录](../../docs/verification.md)。
 
 ## 当前配置
 
@@ -11,14 +11,14 @@ iPhone 原生版为 0.10.0/build 13，Android 源码为 0.10.0/versionCode 9。�
 | 平台 | Ubuntu、`linux/amd64` Docker 镜像 |
 | 部署目录与项目 | `/srv/qingread`，Compose 项目 `qingread` |
 | 应用镜像 | `qingread-web:0.10.0`，健康；保留基础镜像修复，包含新增生产依赖 |
-| Web 静态目录 | `downloads/sites/qingread-0100-final-20261023/`，`qingread-current` 指向该目录 |
+| Web 静态目录 | `downloads/sites/qingread-0101-20261023/`，`qingread-current` 指向该目录 |
 | HTTPS | 共享 Caddy 入口，清读路径 `/qingread/`；根路径返回空白 404，不展示项目 |
 | 应用入口 | Compose 私有网络 `qingread:8787` |
 | 资源上限 | 应用 384 MiB / 0.75 CPU；Caddy 128 MiB / 0.25 CPU |
 | 书源访问 | 显式 `QINGREAD_PUBLIC_ACCESS=true`、访问码留空 |
 | 个人数据 | 账号、恢复码哈希、书架整理、笔记、进度、原文件及后台任务按账号隔离 |
 | 云文件配额 | 单本 250 MiB、每账号 2 GiB、总计 10 GiB，预留 5 GiB 磁盘 |
-| 个人 Android 包 | 0.10.0 / versionCode 9；最终 CI、固定 v2/v3 签名、版本、ZIP 与公网 latest 全字节哈希检查通过 |
+| 个人 Android 包 | 0.10.1 / versionCode 10；CI、固定 v2/v3 签名、版本、ZIP 与公网 latest 全字节哈希检查通过 |
 
 前端与 `linux/amd64` 镜像在开发电脑构建，服务器不执行 npm 安装或前端编译。0.10 新增 `web-push` 生产依赖，必须把匹配锁文件的依赖层一起交付，保留运行实例已有基础镜像修复；不能照搬 0.9 仅 COPY 少量源码的步骤。子路径网页单独上传到静态版本目录，不依赖镜像内旧 dist。保留上一兼容镜像、静态目录和升级前一致数据备份。日志过滤访问码、Bearer 会话、恢复码与推送订阅密钥，不公开展开的 Compose 或私有环境。
 
@@ -72,6 +72,12 @@ Mac 上可用 `scripts/ssh-en0-connector.py` 作为 SSH 的 `ProxyCommand`，仅
 本轮已验证的公网原文件隔离、跨会话续读、资源状态与 Android 构建记录见 [项目验证记录](../../docs/verification.md)。部分海外来源整本下载仍有连接重置，未继续排查；Android 尚无真机运行结论。
 
 公开 CI 使用临时调试签名，不保存个人签名 Secret。长期分发的 APK 必须在私有环境使用固定证书签名，升级保持同一证书。早期临时签名包若无法覆盖升级，应先导出阅读备份并保留原文件，之后再处理卸载。
+
+## 0.10.1 阅读修复
+
+仅更新清读子路径网页到 `qingread-0101-20261023`，API 镜像与数据库保持 0.10.0。新前端修正页边空段和跨章旧正文排版，并提供正文长按段落笔记。静态归档逐文件核对哈希，保留旧目录与切换记录，可将链接切回上一版本。
+
+发布前后 6 个容器 ID、启动时间、重启次数和 OOM 状态一致，Caddy/Compose 哈希不变。公网 index 与本地构建哈希匹配，页面/PWA/API 和课程入口检查通过，根地址仍为空白 404。可用内存约 929 MiB，磁盘剩余 20.12 GiB。Android 0.10.1/code 10 的固定升级签名及公网 latest 全字节检查通过；旧 APK 与静态目录保留可回滚。iPhone 修复包已编译验签，设备待连接安装。详见[验证记录](../../docs/verification.md)。
 
 ## 0.10.0 发布核对
 
