@@ -88,7 +88,7 @@ function nativeDownloadStream(profile:string,transfer:HarmonyTransfer,signal:Abo
 }
 export const harmonyUpdates={
   async snapshot(profile:string):Promise<HarmonyUpdatesSnapshot>{await configuring;const value=await harmonyRequest<HarmonyUpdatesSnapshot>('updateNotifications','updates.snapshot',{profile});if(!value||typeof value.enabled!=='boolean'||!['granted','denied','prompt'].includes(value.notifications)||!value.updates||typeof value.updates!=='object'||Array.isArray(value.updates)||Object.keys(value.updates).length>20)throw new Error('后台追更状态无效');return value;},
-  async requestPermission():Promise<{notifications:'granted'|'denied'|'prompt'}>{return harmonyRequest('updateNotifications','updates.requestPermission');},
+  async requestPermission():Promise<{notifications:'granted'|'denied'|'prompt'}>{return harmonyRequest('updateNotifications','updates.requestPermission',{},120_000);},
   async watch(profile:string,enabled:boolean,books:{book:Book;baseline?:BookUpdateState;readChapterID?:string}[]):Promise<void>{
     await configuring;
     await harmonyRequest('updateNotifications','updates.watch',{profile,enabled,books:books.slice(0,20).map(({book,baseline,readChapterID})=>({book:{id:book.id,title:book.title,sourceID:book.sourceID,sourceName:book.sourceName,url:book.url},baseline:baseline?{knownChapterCount:baseline.knownChapterCount,lastKnownChapterID:baseline.lastKnownChapterID,lastKnownChapterTitle:baseline.lastKnownChapterTitle,checkedAt:baseline.checkedAt}:undefined,readChapterID}))});

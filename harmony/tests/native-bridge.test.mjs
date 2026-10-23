@@ -45,7 +45,7 @@ test('credential namespaces, filenames and speed cannot escape their narrow cont
   for (const rate of [0, 2.1, NaN, Infinity, '1', undefined]) assert.throws(() => NativePolicy.rate(rate))
 })
 
-function documentHarness({ frame = false, origin = 'https://localhost', pathname = '/' } = {}) {
+function documentHarness({ frame = false, origin = 'https://localhost', pathname = '/', timerDelays } = {}) {
   const listeners = new Map()
   const events = []
   const window = {
@@ -54,7 +54,8 @@ function documentHarness({ frame = false, origin = 'https://localhost', pathname
     dispatchEvent(event) { events.push(event) },
   }
   window.top = frame ? {} : window
-  const context = vm.createContext({ window, location: { origin, pathname }, setTimeout, clearTimeout,
+  const context = vm.createContext({ window, location: { origin, pathname },
+    setTimeout: (callback, delay) => { timerDelays?.push(delay); return setTimeout(callback, delay) }, clearTimeout,
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail } },
   })
   const metadata = { bridgeVersion: 2, version: '0.12.0', build: '2', capabilities: ['battery'] }
@@ -107,4 +108,16 @@ test('duplicate request identifiers cannot replace a pending native operation', 
   await assert.rejects(harness.window.QingReadNative.request(request('battery.get')), /过于频繁/)
   harness.emit('pagehide', {})
   await assert.rejects(first, /页面已关闭/)
+})
+
+test('system notification permission grants users two minutes instead of an ordinary RPC deadline', async () => {
+  const timerDelays = []
+  const harness = documentHarness({ timerDelays })
+  const port = { postMessage() {}, start() {}, close() {} }
+  harness.emit('message', { data: 'private-test-nonce', ports: [port], source: null })
+  const waiting = harness.window.QingReadNative.request(request('updates.requestPermission'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(timerDelays.at(-1), 120000)
+  port.onmessage({ data: JSON.stringify({ id: 'test-1', ok: true, result: { notifications: 'granted' } }) })
+  assert.equal(JSON.parse(await waiting).result.notifications, 'granted')
 })

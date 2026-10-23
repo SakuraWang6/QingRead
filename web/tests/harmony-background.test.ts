@@ -64,6 +64,13 @@ describe('Harmony prepared downloads',()=>{
   });
 });
 describe('Harmony update watches',()=>{
+  it('waits for a 20-second permission decision while ordinary requests retain their 15-second timeout',async()=>{
+    vi.useFakeTimers();let decide!:(value:unknown)=>void,settled=false;const decision=new Promise(resolve=>decide=resolve);
+    respond=(method)=>method==='updates.requestPermission'?decision:new Promise(()=>{});
+    const permission=harmonyUpdates.requestPermission().finally(()=>{settled=true;});const ordinary=expect(harmonyUpdates.snapshot(profile)).rejects.toThrow('系统操作超时');
+    await vi.advanceTimersByTimeAsync(20_000);await ordinary;expect(settled).toBe(false);decide({notifications:'granted'});await expect(permission).resolves.toEqual({notifications:'granted'});
+    respond=()=>({notifications:'denied'});await expect(harmonyUpdates.requestPermission()).resolves.toEqual({notifications:'denied'});
+  });
   it('keeps watch snapshots small and sends no cloud password or full unread history',async()=>{
     await harmonyUpdates.watch(profile,true,[{book,baseline:{knownChapterCount:5,lastKnownChapterID:'tail',lastKnownChapterTitle:'末章',checkedAt:job.updatedAt,unreadChapterIDs:Array.from({length:500},(_,index)=>'c'+index)}}]);
     const request=calls.at(-1)!;expect(request.method).toBe('updates.watch');expect(JSON.stringify(request.params)).not.toContain('unreadChapterIDs');expect(JSON.stringify(request.params)).not.toContain('summary');

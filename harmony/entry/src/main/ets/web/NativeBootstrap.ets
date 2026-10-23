@@ -47,7 +47,7 @@ export class NativeBootstrap {
         if (pending.size >= 16 || pending.has(value.id)) throw new Error('请求过于频繁');
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => { pending.delete(value.id); reject(new Error('操作超时，请重试')); },
-            value.method === 'export.commit' ? 300000 : 30000);
+            value.method === 'export.commit' ? 300000 : value.method === 'updates.requestPermission' ? 120000 : 30000);
           pending.set(value.id, { resolve, reject, timer });
           try { port.postMessage(raw); }
           catch (_) { clearTimeout(timer); pending.delete(value.id); reject(new Error('原生连接已关闭')); }
