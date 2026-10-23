@@ -6,29 +6,84 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+BOOT_TIMEOUT = 300
 
 
 def run(*args, timeout=180):
     return subprocess.run(args, check=True, text=True, capture_output=True, timeout=timeout).stdout
 
 
-def main():
-    inventory = json.loads(run("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
-    choices = [device for runtime, devices in inventory.items() if "iOS" in runtime
+def select_device(inventory):
+    choices = [(runtime, device) for runtime, devices in inventory.items() if "iOS" in runtime
                for device in devices if "iPhone" in device["name"]]
     if not choices:
         raise SystemExit("No iPhone simulator runtime is installed")
-    device = next((item for item in choices if item["state"] == "Booted"), choices[0])
+    # Preserve the existing choice: prefer an already booted iPhone, otherwise
+    # the first available iPhone. Recovery never silently switches devices.
+    return next((item for item in choices if item[1]["state"] == "Booted"), choices[0])
+
+
+def prepare_simulator(runtime, device, directory, runner=run):
+    """Allow one cold-boot recovery, only after bootstatus times out."""
+    log_path = directory / "simulator-boot.log"
+    log_path.write_text("")
+
+    def record(message):
+        print(message, flush=True)
+        with log_path.open("a") as stream:
+            stream.write(message + "\n")
+
+    def tail(value):
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        return (value or "")[-12000:]
+
+    def command(*arguments, timeout):
+        started = time.monotonic()
+        record(f"Simulator command={arguments[0]} timeoutSeconds={timeout}")
+        try:
+            output = runner("xcrun", "simctl", *arguments, timeout=timeout)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            record(f"Simulator command={arguments[0]} failed={type(error).__name__} "
+                   f"elapsedSeconds={time.monotonic() - started:.1f}")
+            record("stdout tail:\n" + (tail(error.stdout) or "[empty]"))
+            record("stderr tail:\n" + (tail(error.stderr) or "[empty]"))
+            raise
+        record(f"Simulator command={arguments[0]} completed elapsedSeconds={time.monotonic() - started:.1f}")
+        if output:
+            record("stdout tail:\n" + tail(output))
+
     udid = device["udid"]
+    record("Selected simulator " + json.dumps({"runtime": runtime, "name": device["name"],
+                                              "udid": udid, "initialState": device["state"]}))
     if device["state"] != "Booted":
-        run("xcrun", "simctl", "boot", udid)
-    run("xcrun", "simctl", "bootstatus", udid, "-b")
+        command("boot", udid, timeout=60)
+    for attempt in range(2):
+        try:
+            command("bootstatus", udid, "-b", timeout=BOOT_TIMEOUT)
+            record(f"Simulator ready bootstatusAttempt={attempt + 1}")
+            return
+        except subprocess.TimeoutExpired:
+            if attempt == 1:
+                record("Simulator bootstatus timed out twice; no further recovery attempted.")
+                raise
+            record("Simulator cold start timed out; shut down and boot the same device once.")
+            command("shutdown", udid, timeout=60)
+            command("boot", udid, timeout=60)
+
+
+def main():
+    # Create this before booting so a cold-start failure still uploads evidence.
+    directory = ROOT / ".build/previews"
+    directory.mkdir(parents=True, exist_ok=True)
+    inventory = json.loads(run("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
+    runtime, device = select_device(inventory)
+    udid = device["udid"]
+    prepare_simulator(runtime, device, directory)
     app = ROOT / ".build/xcode/Build/Products/Debug-iphonesimulator/QingRead.app"
     run("xcrun", "simctl", "status_bar", udid, "override", "--time", "9:41", "--dataNetwork", "wifi", "--wifiMode", "active", "--wifiBars", "3", "--batteryState", "charged", "--batteryLevel", "100")
     run("xcrun", "simctl", "ui", udid, "appearance", "light")
     run("xcrun", "simctl", "install", udid, str(app))
-    directory = ROOT / ".build/previews"
-    directory.mkdir(parents=True, exist_ok=True)
     for index, screen in enumerate(["library", "search", "sources", "reader", "recommendations", "categories", "reader-controls", "catalog", "audio", "about"]):
         if index:
             run("xcrun", "simctl", "terminate", udid, "app.qingread.personal")
