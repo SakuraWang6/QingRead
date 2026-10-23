@@ -43,23 +43,38 @@ def main():
         stdout = directory / f"{screen}.stdout.log"
         stderr = directory / f"{screen}.stderr.log"
         launch = run("xcrun", "simctl", "launch", f"--stdout={stdout}", f"--stderr={stderr}", udid, "app.qingread.personal", *arguments)
-        print(launch.strip())
+        print(launch.strip(), flush=True)
         time.sleep(6)
         markers = {"library": ["QINGREAD_STORAGE_SELFTEST", "QINGREAD_COVER_SELFTEST", "QINGREAD_AI_MODEL_SELFTEST"],
                    "reader": ["QINGREAD_SPEECH_SELFTEST", "QINGREAD_READER_SELFTEST",
                               "QINGREAD_CHAPTER_TURN mode=cover direction=1"]}.get(screen, [])
         if markers:
             output = stdout.read_text() if stdout.exists() else ""
-            deadline = time.monotonic() + 30
+            wait_started = time.monotonic()
+            deadline = wait_started + 30
             while not all(marker in output for marker in markers) and time.monotonic() < deadline:
                 time.sleep(0.25)
                 output = stdout.read_text() if stdout.exists() else ""
             if not all(marker in output for marker in markers):
+                missing = [marker for marker in markers if marker not in output]
+                errors = stderr.read_text(errors="replace") if stderr.exists() else ""
+                print(f"Diagnostics incomplete: screen={screen} launch={launch.strip()} "
+                      f"waitSeconds={time.monotonic() - wait_started:.1f} "
+                      f"stdoutBytes={stdout.stat().st_size if stdout.exists() else 0} "
+                      f"stderrBytes={stderr.stat().st_size if stderr.exists() else 0} "
+                      f"missing={missing}", flush=True)
+                # Only the public-domain reader preview runs these diagnostics.
+                # Surface its crash/marker context without dumping account data
+                # from any other preview or from the simulator's app container.
+                if screen == "reader":
+                    for label, contents in [("reader.stdout.log", output), ("reader.stderr.log", errors)]:
+                        tail = "\n".join(contents.splitlines()[-80:])[-12000:]
+                        print(f"{label} (last 80 lines, at most 12000 characters):\n{tail or '[empty]'}", flush=True)
                 raise SystemExit(f"Missing diagnostics for {screen}; inspect {stdout} and {stderr}")
-            print("Verified " + ", ".join(markers))
+            print("Verified " + ", ".join(markers), flush=True)
         destination = directory / f"{screen}.png"
         run("xcrun", "simctl", "io", udid, "screenshot", str(destination))
-        print(f"Captured {device['name']} / {screen}: {destination}")
+        print(f"Captured {device['name']} / {screen}: {destination}", flush=True)
 
 
 if __name__ == "__main__":

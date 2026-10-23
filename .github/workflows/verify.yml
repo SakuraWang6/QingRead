@@ -30,7 +30,10 @@ jobs:
       - name: Launch simulator app and capture actual UI
         run: python3 scripts/simulator-preview.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: QingRead-simulator-preview
-          path: .build/previews/*.png
+          path: |
+            .build/previews/*.png
+            .build/previews/*.log
           retention-days: 7
