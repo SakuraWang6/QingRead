@@ -34,6 +34,8 @@
 ## 背景与历史
 
 - [竞品研究](market-research.md)
+- [0.10.1 排版与段落笔记验证](history/reader-0.10.1-verification.md)
+- [0.10 功能与交付验证](history/reader-0.10-verification.md)
 - [0.9 工作流、安装与部署](history/reader-0.9-verification.md)
 - [iPhone 0.1–0.7 验证归档](history/reader-0.1-0.7-verification.md)
 - [Web 0.5–0.6 验证归档](history/web-0.5-0.6-verification.md)

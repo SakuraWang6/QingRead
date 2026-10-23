@@ -2,7 +2,7 @@
 
 [文档导航](README.md) · [开发与验证](development.md)
 
-更新于 2026-10-23。当前源码为 0.10.0：iPhone build 13、Android versionCode 9；交付验证见[验证记录](verification.md)。
+更新于 2026-10-23。当前源码为 0.11.0：iPhone build 15、Android versionCode 11；交付验证见[验证记录](verification.md)。
 
 ## 客户端与服务端
 
@@ -58,6 +58,10 @@ iPhone 使用系统后台 URLSession 传输有限章节批次，BGAppRefresh 尝
 原生 Melo 与 Kokoro 经固定版本的 sherpa-onnx 在设备端合成。模型下载需用户主动触发，逐文件检查大小与 SHA-256，整批通过后才可选用；推理在后台串行队列完成，准备后续短句并缓存 WAV，语速调整使用播放器。Web/Android 当前使用系统 Web Speech 能力，不含这两个原生离线引擎。
 
 项目不引入广告 SDK、内购或付费身份服务。各模型与预编译依赖的实际组成、固定版本和第三方许可见 [离线语音说明](offline-voice.md) 与 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+
+## 版本与使用说明
+
+「设置 → 关于清读」使用随客户端打包的 `App/Resources/AppInfo.json` 提供更新日志与使用说明，许可正文也可离线阅读。三端检查独立的公开静态版本清单，不依赖 API 服务版本或账号。iPhone 与 Android 显示实际安装版本；Web 沿用等待新 worker、明确确认再更新的流程。发布清单生成与安装边界见 [客户端更新](app-updates.md)。
 
 ## 构建、部署与验证
 
