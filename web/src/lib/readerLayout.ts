@@ -60,9 +60,23 @@ export interface ParagraphSlice { text: string; start: number; continuation: boo
 export function paragraphSlices(text: string, start: number, end: number): ParagraphSlice[] {
   const parts = text.slice(start, end).split('\n');
   let offset = start;
+  // A separator included at the page edge is not an extra blank paragraph.
+  // Keep interior empty paragraphs: those are actual spacing in the source.
   return parts.map((part, index) => {
     const item = { text: part, start: offset, continuation: index === 0 && start > 0 && text[start - 1] !== '\n' };
     offset += part.length + 1;
     return item;
-  });
+  }).filter((part, index) => part.text.length > 0 || (index > 0 && index < parts.length - 1));
+}
+
+/** Resolve the source paragraph, even when only its continuation is on this page. */
+export function paragraphAtOffset(text: string, offset: number): { offset: number; length: number; quote: string } | undefined {
+  if (!text.length) return;
+  const value = safeOffset(text, offset);
+  const start = value > 0 ? text.lastIndexOf('\n', value - 1) + 1 : 0;
+  const separator = text.indexOf('\n', value);
+  const end = separator < 0 ? text.length : separator;
+  const quote = text.slice(start, end);
+  if (!quote.trim()) return;
+  return { offset: start, length: end - start, quote };
 }

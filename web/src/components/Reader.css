@@ -6,3 +6,5 @@
 .reader-device-status{display:inline-flex;align-items:center;gap:9px;white-space:nowrap;font-variant-numeric:tabular-nums}.reader-device-status>span{display:inline-flex;align-items:center;gap:4px}.reader-running-foot{font-size:12px;font-variant-numeric:tabular-nums}
 
 .reader-top-actions{display:flex;align-items:center;gap:5px}.reader-topbar>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.reader-top-actions button{flex-shrink:0}.reader-download-actions{display:flex;gap:8px}.reader-download-actions button{flex:1}
+
+.reader-text p:focus-visible{outline:1px solid var(--reader-accent);outline-offset:3px}

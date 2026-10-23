@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import ReadingCore
 
 struct ReaderAnnotationsView: View {
@@ -8,7 +7,7 @@ struct ReaderAnnotationsView: View {
     let currentChapter: Chapter?
     let bodyOffset: Int
     let onSelect: (String, Int) -> Void
-    let onSelectText: () -> Void
+    let onAnnotateParagraph: () -> Void
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     @State private var tab = 0
@@ -31,7 +30,7 @@ struct ReaderAnnotationsView: View {
                                 do { try store.saveAnnotation(book: book, kind: .bookmark, chapter: currentChapter, offset: bodyOffset) }
                                 catch { self.error = error.localizedDescription }
                             }.disabled(currentChapter == nil)
-                            Button("选中文本记笔记") { dismiss(); onSelectText() }
+                            Button("当前段落笔记") { dismiss(); onAnnotateParagraph() }.disabled(currentChapter == nil)
                         }
                         ForEach(store.annotations(for: book)) { item in
                             Button {
@@ -89,56 +88,97 @@ struct ReaderAnnotationsView: View {
     }
 }
 
-struct ReaderTextSelectionView: View {
+struct ReaderParagraphNotesView: View {
     let book: Book
-    let content: ChapterContent
-    let initialBodyOffset: Int
+    let chapter: Chapter
+    let paragraph: ReadingParagraphAnchor
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
-    @State private var range = NSRange(location: 0, length: 0)
+    @State private var editingID: String?
     @State private var note = ""
     @State private var error: String?
     @State private var openedProfile = -1
-    private var text: String { content.paragraphs.joined(separator: "\n") }
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                SelectableChapterText(text: text, initialOffset: initialBodyOffset) { range = $0 }
-                TextField("笔记（可选）", text: $note, axis: .vertical).lineLimit(2...4).textFieldStyle(.roundedBorder).padding(.horizontal)
-                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-                Button("保存标注") {
-                    let body = text as NSString
-                    guard openedProfile == store.profileRevision, range.length > 0, NSMaxRange(range) <= body.length else { return }
-                    do {
-                        try store.saveAnnotation(book: book, kind: .note, chapter: content.chapter, offset: range.location, length: range.length, quote: body.substring(with: range), note: note)
-                        dismiss()
-                    } catch { self.error = error.localizedDescription }
-                }.buttonStyle(PrimaryButtonStyle()).disabled(range.length == 0).padding(.horizontal).padding(.bottom, 12)
-            }
-            .navigationTitle("选择正文").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-            .onAppear { openedProfile = store.profileRevision }
-            .onChange(of: store.profileRevision) { _ in dismiss() }
+    @FocusState private var editorFocused: Bool
+
+    private var notes: [ReadingAnnotation] {
+        store.annotations(for: book).filter {
+            $0.chapterID == chapter.id && $0.sourceID == book.sourceID
+                && $0.sourceURL == book.url.absoluteString && paragraph.overlaps($0)
         }
     }
-}
 
-private struct SelectableChapterText: UIViewRepresentable {
-    let text: String
-    let initialOffset: Int
-    let onSelection: (NSRange) -> Void
-    func makeCoordinator() -> Coordinator { Coordinator(onSelection: onSelection) }
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView(); view.isEditable = false; view.isSelectable = true; view.delegate = context.coordinator
-        view.font = .systemFont(ofSize: 19); view.textContainerInset = UIEdgeInsets(top: 18, left: 16, bottom: 18, right: 16)
-        view.text = text; view.selectedRange = NSRange(location: min(max(0, initialOffset), (text as NSString).length), length: 0)
-        DispatchQueue.main.async { view.scrollRangeToVisible(view.selectedRange) }
-        return view
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("第 \(paragraph.index + 1) 段") {
+                    Text(paragraph.text).font(.body).lineSpacing(5).textSelection(.enabled)
+                        .accessibilityIdentifier("reader.paragraph.quote")
+                }
+                Section(editingID == nil ? "写笔记" : "编辑笔记") {
+                    TextField("写下想法", text: $note, axis: .vertical).lineLimit(3...8)
+                        .focused($editorFocused).accessibilityIdentifier("reader.paragraph.note")
+                    if editingID != nil {
+                        Button("取消编辑") { editingID = nil; note = ""; editorFocused = false }
+                    }
+                }
+                if !notes.isEmpty {
+                    Section("我的笔记") {
+                        ForEach(notes) { item in
+                            VStack(alignment: .leading, spacing: 8) {
+                                if !item.quote.isEmpty, item.quote != paragraph.text {
+                                    Text(item.quote).font(.footnote).foregroundStyle(Palette.secondary).lineLimit(3)
+                                }
+                                if !item.note.isEmpty { Text(item.note).font(.body) }
+                                HStack {
+                                    Button("编辑") { editingID = item.id; note = item.note; error = nil; editorFocused = true }
+                                        .buttonStyle(.borderless)
+                                    Spacer()
+                                    Button("删除", role: .destructive) {
+                                        guard openedProfile == store.profileRevision else { return }
+                                        store.deleteAnnotation(item, in: book)
+                                        if editingID == item.id { editingID = nil; note = "" }
+                                    }.buttonStyle(.borderless)
+                                }.font(.subheadline)
+                            }.padding(.vertical, 4)
+                        }
+                    }
+                }
+                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("段落笔记").navigationBarTitleDisplayMode(.inline).tint(Palette.cinnabar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存", action: save).disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("reader.paragraph.save")
+                }
+            }
+            .onAppear { openedProfile = store.profileRevision }
+            .onChange(of: store.profileRevision) { _ in dismiss() }
+            .onChange(of: note) { value in
+                let clipped = ReadingMetadataText.clipped(value, utf16Limit: 1000)
+                if value != clipped { note = clipped }
+            }
+        }
     }
-    func updateUIView(_ uiView: UITextView, context: Context) { context.coordinator.onSelection = onSelection }
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var onSelection: (NSRange) -> Void
-        init(onSelection: @escaping (NSRange) -> Void) { self.onSelection = onSelection }
-        func textViewDidChangeSelection(_ textView: UITextView) { let range = textView.selectedRange; DispatchQueue.main.async { self.onSelection(range) } }
+
+    private func save() {
+        guard openedProfile == store.profileRevision else { return }
+        let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        if let editingID {
+            // Keep the exact quote/range of existing text selections, including older clients' notes.
+            guard notes.contains(where: { $0.id == editingID }) else { error = "这条笔记已删除。"; return }
+            store.editAnnotation(editingID, in: book, note: text)
+            dismiss()
+            return
+        }
+        do {
+            try store.saveAnnotation(book: book, kind: .note, chapter: chapter,
+                                     offset: paragraph.characterOffset, length: paragraph.characterLength,
+                                     quote: paragraph.text, note: text)
+            dismiss()
+        } catch { self.error = error.localizedDescription }
     }
 }

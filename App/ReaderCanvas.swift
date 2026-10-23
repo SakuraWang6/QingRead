@@ -66,7 +66,14 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     private var glyphRanges: [NSRange] = []
     private var pageViews: [ReaderPageDrawing] = []
     private let horizontal = ReaderPagingScrollView()
-    private let vertical = UITextView()
+    private let vertical: UITextView = {
+        let storage = NSTextStorage()
+        let manager = ReaderAnnotationLayoutManager()
+        let container = NSTextContainer(size: .zero)
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        return UITextView(frame: .zero, textContainer: container)
+    }()
     private let cover = UIView()
     private var pageIndex = 0
     private var anchor = 0
@@ -118,6 +125,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         let annotate = UILongPressGestureRecognizer(target: self, action: #selector(annotatePressed(_:)))
         annotate.minimumPressDuration = 0.5
         addGestureRecognizer(annotate)
+        tap.require(toFail: annotate)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(coverPanned(_:)))
         pan.delegate = self
         cover.addGestureRecognizer(pan)
@@ -296,7 +304,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         let page = ReaderPageDrawing()
         page.backgroundColor = UIColor(settings.activeTheme.background)
         page.manager = layout.manager
-        page.range = layout.glyphs[index]
+        page.container = layout.manager.textContainers[index]
         page.origin = CGPoint(x: settings.horizontalMargin, y: insets.top)
         page.isAccessibilityElement = true
         page.accessibilityTraits = [.staticText]
@@ -317,7 +325,7 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         let page = ReaderPageDrawing()
         page.backgroundColor = UIColor(settings.activeTheme.background)
         page.manager = layoutManager
-        page.range = glyphRanges[index]
+        page.container = layoutManager.textContainers[index]
         page.origin = CGPoint(x: settings.horizontalMargin, y: insets.top)
         page.isAccessibilityElement = true
         page.accessibilityTraits = [.staticText]
@@ -347,18 +355,62 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
         guard let document else { return }
         let key = "\(document.content.chapter.id)|\(ObjectIdentifier(textStorage))|\(settings.fontSize)|\(settings.turnMode)|" + annotationRanges.map { "\($0.location):\($0.length)" }.joined(separator: ",")
         guard key != annotationKey else { return }; annotationKey = key
-        for storage in [textStorage, vertical.textStorage] where storage.length > 0 {
-            storage.removeAttribute(.underlineStyle, range: NSRange(location: 0, length: storage.length))
-            storage.removeAttribute(.underlineColor, range: NSRange(location: 0, length: storage.length))
-            for range in annotationRanges where range.location >= 0 && range.length > 0 && NSMaxRange(range) <= storage.length {
-                storage.addAttributes([.underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: UIColor(Palette.cinnabar)], range: range)
-            }
+        // Annotation marks are a display decoration. Editing NSTextStorage here
+        // invalidates every page's layout, even when no underline was present.
+        // Cached page ranges can then be drawn against unlaid glyph positions.
+        for candidate in [layoutManager, vertical.layoutManager] {
+            guard let manager = candidate as? ReaderAnnotationLayoutManager,
+                  let storage = manager.textStorage, storage.length > 0 else { continue }
+            let fullRange = NSRange(location: 0, length: storage.length)
+            manager.annotationRanges = annotationRanges.filter { $0.location >= 0 && $0.length > 0 && NSMaxRange($0) <= storage.length }
+            manager.invalidateDisplay(forCharacterRange: fullRange)
         }
-        pageViews.forEach { $0.setNeedsDisplay() }; vertical.setNeedsDisplay()
+        pageViews.forEach { $0.setNeedsDisplay() }
+        cover.subviews.forEach { $0.setNeedsDisplay() }
+        vertical.setNeedsDisplay()
     }
 
     @objc private func annotatePressed(_ gesture: UILongPressGestureRecognizer) {
-        if gesture.state == .began { onAnnotate?(currentUTF16()) }
+        guard gesture.state == .began,
+              let offset = annotationOffset(at: gesture.location(in: self)) else { return }
+        onAnnotate?(offset)
+    }
+
+    /// Hit test the displayed body, rather than the page's saved reading anchor.
+    /// TextKit's nearest-glyph lookup also returns glyphs for margins and empty
+    /// space, so accept only a point inside the actual glyph's line and bounds.
+    private func annotationOffset(at point: CGPoint) -> Int? {
+        guard bounds.contains(point), !needsPagination, !isAnimating, coverTarget == nil, let document else { return nil }
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        let textPoint: CGPoint
+        if settings.turnMode == .scroll {
+            manager = vertical.layoutManager
+            container = vertical.textContainer
+            let local = vertical.convert(point, from: self)
+            textPoint = CGPoint(x: local.x - vertical.textContainerInset.left,
+                                y: local.y - vertical.textContainerInset.top)
+        } else {
+            guard !horizontal.isDragging, !horizontal.isDecelerating else { return nil }
+            let page: ReaderPageDrawing?
+            if settings.turnMode == .cover { page = cover.subviews.first as? ReaderPageDrawing }
+            else { page = pageViews.indices.contains(pageIndex + leadingPages) ? pageViews[pageIndex + leadingPages] : nil }
+            guard let page, let pageManager = page.manager, let pageContainer = page.container else { return nil }
+            manager = pageManager
+            container = pageContainer
+            let local = page.convert(point, from: self)
+            textPoint = CGPoint(x: local.x - page.origin.x, y: local.y - page.origin.y)
+        }
+        manager.ensureLayout(for: container)
+        let glyph = manager.glyphIndex(for: textPoint, in: container)
+        let pageGlyphs = manager.glyphRange(for: container)
+        guard NSLocationInRange(glyph, pageGlyphs), glyph < manager.numberOfGlyphs else { return nil }
+        let line = manager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        let ink = manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+        guard line.contains(textPoint), ink.insetBy(dx: -1, dy: -1).contains(textPoint) else { return nil }
+        let offset = manager.characterIndexForGlyph(at: glyph)
+        guard document.paragraphRanges.contains(where: { NSLocationInRange(offset, $0) }) else { return nil }
+        return offset
     }
 
     private func currentUTF16() -> Int {
@@ -403,6 +455,52 @@ final class ReaderCanvas: UIView, UITextViewDelegate, UIGestureRecognizerDelegat
     var debugPreparedEdges: Int { (previousLayout == nil ? 0 : 1) + (nextLayout == nil ? 0 : 1) }
     func debugPagination() -> (ranges: [NSRange], visible: NSRange, utf16Count: Int) {
         (pageRanges, pageRanges.indices.contains(pageIndex) ? pageRanges[pageIndex] : NSRange(), document?.text.length ?? 0)
+    }
+    var debugFirstUnlaidGlyph: Int { layoutManager.firstUnlaidGlyphIndex() }
+    func debugAnnotationOffset(at point: CGPoint) -> Int? { annotationOffset(at: point) }
+    func debugPoint(atUTF16 offset: Int) -> CGPoint? {
+        guard let document, offset >= 0, offset < document.text.length else { return nil }
+        if settings.turnMode == .scroll {
+            let manager = vertical.layoutManager
+            manager.ensureLayout(for: vertical.textContainer)
+            let range = manager.glyphRange(forCharacterRange: NSRange(location: offset, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: range, in: vertical.textContainer)
+            return vertical.convert(CGPoint(x: rect.midX + vertical.textContainerInset.left,
+                                            y: rect.midY + vertical.textContainerInset.top), to: self)
+        }
+        guard pageRanges.indices.contains(pageIndex), NSLocationInRange(offset, pageRanges[pageIndex]) else { return nil }
+        let range = layoutManager.glyphRange(forCharacterRange: NSRange(location: offset, length: 1), actualCharacterRange: nil)
+        let rect = layoutManager.boundingRect(forGlyphRange: range, in: layoutManager.textContainers[pageIndex])
+        return CGPoint(x: rect.midX + settings.horizontalMargin, y: rect.midY + insets.top)
+    }
+    func debugValidatePageLayout() -> Bool {
+        guard settings.turnMode != .scroll else { return true }
+        for (index, container) in layoutManager.textContainers.enumerated() {
+            layoutManager.ensureLayout(for: container)
+            let glyphs = layoutManager.glyphRange(for: container)
+            guard glyphRanges.indices.contains(index), glyphRanges[index] == glyphs,
+                  pageRanges[index] == layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil) else { return false }
+            var valid = true
+            var previousBottom: CGFloat = 0
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, owner, _, _ in
+                if owner !== container || rect.minY < previousBottom - 0.5 || rect.maxY > container.size.height + 0.5 { valid = false }
+                previousBottom = rect.maxY
+            }
+            if !valid { return false }
+        }
+        return true
+    }
+    func debugRenderedPage() -> Data? {
+        let page: ReaderPageDrawing?
+        if settings.turnMode == .cover { page = cover.subviews.first as? ReaderPageDrawing }
+        else { page = pageViews.indices.contains(pageIndex + leadingPages) ? pageViews[pageIndex + leadingPages] : nil }
+        guard let page else { return nil }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        return UIGraphicsImageRenderer(size: page.bounds.size, format: format).image { context in
+            (page.backgroundColor ?? .white).setFill()
+            context.fill(page.bounds)
+            page.draw(page.bounds)
+        }.pngData()
     }
     #endif
 
@@ -602,7 +700,7 @@ private final class ReaderChapterLayout {
     init(document: ReaderDocument, size: CGSize) {
         self.document = document
         storage = NSTextStorage(attributedString: document.text)
-        manager = NSLayoutManager()
+        manager = ReaderAnnotationLayoutManager()
         storage.addLayoutManager(manager)
         manager.ensureGlyphs(forCharacterRange: NSRange(location: 0, length: storage.length))
         var covered = 0
@@ -619,13 +717,47 @@ private final class ReaderChapterLayout {
     }
 }
 
+/// Display-only underlines keep the immutable text storage and cached page
+/// geometry intact. UIKit's layout manager has no temporary-attribute API.
+private final class ReaderAnnotationLayoutManager: NSLayoutManager {
+    var annotationRanges: [NSRange] = []
+
+    override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+        super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+        guard !annotationRanges.isEmpty, let context = UIGraphicsGetCurrentContext() else { return }
+        context.saveGState()
+        context.setStrokeColor(UIColor(Palette.cinnabar).cgColor)
+        context.setLineWidth(1)
+        for characters in annotationRanges {
+            let glyphs = NSIntersectionRange(glyphRange(forCharacterRange: characters, actualCharacterRange: nil), glyphsToShow)
+            guard glyphs.length > 0 else { continue }
+            enumerateLineFragments(forGlyphRange: glyphs) { _, _, container, lineGlyphs, _ in
+                let marked = NSIntersectionRange(glyphs, lineGlyphs)
+                guard marked.length > 0 else { return }
+                let rect = self.boundingRect(forGlyphRange: marked, in: container)
+                let y = rect.maxY - 1 + origin.y
+                context.move(to: CGPoint(x: rect.minX + origin.x, y: y))
+                context.addLine(to: CGPoint(x: rect.maxX + origin.x, y: y))
+                context.strokePath()
+            }
+        }
+        context.restoreGState()
+    }
+}
+
 private final class ReaderPageDrawing: UIView {
     var manager: NSLayoutManager?
-    var range = NSRange()
+    var container: NSTextContainer?
     var origin = CGPoint.zero
     override func draw(_ rect: CGRect) {
-        manager?.drawBackground(forGlyphRange: range, at: origin)
-        manager?.drawGlyphs(forGlyphRange: range, at: origin)
+        guard let manager, let container, let context = UIGraphicsGetCurrentContext() else { return }
+        manager.ensureLayout(for: container)
+        let range = manager.glyphRange(for: container)
+        context.saveGState()
+        context.clip(to: CGRect(origin: origin, size: container.size))
+        manager.drawBackground(forGlyphRange: range, at: origin)
+        manager.drawGlyphs(forGlyphRange: range, at: origin)
+        context.restoreGState()
     }
 }
 

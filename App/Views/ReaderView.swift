@@ -15,10 +15,9 @@ struct ReaderView: View {
     @State private var showSourceSwitch = false
     @State private var showDownload = false
     @State private var showAnnotations = false
-    @State private var showTextSelection = false
+    @State private var paragraphSelection: ReaderParagraphSelection?
     @State private var showOriginalEPUB = false
     @State private var returningFromOriginalEPUB = false
-    @State private var selectionOffset = 0
     @State private var checkingEnd = false
     @State private var chapters: [Chapter] = []
     @State private var index = 0
@@ -139,12 +138,13 @@ struct ReaderView: View {
         }
         .onChange(of: store.profileRevision) { _ in
             loadGeneration = UUID(); loadTask?.cancel(); progressEstimateTask?.cancel(); speech.stop()
-            content = nil; chapters = []; isVisible = false; dismiss()
+            paragraphSelection = nil; content = nil; chapters = []; isVisible = false; dismiss()
         }
         .onChange(of: librarySource) { _ in
             let updated = store.currentBook(book)
             guard store.sourceFingerprint(updated) != store.sourceFingerprint(currentBook) else { return }
             loadGeneration = UUID(); loadTask?.cancel(); speech.stop()
+            paragraphSelection = nil
             content = nil; chapters = []; adjacentContents = [:]; measuredPages = [:]; estimatedPages = [:]; chapterLengths = [:]
             activeBook = updated
             loadTask = Task { await openBook() }
@@ -158,10 +158,12 @@ struct ReaderView: View {
         .sheet(isPresented: $showAnnotations) {
             ReaderAnnotationsView(book: currentBook, chapters: chapters, currentChapter: content?.chapter,
                                   bodyOffset: content.map { ReaderBodyAnchor.bodyOffset(documentOffset: characterOffset, content: $0) } ?? 0,
-                                  onSelect: openAnnotation, onSelectText: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { selectionOffset = characterOffset; showTextSelection = true } })
+                                  onSelect: openAnnotation, onAnnotateParagraph: {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: openCurrentParagraph)
+            })
         }
-        .sheet(isPresented: $showTextSelection) {
-            if let content { ReaderTextSelectionView(book: currentBook, content: content, initialBodyOffset: ReaderBodyAnchor.bodyOffset(documentOffset: selectionOffset, content: content)) }
+        .sheet(item: $paragraphSelection) { selection in
+            ReaderParagraphNotesView(book: selection.book, chapter: selection.chapter, paragraph: selection.paragraph)
         }
         .fullScreenCover(isPresented: $showOriginalEPUB) {
             if let url = originalEPUBURL {
@@ -214,10 +216,30 @@ struct ReaderView: View {
                 if pageSize != size { pageSize = size; estimatedPages = [:] }
                 schedulePageEstimates()
             }, onTurn: hideControls, onToggleControls: toggleControls, onBoundary: { moveChapter($0, fromPageBoundary: true) }, onExit: exitReader,
-                             onAnnotate: { offset in speech.pause(); selectionOffset = offset; showTextSelection = true },
+                             onAnnotate: openParagraph,
                              annotationRanges: store.annotations(for: currentBook).filter { $0.kind == .note && $0.chapterID == content.chapter.id && $0.sourceID == currentBook.sourceID && $0.sourceURL == currentBook.url.absoluteString }.map { NSRange(location: ReaderBodyAnchor.prefixLength(content) + $0.characterOffset, length: $0.characterLength) })
 
         }
+    }
+
+    private func openParagraph(documentOffset: Int) {
+        guard let content,
+              let paragraph = ReadingParagraphAnchor.at(documentOffset: documentOffset, in: content) else { return }
+        presentParagraph(paragraph, content: content)
+    }
+
+    private func openCurrentParagraph() {
+        guard let content,
+              let paragraph = ReadingParagraphAnchor.atOrFollowing(
+                bodyOffset: ReaderBodyAnchor.bodyOffset(documentOffset: characterOffset, content: content), in: content) else { return }
+        presentParagraph(paragraph, content: content)
+    }
+
+    private func presentParagraph(_ paragraph: ReadingParagraphAnchor, content: ChapterContent) {
+        guard openedProfileRevision == store.profileRevision, isVisible, !isLoading else { return }
+        persistPosition()
+        speech.pause()
+        paragraphSelection = ReaderParagraphSelection(book: currentBook, chapter: content.chapter, paragraph: paragraph)
     }
 
     private var paginationKey: String {
@@ -537,4 +559,11 @@ struct ReaderView: View {
         store.updateSettings(settings)
         #endif
     }
+}
+
+private struct ReaderParagraphSelection: Identifiable {
+    let id = UUID()
+    let book: Book
+    let chapter: Chapter
+    let paragraph: ReadingParagraphAnchor
 }

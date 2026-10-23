@@ -3,7 +3,7 @@ import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, List, Settings2, Headph
 import type { Book, Chapter, ChapterContent, ReaderSettings, ReadingTheme } from '../shared/types';
 import { api } from '../lib/api';
 import { library, useLibrary } from '../lib/store';
-import { pageForOffset, paginateText, paragraphSlices, safeOffset, type TextPage } from '../lib/readerLayout';
+import { pageForOffset, paginateText, paragraphAtOffset, paragraphSlices, safeOffset, type TextPage } from '../lib/readerLayout';
 import { bookPageNumber, estimateBookPages, pageAtFraction, pageFraction, pageLocation, swipeTurn } from '../lib/bookProgress';
 import { ReaderDeviceStatus } from './ReaderDeviceStatus';
 import { ReaderSpeech } from '../lib/speech';
@@ -82,6 +82,8 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   const anchorRef = useRef(0);
   const targetRef = useRef<{ chapterID?: string; offset?: number; fraction?: number; lastPage?: boolean }>({});
   const pointer = useRef<{ x: number; y: number; time: number; edge: boolean } | null>(null);
+  const paragraphPress = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const paragraphPressHandled = useRef(false);
   const speech = useRef(new ReaderSpeech());
   const continueSpeech = useRef(false);
   const layoutFrame = useRef<number | null>(null);
@@ -89,6 +91,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   const text = content?.paragraphs.join('\n') ?? '';
   const textRef = useRef(text); textRef.current = text;
   const currentChapter = chapters[index];
+  const contentReady = Boolean(content && currentChapter && content.chapter.id === currentChapter.id);
   useEffect(()=>{
     setSelection(undefined);
     const capture=()=>{
@@ -110,7 +113,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     return()=>clearTimeout(timer);
   },[sleepMode]);
   const layoutSignature = [currentChapter?.id, text, viewport.width, viewport.height, settings.fontSize, settings.lineSpacing, settings.paragraphSpacing, settings.horizontalMargin, settings.font, settings.isBold, settings.turnMode].join('\u0001');
-  const layoutPending = settings.turnMode !== 'scroll' && Boolean(text) && laidOutSignature !== layoutSignature;
+  const layoutPending = contentReady && settings.turnMode !== 'scroll' && Boolean(text) && laidOutSignature !== layoutSignature;
   const layoutPendingRef = useRef(layoutPending); layoutPendingRef.current = layoutPending;
   const turnModeRef = useRef(settings.turnMode); turnModeRef.current = settings.turnMode;
   const fraction = text.length ? Math.min(1, anchor / text.length) : 0;
@@ -126,13 +129,15 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     const offset = safeOffset(textRef.current, value);
     anchorRef.current = offset; setAnchor(offset);
   }, []);
-  useAndroidBack(() => { if (workflow) { setWorkflow(null); return true; } if (panel) setPanel(null); else close(); return true; }, 300);
+  useAndroidBack(() => { if (workflow) { setWorkflow(null); if(workflow==='notes'){setSelection(undefined);window.getSelection()?.removeAllRanges();} return true; } if (panel) setPanel(null); else close(); return true; }, 300);
 
   useEffect(() => {
     const original = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = original; speech.current.stop(); };
   }, []);
+
+  useEffect(() => () => cancelParagraphPress(), [currentChapter?.id, settings.turnMode, panel, workflow]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -218,7 +223,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   const repaginate = useCallback(() => {
     const element = measureRef.current;
     const container = viewportRef.current;
-    if (!text || !element || !container || container.clientHeight <= 0 || container.clientWidth <= 0 || isScroll) return;
+    if (!contentReady || !text || !element || !container || container.clientHeight <= 0 || container.clientWidth <= 0 || isScroll) return;
     // A fixed-height page gives the measurement block exactly the same formatting
     // context as the visible page. Auto-height hidden blocks can be laid out before
     // mobile text sizing and inherited typography have settled.
@@ -238,7 +243,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     const fallback=Math.max(1,(container.clientWidth-settings.horizontalMargin*2)/settings.fontSize*container.clientHeight/(settings.fontSize+settings.lineSpacing));
     setPageCapacity(result.length>1?result.at(-1)!.start/(result.length-1):Math.max(fallback,text.length));
     setLaidOutSignature(layoutSignature);
-  }, [text, isScroll, layoutSignature]);
+  }, [text, isScroll, layoutSignature, contentReady]);
 
   useLayoutEffect(() => {
     if (isScroll || !text) return;
@@ -358,10 +363,12 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   function handlePointerDown(event: PointerEvent) {
     if (event.button !== 0 || (event.target as HTMLElement).closest('button,input,select,a')) return;
     pointer.current = { x: event.clientX, y: event.clientY, time: performance.now(), edge: event.clientX < 24 };
+    paragraphPressHandled.current = false;
   }
   function handlePointerUp(event: PointerEvent) {
+    cancelParagraphPress();
     const start = pointer.current; pointer.current = null;
-    if (!start || panel || (window.getSelection()&&!window.getSelection()!.isCollapsed)) return;
+    if (!start || paragraphPressHandled.current || panel || workflow || (window.getSelection()&&!window.getSelection()!.isCollapsed)) return;
     const dx = event.clientX - start.x; const dy = event.clientY - start.y;
     const direction=swipeTurn(dx,dy,performance.now()-start.time,viewport.width);
     if (direction) {
@@ -375,6 +382,36 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     if (horizontal > .27 && horizontal < .73) setControls(value => !value);
     else if (!isScroll) turn(horizontal <= .27 ? -1 : 1);
     else setControls(value => !value);
+  }
+
+  function cancelParagraphPress() {
+    if (paragraphPress.current) clearTimeout(paragraphPress.current.timer);
+    paragraphPress.current = null;
+  }
+  function openParagraphNote(offset: number) {
+    const paragraph = paragraphAtOffset(textRef.current, offset);
+    if (!paragraph || !contentReady || loading || layoutPendingRef.current || panel || workflow) return;
+    cancelParagraphPress();
+    paragraphPressHandled.current = true;
+    pointer.current = null;
+    window.getSelection()?.removeAllRanges();
+    setSelection({ ...paragraph, scope: 'paragraph' });
+    openWorkflow('notes');
+  }
+  function beginParagraphPress(event: PointerEvent<HTMLParagraphElement>, offset: number) {
+    cancelParagraphPress();
+    if (event.button !== 0 || !event.isPrimary || event.pointerType === 'mouse' || panel || workflow) return;
+    const selected = window.getSelection();
+    if (selected && !selected.isCollapsed) return;
+    paragraphPress.current = {
+      x: event.clientX, y: event.clientY,
+      timer: setTimeout(() => openParagraphNote(offset), 500),
+    };
+  }
+  function handlePointerMove(event: PointerEvent) {
+    const press = paragraphPress.current;
+    if (press && (Math.abs(event.clientX - press.x) > 10 || Math.abs(event.clientY - press.y) > 10)) cancelParagraphPress();
+    if(pointer.current&&(Math.abs(event.clientX-pointer.current.x)>12||(isScroll&&Math.abs(event.clientY-pointer.current.y)>12)))setControls(false);
   }
 
   function scrollToOffset(offset: number) {
@@ -391,6 +428,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   }
 
   function handleScroll() {
+    cancelParagraphPress();
     if(pointer.current)setControls(false);
     const container = scrollRef.current; if (!container || !content) return;
     if (container.scrollTop + container.clientHeight >= container.scrollHeight - 2) { setOffset(text.length); return; }
@@ -481,11 +519,11 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
 
   return <div className={`reader-root reader-theme-${settings.isNightMode ? 'night' : settings.theme}`} style={style} role="dialog" aria-modal="true" aria-label={`正在阅读${book.title}`}>
     <div className="reader-running-head"><span>{currentChapter?.title || book.title}</span><span>{book.title}</span></div>
-    <main ref={viewportRef} className={`reader-viewport ${isScroll ? 'reader-scrolling' : ''}`} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerMove={event=>{if(pointer.current&&(Math.abs(event.clientX-pointer.current.x)>12||(isScroll&&Math.abs(event.clientY-pointer.current.y)>12)))setControls(false);}} onPointerCancel={() => { pointer.current = null; }}>
-      {loading || layoutPending ? <div className="reader-status"><LoaderCircle className="reader-spin"/><p>{loading ? '正在打开章节' : '正在排版'}</p><button onClick={close}>返回书架</button></div>
+    <main ref={viewportRef} className={`reader-viewport ${isScroll ? 'reader-scrolling' : ''}`} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerMove={handlePointerMove} onPointerCancel={() => { cancelParagraphPress(); pointer.current = null; }}>
+      {loading || (!error && !contentReady) || layoutPending ? <div className="reader-status"><LoaderCircle className="reader-spin"/><p>{loading || !contentReady ? '正在打开章节' : '正在排版'}</p><button onClick={close}>返回书架</button></div>
         : error ? <div className="reader-status" role="alert"><p>{error}</p><button onClick={() => { if (!chapters.length) setCatalogRetry(value => value + 1); else setRetry(value => value + 1); }}><RefreshCw size={16}/>重试</button><button onClick={close}>返回书架</button></div>
         : <div ref={scrollRef} className={`reader-text ${isScroll ? 'reader-scroll-text' : `reader-page reader-${transition}`}`} key={isScroll ? 'scroll' : `${currentChapter?.id}-${page}`} onAnimationEnd={() => setTransition('')} onScroll={isScroll ? handleScroll : undefined}>
-          {visibleText.map(part => <p key={part.start} data-start={part.start} className={part.continuation ? 'reader-continuation' : undefined}>{part.text?marked(part):'\u200b'}</p>)}
+          {visibleText.map(part => <p key={part.start} data-start={part.start} className={part.continuation ? 'reader-continuation' : undefined} tabIndex={0} aria-label={`${part.text}，长按或按回车写段落笔记`} onPointerDown={event => beginParagraphPress(event, part.start)} onContextMenu={event => { if (window.getSelection()?.isCollapsed !== false) { event.preventDefault(); openParagraphNote(part.start); } }} onKeyDown={event => { if (event.key === 'Enter' || (event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') { event.preventDefault(); event.stopPropagation(); openParagraphNote(part.start); } }}>{part.text?marked(part):'\u200b'}</p>)}
           {isScroll && <div className="reader-chapter-actions"><button disabled={index === 0} onClick={() => changeChapter(index - 1)}>上一章</button><button onClick={() => { if (index < chapters.length - 1) changeChapter(index + 1); else void checkAtEnd(); }}>下一章</button></div>}
         </div>}
       <div ref={measureRef} className="reader-text reader-measure" aria-hidden="true" />

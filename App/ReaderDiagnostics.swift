@@ -29,6 +29,7 @@ import ReadingCore
             let chapter = Chapter(id: "diagnostic-utf16", title: "分页与文字位置", url: URL(string: "https://example.invalid/diagnostic")!, index: 0)
             let sentence = "这是独立的分页测试文字。👩🏽‍🚀联合字形、𠮷与e\u{301}都必须完整保留。"
             let content = ChapterContent(chapter: chapter, paragraphs: Array(repeating: String(repeating: sentence, count: 8), count: 25))
+            verifyAnnotationLayout(content: content)
             var settings = ReaderSettings()
             let canvas = ReaderCanvas(frame: CGRect(x: 0, y: 0, width: 393, height: 690))
             let document = ReaderDocument(content: content, settings: settings)
@@ -87,6 +88,51 @@ import ReadingCore
             print("QINGREAD_READER_SELFTEST migration=passed speechIntent=passed bookProgress=passed progressSeek=passed previousPageTap=passed backwardsChapterResize=passed utf16=\(document.text.length) slidePages=\(first.ranges.count) largeFontPages=\(resized.ranges.count) coverPages=\(covered.ranges.count) anchor=passed")
             Task { await verifyPreparedChapterTurns(content: content) }
         } catch { assertionFailure("Reader diagnostics failed: \(error)") }
+    }
+
+    private static func verifyAnnotationLayout(content: ChapterContent) {
+        for mode in [ReaderTurnMode.slide, .cover, .scroll] {
+            var settings = ReaderSettings(); settings.turnMode = mode
+            let canvas = ReaderCanvas(frame: CGRect(x: 0, y: 0, width: 393, height: 690))
+            let document = ReaderDocument(content: content, settings: settings)
+            canvas.apply(content: content, settings: settings, initialOffset: 0, seek: nil)
+            canvas.layoutIfNeeded()
+            let paragraph = document.paragraphRanges[0]
+            let bodyPoint = canvas.debugPoint(atUTF16: paragraph.location + 4)!
+            assert(NSLocationInRange(canvas.debugAnnotationOffset(at: bodyPoint) ?? NSNotFound, paragraph), "Long press must identify the touched paragraph")
+            assert(canvas.debugAnnotationOffset(at: CGPoint(x: 1, y: bodyPoint.y)) == nil, "Margins must not select the nearest paragraph")
+            assert(canvas.debugAnnotationOffset(at: canvas.debugPoint(atUTF16: 0)!) == nil, "The chapter title must not select the first body paragraph")
+            if mode != .scroll {
+                let before = canvas.debugRenderedPage()!
+                let laidGlyphs = canvas.debugFirstUnlaidGlyph
+                assert(laidGlyphs > 0)
+                canvas.annotationRanges = [paragraph]
+                canvas.highlightAnnotations()
+                assert(canvas.debugFirstUnlaidGlyph == laidGlyphs, "Adding a display underline must preserve the laid-out glyph positions")
+                canvas.annotationRanges = []
+                canvas.highlightAnnotations()
+                assert(canvas.debugFirstUnlaidGlyph == laidGlyphs, "Removing an absent or existing underline must not invalidate pagination")
+                assert(canvas.debugRenderedPage() == before, "Removing annotation marks must restore the exact page drawing")
+                assert(canvas.debugValidatePageLayout(), "Every drawn line must still belong to its cached page and fit its viewport")
+                let saved = canvas.debugPagination().visible.location
+                settings.fontSize = 32; settings.paragraphSpacing = 14
+                canvas.apply(content: content, settings: settings, initialOffset: saved, seek: nil)
+                canvas.layoutIfNeeded()
+                assert(canvas.debugValidatePageLayout())
+                canvas.frame.size = CGSize(width: 690, height: 393)
+                canvas.layoutIfNeeded()
+                assert(canvas.debugValidatePageLayout(), "Rotation must rebuild all page containers for the new size")
+            }
+            let short = ChapterContent(chapter: Chapter(id: "diagnostic-short-\(mode.rawValue)", title: "短章节", url: content.chapter.url, index: 0), paragraphs: ["正文第一段。", "直接长按第二段。", "正文第三段。"])
+            canvas.apply(content: short, settings: settings, initialOffset: 0, seek: nil)
+            canvas.layoutIfNeeded()
+            let secondParagraph = ReaderDocument(content: short, settings: settings).paragraphRanges[1]
+            let secondPoint = canvas.debugPoint(atUTF16: secondParagraph.location + 2)!
+            assert(NSLocationInRange(canvas.debugAnnotationOffset(at: secondPoint) ?? NSNotFound, secondParagraph), "Long-pressing the second paragraph must not select the first paragraph or the page anchor")
+            assert(canvas.debugAnnotationOffset(at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.height - 80)) == nil, "Blank space below a short chapter must not open a paragraph note")
+            canvas.cancelPreparation()
+            print("QINGREAD_ANNOTATION_LAYOUT mode=\(mode.rawValue) displayOnlyUnderline=passed exactDrawingRestore=passed paragraphHit=passed emptySpace=passed resize=passed")
+        }
     }
 
     private static func verifyPreparedChapterTurns(content: ChapterContent) async {
