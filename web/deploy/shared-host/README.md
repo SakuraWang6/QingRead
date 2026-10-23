@@ -26,6 +26,12 @@ handle_path /qingread/* {
     root * /srv/www/qingread
     @entry path / /index.html /sw.js /manifest.webmanifest
     header @entry Cache-Control "no-cache"
+    @releaseFeed path /releases.json
+    header @releaseFeed {
+        Access-Control-Allow-Origin "*"
+        Cache-Control "no-store"
+        defer
+    }
     file_server
 }
 
@@ -41,6 +47,8 @@ handle @qingread_api {
 ```
 
 路径分流不等于浏览器安全来源隔离；需要严格隔离不同应用的 Cookie、存储和脚本权限时，应使用各自的域名。隐藏项目列表也不等于登录保护，私人服务的访问控制由各服务自身配置。
+
+`releases.json` 是公开静态版本清单；只给这一文件加跨域响应头，供 Android WebView 匿名读取，不放开账号 API，也不允许跨域携带凭据。APK 验证、发布顺序和只更新静态目录的步骤见[客户端更新说明](../../../docs/app-updates.md)。
 
 ## 从根路径迁移旧 PWA
 

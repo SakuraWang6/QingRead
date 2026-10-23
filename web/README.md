@@ -2,11 +2,11 @@
 
 面向手机浏览器的清读阅读器，桌面也可使用。React + TypeScript 前端与 Node 书源服务放在同一目录；iOS 原生版继续独立维护。
 
-当前 Web 为 0.10.1，API 为 0.10.0，Android 源码为 0.10.1/versionCode 10；交付状态见[验证记录](../docs/verification.md)。服务端可自行部署；个人数据通过可选用户名与密码账号同步。源码不预设作者服务器，配置见 [部署说明](deploy/README.md) 和 [云同步](../docs/cloud-sync.md)。
+当前 Web 为 0.11.0，API 沿用 0.10.0，Android 源码为 0.11.0/versionCode 11；交付状态见[验证记录](../docs/verification.md)。服务端可自行部署；个人数据通过可选用户名与密码账号同步。源码不预设作者服务器，配置见 [部署说明](deploy/README.md) 和 [云同步](../docs/cloud-sync.md)。
 
 ## 本地运行
 
-需要 Node.js 24 与 npm（使用内置 SQLite）。在本目录执行：
+需要 Node.js 24、npm（使用内置 SQLite）与 Python 3.10+（生成共用版本清单）。在本目录执行：
 
 ```sh
 npm ci

@@ -36,6 +36,18 @@ https://{$QINGREAD_PUBLIC_HOST} {
         header Content-Disposition "attachment"
         file_server
     }
+    # Public metadata only: Android's https://localhost WebView needs this one
+    # cross-origin read. Do not apply these headers to account or sync APIs.
+    @releaseFeed path /qingread/releases.json /releases.json
+    handle @releaseFeed {
+        header {
+            Access-Control-Allow-Origin "*"
+            Cache-Control "no-store"
+            defer
+        }
+        rewrite * /releases.json
+        reverse_proxy qingread:8787
+    }
     handle {
         reverse_proxy qingread:8787 {
             flush_interval -1

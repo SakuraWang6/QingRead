@@ -29,7 +29,7 @@ def main():
     run("xcrun", "simctl", "install", udid, str(app))
     directory = ROOT / ".build/previews"
     directory.mkdir(parents=True, exist_ok=True)
-    for index, screen in enumerate(["library", "search", "sources", "reader", "recommendations", "categories", "reader-controls", "catalog", "audio"]):
+    for index, screen in enumerate(["library", "search", "sources", "reader", "recommendations", "categories", "reader-controls", "catalog", "audio", "about"]):
         if index:
             run("xcrun", "simctl", "terminate", udid, "app.qingread.personal")
         if screen == "library":

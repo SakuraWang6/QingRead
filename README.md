@@ -29,6 +29,7 @@ iPhone 原生与 Web 0.10 的实际分类页，截图中可见封面均已加载
 - **书架与同步**：置顶、分组、在读／待读／读完；自建服务同步书架、阅读位置、笔记与原文件，账号各自隔离。
 - **书签与搜索**：长按正文整段记个人笔记、搜索本机已缓存正文，PDF 支持页书签与本地文字搜索。
 - **电子书**：EPUB 默认文字阅读，可进入「原版」查看插图、层级标题与脚注；PDF 保留页面图表，TXT 按章节阅读。
+- **关于清读**：查看安装版本、手动检查更新、阅读使用说明与许可；按平台提示更新，保留阅读数据。
 
 ## 平台
 
@@ -44,7 +45,7 @@ iPhone 原生与 Web 0.10 的实际分类页，截图中可见封面均已加载
 
 ### 本地运行 Web
 
-需要 Node.js 24 与 npm：
+需要 Node.js 24、npm 与 Python 3.10+（生成共用版本清单）：
 
 ```sh
 git clone https://github.com/SakuraWang6/QingRead.git
@@ -90,6 +91,7 @@ EPUB 默认使用文字模式续读，并提供「原版」入口；原版禁止
 - [开发与验证](docs/development.md)
 - [追更、换源与下载](docs/reading-workflows.md)
 - [书架、笔记与电子书](docs/reading-tools.md)
+- [关于清读与客户端更新](docs/app-updates.md)
 - [已测范围与已知限制](docs/verification.md)
 - [本地维护与清理](docs/maintenance.md)
 - [问题反馈](CONTRIBUTING.md)

@@ -15,6 +15,10 @@ struct SettingsView: View {
                 NavigationLink { ReadingNotificationSettingsView() } label: { Label("通知与后台", systemImage: "bell") }
                 NavigationLink { ReaderSettingsPanel() } label: { Label("排版与翻页", systemImage: "textformat.size") }
             }
+            Section {
+                NavigationLink { AboutQingReadView() } label: { Label("关于清读", systemImage: "info.circle") }
+                    .accessibilityIdentifier("settings.about")
+            }
         }
         .scrollContentBackground(.hidden).background(Palette.paper)
         .navigationTitle("设置").navigationBarTitleDisplayMode(.inline)

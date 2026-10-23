@@ -3,9 +3,25 @@ name: Android debug APK
 on:
   push:
     branches: [main]
-    paths: ['web/**', '.github/workflows/android.yml']
+    paths:
+      - 'web/**'
+      - 'App/Resources/AppInfo.json'
+      - 'App/Resources/ProjectLicense.txt'
+      - 'Config/App.xcconfig'
+      - 'LICENSE'
+      - 'scripts/generate-release-manifest.py'
+      - 'scripts/test_release_manifest.py'
+      - '.github/workflows/android.yml'
   pull_request:
-    paths: ['web/**', '.github/workflows/android.yml']
+    paths:
+      - 'web/**'
+      - 'App/Resources/AppInfo.json'
+      - 'App/Resources/ProjectLicense.txt'
+      - 'Config/App.xcconfig'
+      - 'LICENSE'
+      - 'scripts/generate-release-manifest.py'
+      - 'scripts/test_release_manifest.py'
+      - '.github/workflows/android.yml'
   workflow_dispatch:
     inputs:
       api_base:
@@ -27,6 +43,9 @@ jobs:
       VITE_API_BASE: ${{ inputs.api_base }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify release metadata and bundled license
+        working-directory: .
+        run: python3 -m unittest discover -s scripts -p 'test_release_manifest.py' -v
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'

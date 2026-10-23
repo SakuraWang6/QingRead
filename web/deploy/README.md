@@ -8,6 +8,14 @@
 
 `compose.production.yaml` 是实际部署使用的独立配置。运行镜像在工作电脑构建为 `linux/amd64` 后上传，服务器不执行 npm 安装或前端编译。清读 API 只对 Compose 私有网络开放；Caddy 2.11.7 单独监听公网 TCP 443，原有 80 端口服务不变。
 
+0.11 起，镜像构建使用**仓库根目录**作为 context，以读取共用的 AppInfo 和许可；不再使用 `web/` 作为 context。在开发电脑的仓库根执行：
+
+```sh
+docker buildx build --platform linux/amd64 -f web/Dockerfile -t qingread-web:0.11.0 --load .
+```
+
+根 `.dockerignore` 默认拒绝、仅放行公开构建输入，排除私有配置、签名、备份、数据库和 node_modules。独立 Python metadata 阶段验证版本与许可并生成 generic 清单；Node 阶段显式准备 PDF 资源后构建，运行镜像不增加 Python 或其他生产依赖。`web/compose.yaml` 已使用同一根 context。已有服务仅更新客户端页面、APK 和 `releases.json` 时，不需要重建运行镜像，按[静态客户端发布步骤](../../docs/app-updates.md)操作即可。
+
 部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。独占域名时复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 APK，该目录仅供 Caddy 只读访问。然后执行：
 
 ```sh
@@ -108,7 +116,7 @@ docker compose ps
 
 ## 持续验证
 
-`.github/workflows/web.yml` 在 `web/` 或该工作流变化时运行 Node 24 的 `npm ci`、单元测试、TypeScript / PWA 构建和生产依赖审计，高风险生产依赖会阻止验证通过。构建产物保存 7 天，不发布网站或连接服务器。一般 CI 不依赖外部书源可用性；手动运行工作流时可以勾选 `live_sources`，额外执行真实书源测试。
+`.github/workflows/web.yml` 在 `web/`、共用 AppInfo / 许可 / 版本配置或生成脚本变化时运行 Node 24 的 `npm ci`、单元测试、TypeScript / PWA 构建和生产依赖审计，高风险生产依赖会阻止验证通过。构建产物保存 7 天，不发布网站或连接服务器。一般 CI 不依赖外部书源可用性；手动运行工作流时可以勾选 `live_sources`，额外执行真实书源测试。
 
 本地对应命令是在 `web/` 运行 `npm ci`、`npm test`、`npm run build` 和 `npm audit --omit=dev --audit-level=high`。浏览器 PWA 首次预缓存、PDF 字体与其他静态文件不会消耗 `/api/` 的请求限额，API 自身仍保留限流。
 

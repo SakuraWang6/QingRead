@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "name": "清读",
+  "version": "0.11.0",
+  "repositoryURL": "https://github.com/SakuraWang6/QingRead",
+  "feedbackURL": "https://github.com/SakuraWang6/QingRead/issues/new",
+  "license": {
+    "name": "PolyForm Strict 1.0.0",
+    "url": "https://github.com/SakuraWang6/QingRead/blob/main/LICENSE"
+  },
+  "update": {
+    "manifestPath": "/qingread/releases.json"
+  },
+  "releases": [
+    {
+      "version": "0.11.0",
+      "date": "2026-10-23",
+      "changes": [
+        "新增「关于清读」，统一版本信息、检查更新与更新日志。",
+        "新增使用说明、问题反馈与离线许可说明。",
+        "Web 可主动检查网页更新；安卓在有匹配安装包时提供下载入口；iPhone 显示 Mac 更新提示。"
+      ]
+    },
+    {
+      "version": "0.10.1",
+      "date": "2026-10-23",
+      "changes": [
+        "修复阅读正文重叠和异常空白。",
+        "长按正文按整段记个人笔记。"
+      ]
+    },
+    {
+      "version": "0.10.0",
+      "date": "2026-10-23",
+      "changes": [
+        "补充书架整理、书签笔记、正文搜索和听书定时停止。",
+        "增加追更提醒、下载管理与账号恢复。"
+      ]
+    }
+  ],
+  "help": [
+    {
+      "id": "start",
+      "title": "找书与导入",
+      "body": "在「搜书」搜索书名或作者，在「发现」「分类」浏览书单。EPUB、PDF、TXT 可从书架导入；图书是否可用取决于来源与网络。"
+    },
+    {
+      "id": "reader",
+      "title": "阅读与笔记",
+      "body": "轻点正文中间打开阅读菜单，可调字号、行距、段距、背景和翻页方式。长按正文段落记个人笔记；笔记不公开。PDF 按原始页面阅读。"
+    },
+    {
+      "id": "sync",
+      "title": "换设备接着读",
+      "body": "在「账号与同步」连接同一服务并登录同一账号，可同步书架、进度、笔记及导入文件。你和朋友使用各自的账号；不登录也可本地阅读。"
+    },
+    {
+      "id": "offline",
+      "title": "离线与下载",
+      "body": "在书籍详情选择章节下载范围，在「下载管理」查看进度、暂停或重试。下载好的内容可离线阅读。后台能力受平台与系统调度影响，退出应用后不保证持续下载。"
+    },
+    {
+      "id": "audio",
+      "title": "听书",
+      "body": "在阅读菜单选择「听书」，可调整语速和定时停止。iPhone 可额外下载本地 AI 声库；Web 与安卓使用设备系统音色，可用音色与后台播放能力因设备而异。"
+    },
+    {
+      "id": "updates",
+      "title": "更新清读",
+      "body": "「检查更新」读取当前服务的版本信息，不会自动安装或清理阅读数据。iPhone 自签版通过现有 Mac 签名流程更新；安卓下载同一签名的新 APK 后按系统提示覆盖安装；Web 在新资源就绪后更新页面。"
+    }
+  ]
+}

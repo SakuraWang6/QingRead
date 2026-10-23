@@ -44,6 +44,7 @@ private struct RootView: View {
     #if DEBUG
     @State private var previewConfigured = false
     @State private var showPreviewReader = false
+    @State private var showPreviewAbout = false
     #endif
 
     @ViewBuilder
@@ -67,10 +68,12 @@ private struct RootView: View {
                 case "recommendations": selectedTab = 3
                 case "categories": selectedTab = 4
                 case "reader": showPreviewReader = true
+                case "about": selectedTab = 2; showPreviewAbout = true
                 default: break
                 }
             }
             .fullScreenCover(isPresented: $showPreviewReader) { ReaderView(book: LocalSample.book) }
+            .fullScreenCover(isPresented: $showPreviewAbout) { NavigationStack { AboutQingReadView() } }
         #else
         tabContent
         #endif

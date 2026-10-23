@@ -15,6 +15,7 @@
 | [追更、换源与下载](reading-workflows.md) | 系统通知、来源切换、后台下载与云端准备 |
 | [书架、笔记与电子书](reading-tools.md) | 书架整理、标注、正文搜索、EPUB 原版与 PDF |
 | [签名与续签](sideloading.md) | iPhone 自签安装与后台续期 |
+| [关于清读与客户端更新](app-updates.md) | 版本、手动检查、使用说明、反馈、许可与静态发布清单 |
 | [听书与离线 AI](offline-voice.md) | 声库、设备端合成与运行时依赖 |
 
 ## 开发与维护

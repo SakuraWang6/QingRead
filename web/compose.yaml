@@ -2,8 +2,8 @@ name: qingread
 services:
   qingread:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: web/Dockerfile
     image: qingread-web:local
     restart: unless-stopped
     init: true

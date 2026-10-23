@@ -6,7 +6,7 @@
 
 以下 iPhone 和 Swift 命令均在仓库根目录执行。Web 与 Android 的命令分别见本文后续入口。
 
-当前 iPhone 版本为 0.10.0/build 13。需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
+当前 iPhone 版本为 0.11.0/build 15。需要完整 Xcode 16 或以上、iOS 16 或以上的模拟器或设备。仅 Command Line Tools 可以验证解析核心，无法编译 iOS 界面。
 
 1. 打开 `QingRead.xcodeproj`，选择 `QingRead` scheme。
 2. 先选择 iPhone 模拟器运行，无需付费开发者账号。
@@ -44,7 +44,7 @@ swift run reading-probe --source biequgei 这游戏也太真实了
 swift run reading-probe --discovery
 ```
 
-只有 Command Line Tools 时，使用 `bash scripts/verify-core.sh`；脚本会为该环境配置 Swift Testing 的框架搜索路径，所有缓存保留在仓库 `.build` 中。
+可统一使用 `bash scripts/verify-core.sh`；完整 Xcode 环境默认运行 Swift Testing 与 XCTest。只有 Command Line Tools 时，脚本才禁用不可用的 XCTest，并配置 Swift Testing 框架搜索路径；缓存保留在仓库 `.build` 中。
 
 `reading-probe` 会真正访问来源，并依次验证搜索、目录和第一章；网络或解析失败会返回非零退出码，不回退为示例数据。`--source` 可限定内置来源的 ID；`--discovery` 会验证推荐、六类书目和推荐首本书的目录与正文。
 
