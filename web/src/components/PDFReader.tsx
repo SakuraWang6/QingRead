@@ -1,3 +1,4 @@
+import { useBodyScrollLock } from '../lib/bodyScrollLock';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, List, Minus, Plus, X, LoaderCircle } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -96,8 +97,8 @@ export function PDFReader({ book, onClose }: { book: Book; onClose: () => void }
     void owner.current.savePosition(book, chapters.current[page - 1], 0, 0);
   }, [document, page]);
 
+  useBodyScrollLock();
   useEffect(() => {
-    const overflow = window.document.body.style.overflow; window.document.body.style.overflow = 'hidden';
     const key = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement).matches('input, textarea, [contenteditable="true"]')) return;
       if (event.key === 'ArrowRight' || event.key === 'PageDown') setPage(value => Math.min(pageCount || 1, value + 1));
@@ -105,7 +106,7 @@ export function PDFReader({ book, onClose }: { book: Book; onClose: () => void }
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', key);
-    return () => { window.document.body.style.overflow = overflow; window.removeEventListener('keydown', key); };
+    return () => { window.removeEventListener('keydown', key); };
   }, [pageCount]);
 
   async function openDestination(item: OutlineItem) {

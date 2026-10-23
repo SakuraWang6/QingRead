@@ -1,0 +1,15 @@
+.hvigor/
+.idea/
+oh_modules/
+**/oh_modules/
+**/build/
+local.properties
+*.p12
+*.cer
+*.p7b
+*.csr
+*.hap
+*.app
+signing/
+entry/src/main/resources/rawfile/web/
+entry/src/main/resources/rawfile/qingread-assets.json

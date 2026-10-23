@@ -19,6 +19,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 ANDROID_PACKAGE = "app.qingread.android"
+HARMONY_PACKAGE = "app.qingread.harmony"
 
 
 class ManifestError(ValueError):
@@ -45,12 +46,25 @@ def release_inputs(root: Path):
         "web": json.loads((root / "web/package.json").read_text())["version"],
         "android": single_value(gradle, r'^\s*versionName\s+"([^"]+)"\s*$'),
     }
-    if any(value != info["version"] for value in versions.values()):
-        raise ManifestError("iPhone, Web, Android and AppInfo versions must agree.")
     builds = {
         "ios": single_value(config, r"^CURRENT_PROJECT_VERSION\s*=\s*([0-9]+)\s*$"),
         "android": single_value(gradle, r"^\s*versionCode\s+([0-9]+)\s*$"),
     }
+    harmony_path = root / "harmony/AppScope/app.json5"
+    if harmony_path.exists():
+        try:
+            harmony = json.loads(harmony_path.read_text())["app"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            raise ManifestError("HarmonyOS app.json5 must contain a standard JSON app object.") from None
+        if not isinstance(harmony, dict) or harmony.get("bundleName") != HARMONY_PACKAGE:
+            raise ManifestError("HarmonyOS bundleName must be app.qingread.harmony.")
+        build = harmony.get("versionCode")
+        if type(build) is not int or not 0 < build < 2**31:
+            raise ManifestError("HarmonyOS versionCode must be a positive integer below 2^31.")
+        versions["harmony"] = harmony.get("versionName")
+        builds["harmony"] = str(build)
+    if any(value != info["version"] for value in versions.values()):
+        raise ManifestError("All platform and AppInfo versions must agree.")
     latest = next((item for item in info.get("releases", []) if item.get("version") == info["version"]), None)
     if latest is None or not latest.get("changes") or not all(isinstance(item, str) and item.strip() for item in latest["changes"]):
         raise ManifestError("AppInfo needs release notes for the current version.")

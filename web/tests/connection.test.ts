@@ -16,6 +16,16 @@ function storage() {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('server access-code binding', () => {
+  it('does not persist or restore access codes when native secure storage is unavailable', () => {
+    const local = new MemoryStorage(), session = new MemoryStorage();
+    const remembered = new ConnectionStore(local, session, 'https://localhost', 'https://read.example');
+    remembered.save('', 'old-token', true);
+    const store = new ConnectionStore(local, new MemoryStorage(), 'https://localhost', 'https://read.example', false);
+    expect(store.load()).toMatchObject({ token: '', remember: false });
+    store.save('', 'session-only', true);
+    expect(store.load()).toMatchObject({ token: 'session-only', remember: false });
+    expect(local.getItem('qingread.connection.remembered.v1')).toBeNull();
+  });
   it('normalizes equivalent service URLs while keeping different service paths distinct', () => {
     expect(normalizeApiAddress('', 'https://reader.example')).toBe('https://reader.example/api');
     expect(normalizeApiAddress('HTTPS://API.EXAMPLE:443/reader///', 'https://reader.example')).toBe('https://api.example/reader/api');

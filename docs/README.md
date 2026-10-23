@@ -9,6 +9,7 @@
 | [Web](../web/README.md) | 本地运行、生产预览、浏览器阅读与离线能力 |
 | [iPhone](development.md#iphone) | Xcode 构建、模拟器与真机安装 |
 | [Android](../web/android/README.md) | SDK 环境、APK 构建与签名 |
+| [HarmonyOS（开发中）](harmony-build.md) | ArkTS / ArkWeb、离线资源、官方 SDK 与签名边界 |
 | [服务器部署](../web/deploy/README.md) | HTTPS、资源限制、数据持久化与备份 |
 | [部署维护基线](../web/deploy/DEPLOYMENT.md) | 当前部署方式、验证范围与回滚 |
 | [云同步](cloud-sync.md) | 账号隔离、原文件、阅读位置与冲突处理 |

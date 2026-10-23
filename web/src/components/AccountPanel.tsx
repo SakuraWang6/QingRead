@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { cloudSync, useCloudSync } from '../lib/cloud';
 import { guestLibrary } from '../lib/store';
+import { canRememberCredentials } from '../lib/nativePlatform';
 
 export function AccountPanel(){
   const cloud=useCloudSync();
@@ -37,7 +38,7 @@ export function AccountPanel(){
     <label className="field-label" htmlFor="cloud-password">{recover?'新密码':'密码'}</label>
     <input id="cloud-password" className="text-input" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete={register||recover?'new-password':'current-password'} minLength={10} maxLength={128} required/>
     {(register||recover)&&<><label className="field-label" htmlFor="cloud-confirm">确认密码</label><input id="cloud-confirm" className="text-input" type="password" value={confirmation} onChange={e=>setConfirmation(e.target.value)} autoComplete="new-password" minLength={10} maxLength={128} required/></>}
-    <label className="field-label"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> 在此设备保持登录</label>
+    {canRememberCredentials()?<label className="field-label"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> 在此设备保持登录</label>:<p className="muted">当前版本仅保留本次登录，重新打开后请登录。</p>}
     {(error||cloud.error)&&<p className="error-banner" role="alert">{error||cloud.error}</p>}
     <button className="primary-button" disabled={cloud.busy||submitting} type="submit">{cloud.busy||submitting?'请稍候…':recover?'重置密码并登录':register?'注册并登录':'登录'}</button>
     <button className="text-button" type="button" disabled={submitting||cloud.busy} onClick={()=>{setRegister(recover?false:!register);setRecover(false);setError('');}}>{register||recover?'返回登录':'没有账号，创建一个'}</button>

@@ -32,13 +32,14 @@ Android WebView 的 origin 是 `https://localhost`，因此只对这个公开 JS
 
 ## 生成与验证
 
-唯一说明源是 `App/Resources/AppInfo.json`。生成器读取三端真实版本配置：
+唯一说明源是 `App/Resources/AppInfo.json`。生成器读取平台真实版本配置：
 
 - iPhone：`Config/App.xcconfig` 的版本和构建号。
 - Web：`web/package.json` 的版本。
 - Android：`web/android/app/build.gradle` 的版本和 versionCode。
+- HarmonyOS（工程存在时）：`harmony/AppScope/app.json5` 的版本和 versionCode；只记录版本，不提供 HAP 下载项。构建与签名边界见[鸿蒙构建说明](harmony-build.md)。
 
-三端必须与 AppInfo 当前版本一致。许可资源 `App/Resources/ProjectLicense.txt` 必须与根 `LICENSE` 逐字一致；第三方许可仍单独保留。生成器使用 Python 标准库，不读取个人配置、服务器 IP 或签名私钥。
+各平台必须与 AppInfo 当前版本一致。许可资源 `App/Resources/ProjectLicense.txt` 必须与根 `LICENSE` 逐字一致；第三方许可仍单独保留。生成器使用 Python 标准库，不读取个人配置、服务器 IP 或签名私钥。
 
 在仓库根目录运行：
 
@@ -47,7 +48,7 @@ python3 -m unittest discover -s scripts -p 'test_release_manifest.py' -v
 python3 scripts/generate-release-manifest.py
 ```
 
-默认原子生成 `web/public/releases.json`，三端都有版本与更新说明，但 Android 没有 `artifact`。默认发布时间取当前版本日志日期的 `00:00:00+08:00`，相同输入得到相同文件；正式发布可用 `--published-at` 显式指定带时区的 ISO 时间。`npm run build` 和本地网页开发入口会先生成清单，再准备 PDF 资源。
+默认原子生成 `web/public/releases.json`，各平台都有版本与更新说明，但不生成安装包 `artifact`。默认发布时间取当前版本日志日期的 `00:00:00+08:00`，相同输入得到相同文件；正式发布可用 `--published-at` 显式指定带时区的 ISO 时间。`npm run build` 和本地网页开发入口会先生成清单，再准备 PDF 资源。
 
 生成含安装包的部署专用清单时，提供已签名的真实 APK、精确版本 URL 和私有输出目录：
 

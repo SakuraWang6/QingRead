@@ -2,22 +2,25 @@
 
 [文档导航](README.md) · [开发与验证](development.md)
 
-更新于 2026-10-23。当前源码为 0.11.0：iPhone build 15、Android versionCode 11；交付验证见[验证记录](verification.md)。
+更新于 2026-10-23。当前源码为 0.11.0：iPhone build 15、Android versionCode 11、HarmonyOS versionCode 1；交付验证见[验证记录](verification.md)。
 
 ## 客户端与服务端
 
-清读有两个界面实现：iPhone 使用 SwiftUI 与 UIKit，Web 使用 React 与 TypeScript，Android 通过 Capacitor 8 复用 Web 界面。三端都支持书架、搜书、分类、章节阅读、文件导入和可选账号同步；听书与系统集成的差异见 [Web](../web/README.md)、[Android](../web/android/README.md) 和 [离线语音](offline-voice.md)。
+清读有两个界面实现：iPhone 使用 SwiftUI 与 UIKit，Web 使用 React 与 TypeScript，Android 通过 Capacitor 8 复用 Web 界面。开发中的第四端 HarmonyOS 使用原生 ArkTS Stage 工程与 ArkWeb，打包同一套 Web 界面，目标 SDK 26，最低兼容 HarmonyOS 5.0（API 12）。现有三端支持书架、搜书、分类、章节阅读、文件导入和可选账号同步；鸿蒙版已完成官方 SDK 编译和 HarmonyOS 7 模拟器基本流程验证，尚未完成签名分发、真机或旧系统验证。平台差异见 [Web](../web/README.md)、[Android](../web/android/README.md)、[HarmonyOS](../harmony/README.md) 和 [离线语音](offline-voice.md)。
 
 | 模块 | 职责 |
 | --- | --- |
 | `Sources/ReadingCore/` | Swift 书源模型、网络传输、搜索、目录与正文解析、整本书库及导入契约 |
 | `App/` | 原生界面、持久化、阅读排版、封面缓存、语音和账号同步 |
-| `web/src/` | Web/Android 界面、IndexedDB 存储、浏览器阅读器与同步客户端 |
+| `web/src/` | Web、Android 与开发中鸿蒙版共用界面、IndexedDB 存储、阅读器与同步客户端 |
 | `web/server/` | Node 24 书源 API、账号会话、SQLite 同步、私有云文件、可选推送与云端准备 |
 | `web/src/shared/` | Web/API 共用的书源、类型与同步协议 |
 | `web/android/` | Android 壳、返回键、安全区、KeyStore、电量、前台下载服务与 WorkManager |
+| `harmony/` | ArkTS / ArkWeb 宿主、本地资源白名单、文件选择器、系统返回与只读安装身份 |
 
-Swift 与 TypeScript 书源引擎分别维护。iPhone 普通搜索与正文可直接请求来源，统一发现与后台批次下载使用配置的 API；Web/Android 通过自建 Node 服务请求已登记来源。未登录时本地阅读，登录后同步个人书架、整理状态、笔记和文件。
+Swift 与 TypeScript 书源引擎分别维护。iPhone 普通搜索与正文可直接请求来源，统一发现与后台批次下载使用配置的 API；Web、Android 与鸿蒙工程通过自建 Node 服务请求已登记来源。未登录时本地阅读，登录后同步个人书架、整理状态、笔记和文件。
+
+鸿蒙宿主将包内静态资源映射到固定 `https://localhost/` 虚拟来源，通过精确白名单拦截读取，不启动本地服务，也不代理 API。远程 API 使用普通 HTTPS 与 CORS，凭据不传入资源拦截器；只读启动元数据提供实际安装版本，不开放 JavaScriptProxy。原生文件选择器衔接已有文件导入流程，系统返回复用共用的弹层与阅读器返回栈。现已通过官方 SDK 编译，在 HarmonyOS 7.0.0（API 26）模拟器实际验证系统选择器导入 EPUB、PDF、TXT 与阅读、分类书目和封面、安装版本读取及覆盖安装后保留阅读进度；旧系统与真机仍待测试。资源和构建约定见 [HarmonyOS 工程](../harmony/README.md)与[构建说明](harmony-build.md)。
 
 ## 来源与搜索
 
@@ -45,11 +48,15 @@ iPhone 使用系统后台 URLSession 传输有限章节批次，BGAppRefresh 尝
 
 浏览器本机下载依赖页面活跃；可选账号云端准备在服务器单并发抓取，返回前台再保存正文。Web Push 使用独立订阅数据库，仅检查主动启用用户的选书，默认泛化通知，按书与账号去重限频；iPhone 需主屏幕 PWA。所有后台路径都有账号、书籍和来源校验，不靠无限保活。
 
+鸿蒙首版未接系统通知或后台任务，不启用 PWA 推送及 Android 插件。章节下载仅使用前台流程或已有云端准备；前后台事件尽力保存阅读位置并暂停前台任务，不提供后台持续运行保证。
+
 ## 账号与文件同步
 
 客户端按账号隔离本地存储，登录或切换账号不会自动合并未登录书架。服务端通过 Bearer 会话确定账号归属，使用 SQLite 保存书架与变更记录，原文件放在私有目录；书籍 ID 或文件哈希本身不提供访问权限。
 
 书架操作持久化排队并按操作 ID 去重，服务端修订号处理分页与删除墓碑。进度、书架整理及逐条笔记分别合并；来源切换需要当前修订号，旧源位置不能回滚新源。文件使用 SHA-256 校验并按需下载，章节缓存与语音模型不做书架同步。恢复码仅存哈希，修改或恢复密码撤销旧会话。身份、冲突与配额见 [云同步](cloud-sync.md)。
+
+鸿蒙尚未接入系统加密会话存储，登录与访问码只保留当前会话，不提供持久登录。文件导出也尚未接原生保存能力，界面禁用备份导出；文件导入已在 HarmonyOS 7 模拟器实际验证，云文件同步沿用共用逻辑，鸿蒙端账号与云文件链路仍需单独验证。
 
 ## 听书与依赖
 
@@ -61,10 +68,12 @@ iPhone 使用系统后台 URLSession 传输有限章节批次，BGAppRefresh 尝
 
 ## 版本与使用说明
 
-「设置 → 关于清读」使用随客户端打包的 `App/Resources/AppInfo.json` 提供更新日志与使用说明，许可正文也可离线阅读。三端检查独立的公开静态版本清单，不依赖 API 服务版本或账号。iPhone 与 Android 显示实际安装版本；Web 沿用等待新 worker、明确确认再更新的流程。发布清单生成与安装边界见 [客户端更新](app-updates.md)。
+「设置 → 关于清读」使用随客户端打包的 `App/Resources/AppInfo.json` 提供更新日志与使用说明，许可正文也可离线阅读。客户端检查独立的公开静态版本清单，不依赖 API 服务版本或账号。iPhone 与 Android 显示实际安装版本；Web 沿用等待新 worker、明确确认再更新的流程。鸿蒙通过只读启动元数据读取系统 BundleInfo 版本；缺少鸿蒙发布条目时明确提示尚未发布，不使用 Web 版本代替，也不提供 APK 或自动安装 HAP 入口。发布清单生成与安装边界见 [客户端更新](app-updates.md)。
 
 ## 构建、部署与验证
 
 Xcode 工程由仓库内 Python 脚本生成，签名配置仅保存在忽略的本地文件。Web 与 Android 共用 TypeScript 检查、测试和构建；公开 CI 使用临时 Android 调试签名，个人分发包在私有环境使用固定证书。
+
+鸿蒙使用官方 SDK 26 配套工具链；打包脚本生成根路径 Web 资源和校验清单，生成物、SDK 路径及签名文件不提交。当前已实际编译未签名 HAP，并在 HarmonyOS 7 模拟器安装运行及验证覆盖安装保留数据；未做鸿蒙真机与旧系统验证，工具链与安装边界见 [HarmonyOS 构建](harmony-build.md)。
 
 生产部署将静态 Web 与 API 放进限额 Node 容器，经独立 HTTPS 代理访问，账号数据库、原文件和证书均在镜像外持久化。变更只更新清读项目，保留上一兼容镜像和数据备份。运行入口见 [开发指南](development.md)、[部署维护基线](../web/deploy/DEPLOYMENT.md)；已测设备与未测范围见 [验证记录](verification.md)。

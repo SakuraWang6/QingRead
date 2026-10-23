@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isAndroidApp } from '../lib/android';
+import { isHarmonyApp } from '../lib/harmony';
 import { nativeBackground } from '../lib/androidBackground';
 import { apiBase } from '../lib/api';
 import { cloudSync, useCloudSync } from '../lib/cloud';
@@ -20,6 +21,7 @@ export function NotificationSettings(){
       if(library!==owner)return;localStorage.setItem(nativeNotificationKey(owner.profile),String(next));setEnabled(next);
     }catch(e){setError(e instanceof Error?e.message:'通知设置失败');}finally{setBusy(false);}
   }
+  if(isHarmonyApp())return <div className="panel-content"><h3>通知与后台</h3><p className="muted">当前鸿蒙版本暂不支持系统追更通知和本机后台下载。下载请保持应用在前台；云端已备妥的章节需保存到本机后才能离线阅读。</p></div>;
   if(isAndroidApp())return <div className="panel-content"><h3>追更通知</h3><div className="switch-row"><span>书架更新提醒</span><button className={`toggle ${enabled?'on':''}`} role="switch" aria-label="追更通知" aria-checked={enabled} disabled={busy} onClick={()=>void toggle()}><span/></button></div><p className="muted">联网时由系统定期检查，省电模式可能延后。</p>{error&&<p role="alert">{error}</p>}</div>;
   return <PushNotificationsPanel auth={cloud.session?{apiAddress:apiBase(),session:cloud.session}:null} books={state.shelf.map(e=>e.book).filter(book=>!state.disabledSourceIDs.includes(book.sourceID))} onSync={()=>cloudSync.sync()}/>;
 }

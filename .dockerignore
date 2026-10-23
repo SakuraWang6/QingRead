@@ -11,6 +11,9 @@
 !Config/App.xcconfig
 !scripts/
 !scripts/generate-release-manifest.py
+!harmony/
+!harmony/AppScope/
+!harmony/AppScope/app.json5
 !web/
 !web/Dockerfile
 !web/package.json

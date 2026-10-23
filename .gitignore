@@ -45,3 +45,19 @@ web/deploy/app-data/
 web/deploy/caddy-data/
 web/deploy/caddy-config/
 web/deploy/downloads/
+
+# HarmonyOS toolchain, generated assets and personal signing configuration
+harmony/**/build/
+harmony/**/.hvigor/
+harmony/**/oh_modules/
+harmony/**/node_modules/
+harmony/local.properties
+harmony/signing-configs.json5
+harmony/entry/src/main/resources/rawfile/web/
+harmony/entry/src/main/resources/rawfile/qingread-assets.json
+harmony/entry/src/main/resources/rawfile/.qingread-*
+*.hap
+*.app
+*.p7b
+*.cer
+*.csr

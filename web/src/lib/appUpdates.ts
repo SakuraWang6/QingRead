@@ -1,8 +1,8 @@
-export type UpdatePlatform = 'ios' | 'web' | 'android';
-export interface ClientIdentity { platform: 'web' | 'android'; version: string; build?: string }
+export type UpdatePlatform = 'ios' | 'web' | 'android' | 'harmony';
+export interface ClientIdentity { platform: 'web' | 'android' | 'harmony'; version: string; build?: string }
 export interface ReleaseArtifact { url: string; sha256: string; size: number }
 export interface PlatformRelease { version: string; build?: number; notes: string[]; artifact?: ReleaseArtifact }
-export interface ReleaseManifest { schemaVersion: 1; publishedAt: string; platforms: Record<UpdatePlatform, PlatformRelease> }
+export interface ReleaseManifest { schemaVersion: 1; publishedAt: string; platforms: Record<Exclude<UpdatePlatform, 'harmony'>, PlatformRelease> & { harmony?: PlatformRelease } }
 const invalid = () => new Error('版本信息格式无效，请稍后重试');
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 function versionParts(version: string): number[] {
@@ -26,14 +26,14 @@ export function compareRelease(current: Pick<ClientIdentity, 'version' | 'build'
   }
   return current.build === undefined ? 0 : Math.sign(buildNumber(release.build) - buildNumber(current.build));
 }
-export function resolveManifestURL(platform: 'web' | 'android', baseURL: string, pageURL: string, apiAddress: string, manifestPath: string): string {
+export function resolveManifestURL(platform: ClientIdentity['platform'], baseURL: string, pageURL: string, apiAddress: string, manifestPath: string): string {
   if (platform === 'web') {
     const page = new URL(pageURL), url = new URL('releases.json', new URL(baseURL, page));
     if (url.origin !== page.origin || !['https:', 'http:'].includes(url.protocol)) throw invalid();
     return url.href;
   }
   const server = new URL(apiAddress);
-  if (server.protocol !== 'https:' || server.username || server.password || !manifestPath.startsWith('/') || manifestPath.startsWith('//')) throw new Error('检查更新需要有效的 HTTPS 服务器');
+  if (server.protocol !== 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(server.hostname) || server.hostname.endsWith('.localhost') || server.username || server.password || !manifestPath.startsWith('/') || manifestPath.startsWith('//')) throw new Error('检查更新需要有效的 HTTPS 服务器');
   const url = new URL(manifestPath, server.origin);
   if (url.origin !== server.origin || url.search || url.hash) throw invalid();
   return url.href;
@@ -47,8 +47,9 @@ function artifact(value: unknown, manifestURL: string): ReleaseArtifact {
 export function parseReleaseManifest(value: unknown, manifestURL: string): ReleaseManifest {
   if (!record(value) || value.schemaVersion !== 1 || typeof value.publishedAt !== 'string' || value.publishedAt.length > 40 || !/^\d{4}-\d{2}-\d{2}T/.test(value.publishedAt) || !Number.isFinite(Date.parse(value.publishedAt)) || !record(value.platforms)) throw invalid();
   const platforms = {} as ReleaseManifest['platforms'];
-  for (const platform of ['ios', 'web', 'android'] as const) {
+  for (const platform of ['ios', 'web', 'android', 'harmony'] as const) {
     const item = value.platforms[platform];
+    if (platform === 'harmony' && item === undefined) continue;
     if (!record(item) || typeof item.version !== 'string' || !Array.isArray(item.notes) || item.notes.length > 30 || item.notes.some(note => typeof note !== 'string' || note.length > 1000)) throw invalid();
     versionParts(item.version);
     const release: PlatformRelease = { version: item.version, notes: item.notes as string[] };

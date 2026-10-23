@@ -6,6 +6,7 @@ COPY App/Resources/AppInfo.json App/Resources/ProjectLicense.txt ./App/Resources
 COPY Config/App.xcconfig ./Config/App.xcconfig
 COPY web/package.json ./web/package.json
 COPY web/android/app/build.gradle ./web/android/app/build.gradle
+COPY harmony/AppScope/app.json5 ./harmony/AppScope/app.json5
 COPY scripts/generate-release-manifest.py ./scripts/generate-release-manifest.py
 RUN python3 scripts/generate-release-manifest.py
 

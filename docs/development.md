@@ -79,6 +79,10 @@ npm run build
 
 Android 与 Web 共用界面代码。SDK、Java、Gradle、Capacitor 同步及固定签名要求见 [Android 构建指南](../web/android/README.md)。公开 CI 使用临时调试签名，个人证书、keystore 和账号数据保留在私有环境。
 
+## HarmonyOS
+
+鸿蒙版在 `harmony/` 使用 ArkTS Stage 和 ArkWeb，打包同一套 Web 阅读界面。目标 SDK 为 26.0.0 Release，最低兼容 HarmonyOS 5.0（API 12）。官方工具、离线资源生成、编译及签名步骤见 [HarmonyOS 构建指南](harmony-build.md)；系统能力与未验证项见 [原生工程说明](../harmony/README.md)。当前尚无可安装的已签名 HAP。
+
 ## 验证与维护
 
 运行命令、已完成检查和设备限制分别保留在上述指南与 [验证记录](verification.md)。清理缓存前先阅读 [维护说明](maintenance.md)，保留当前签名应用、续签基线、电子书与账号数据。

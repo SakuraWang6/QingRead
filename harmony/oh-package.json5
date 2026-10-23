@@ -1,0 +1,8 @@
+{
+  "modelVersion": "26.0.0",
+  "name": "qingread-harmony",
+  "version": "0.11.0",
+  "description": "清读 HarmonyOS 原生容器",
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -71,6 +71,38 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(first["platforms"]["ios"]["build"], "15")
         self.assertEqual(first["platforms"]["android"]["build"], "11")
         self.assertNotIn("artifact", first["platforms"]["android"])
+        self.assertNotIn("harmony", first["platforms"])
+
+    def harmony(self, **overrides):
+        app = {"bundleName": "app.qingread.harmony", "versionName": "0.11.0", "versionCode": 1}
+        app.update(overrides)
+        return self.write("harmony/AppScope/app.json5", json.dumps({"app": app}))
+
+    def test_optional_harmony_version_has_notes_but_no_hap_download(self):
+        self.harmony(versionCode=2**31 - 1)
+        generic = release.build_manifest(self.root)
+        harmony = generic["platforms"]["harmony"]
+        self.assertEqual(harmony, {"version": "0.11.0", "build": "2147483647", "notes": self.info["releases"][0]["changes"]})
+        with mock.patch.object(release, "verify_apk_signature"):
+            signed = self.artifact(self.apk())
+        self.assertIn("artifact", signed["platforms"]["android"])
+        self.assertEqual(signed["platforms"]["harmony"], harmony)
+
+    def test_invalid_harmony_identity_version_and_build_are_rejected(self):
+        invalid = [{"bundleName": "another.app"}, {"versionName": "0.10.1"}, {"versionName": None},
+                   *({"versionCode": value} for value in [None, True, False, "1", 1.5, 0, -1, 2**31])]
+        for values in invalid:
+            with self.subTest(values=values):
+                self.harmony(**values)
+                with self.assertRaises(release.ManifestError):
+                    release.build_manifest(self.root)
+
+    def test_harmony_metadata_requires_a_standard_json_app_object(self):
+        for value in ['{"app": {/* comment */}}', '{"app": {"versionCode": 1,}}', '[]', '{}', '{"app": []}']:
+            with self.subTest(value=value):
+                self.write("harmony/AppScope/app.json5", value)
+                with self.assertRaises(release.ManifestError):
+                    release.build_manifest(self.root)
 
     def test_shared_license_and_actual_repository_versions_are_consistent(self):
         info, versions, _, _, _ = release.release_inputs(SCRIPT.resolve().parents[1])

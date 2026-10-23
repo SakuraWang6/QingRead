@@ -5,6 +5,7 @@ import type { Book, Chapter, SourceSwitchPlan } from '../shared/types';
 import { api } from '../lib/api';
 import { cloudSync } from '../lib/cloud';
 import { isAndroidApp } from '../lib/android';
+import { isHarmonyApp } from '../lib/harmony';
 import { library, useLibrary } from '../lib/store';
 import { useAndroidBack } from '../lib/android';
 import './ReadingWorkflows.css';
@@ -147,6 +148,7 @@ export function DownloadManager({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('');
   async function action(run: () => Promise<void>) { try { setError(''); await run(); } catch (reason) { setError(errorMessage(reason)); } }
   return <WorkflowDialog title="下载管理" onClose={onClose}>
+    {isHarmonyApp() && <p className="workflow-hint">本机下载请保持前台；云端已备妥的章节需保存到本机才能离线阅读。</p>}
     {error && <p className="workflow-error" role="alert">{error}</p>}
     {!downloads.length ? <p className="workflow-empty">暂无下载任务</p> : <div className="workflow-jobs">{downloads.map(job => <article className="workflow-job" key={job.id}>
       <div className="workflow-job-heading"><strong>{job.bookTitle}</strong><span>{job.engine==='server'&&job.status==='completed'&&!job.storedOnDevice?'云端已备妥':job.engine==='server'&&job.status==='running'?'云端准备中':downloadLabels[job.status]}</span></div>

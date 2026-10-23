@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { registerPlugin } from '@capacitor/core';
 import { apiBase } from './api';
 import { isAndroidApp } from './android';
+import { isHarmonyApp } from './harmony';
 import { disablePush, cancelPendingPushChanges } from './pushNotifications';
 import { guestLibrary, library, switchLibraryProfile } from './store';
 import type { Book } from '../shared/types';
@@ -48,6 +49,7 @@ export class CloudSync {
       this.address=apiBase();
       const native=isAndroidApp()?(await secureSession.load()).value:null;
       this.requireAccount(revision);
+      if(isHarmonyApp())localStorage.removeItem(storageKey);
       const raw=sessionStorage.getItem(storageKey)||native||localStorage.getItem(storageKey);
       this.remembered=Boolean(native||localStorage.getItem(storageKey));
       const saved:SavedSession|null=raw?JSON.parse(raw):null;
@@ -175,6 +177,7 @@ export class CloudSync {
   }
   async mergeGuest(){if(!this.state.session)throw new Error('请先登录');await library.mergeFrom(guestLibrary);await this.sync();}
   private async renewedSession(session:CloudSession,remember:boolean,revision:number){
+    remember=remember&&!isHarmonyApp();
     await this.sessionTransition(async()=>{
       this.requireAccount(revision);
       const saved=JSON.stringify({address:this.address,session});sessionStorage.setItem(storageKey,saved);localStorage.removeItem(storageKey);

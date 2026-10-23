@@ -11,6 +11,7 @@
     "start": "tsx server/index.ts",
     "test": "vitest run",
     "android:sync": "npm run build && cap sync android",
+    "harmony:sync": "npm run build && python3 ../scripts/prepare-harmony.py --web-dist dist",
     "prepare:assets": "node scripts/copy-pdf-assets.mjs",
     "predev:web": "python3 ../scripts/generate-release-manifest.py && npm run prepare:assets",
     "prebuild": "python3 ../scripts/generate-release-manifest.py && npm run prepare:assets"

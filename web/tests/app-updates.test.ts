@@ -15,8 +15,18 @@ describe('client release manifests', () => {
   it('uses the Web scope or configured Android HTTPS service origin, never a bundled manifest', () => {
     expect(resolveManifestURL('web', '/qingread/', 'https://read.example/other/', '', '/ignore.json')).toBe(address);
     expect(resolveManifestURL('android', '/', 'https://localhost/', 'https://read.example/api', '/qingread/releases.json')).toBe(address);
+    expect(() => resolveManifestURL('harmony', '/', 'https://localhost/', 'https://localhost/api', '/qingread/releases.json')).toThrow('HTTPS 服务器');
+    expect(() => resolveManifestURL('android', '/', 'https://localhost/', 'https://127.0.0.1/api', '/qingread/releases.json')).toThrow();
     expect(() => resolveManifestURL('android', '/', 'https://localhost/', 'http://read.example/api', '/qingread/releases.json')).toThrow();
     expect(() => resolveManifestURL('android', '/', 'https://localhost/', 'https://user:pass@read.example/api', '/qingread/releases.json')).toThrow();
+  });
+  it('allows optional Harmony releases while keeping their identity and install path separate from Android', () => {
+    expect(parseReleaseManifest(feed(), address).platforms.harmony).toBeUndefined();
+    const value = { ...feed(), platforms: { ...feed().platforms, harmony: { version: '0.11.0', build: 1, notes: ['鸿蒙'] } } };
+    expect(parseReleaseManifest(value, address).platforms.harmony).toEqual(value.platforms.harmony);
+    expect(resolveManifestURL('harmony', '/', 'https://localhost/', 'https://read.example/api', '/qingread/releases.json')).toBe(address);
+    expect(() => parseReleaseManifest({ ...value, platforms: { ...value.platforms, harmony: { ...value.platforms.harmony, artifact: { url: '/downloads/app.apk', sha256: 'a'.repeat(64), size: 10 } } } }, address)).toThrow();
+    expect(() => parseReleaseManifest({ ...value, platforms: { ...value.platforms, harmony: { version: '0.11.0', notes: [] } } }, address)).toThrow();
   });
   it('allows a complete same-origin download artifact and permits releases without an APK', () => {
     expect(parseReleaseManifest(feed(), address).platforms.android.artifact).toBeUndefined();

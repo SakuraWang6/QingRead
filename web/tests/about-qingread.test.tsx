@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://localhost/"}
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,8 +20,20 @@ beforeEach(async () => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(<AboutQingRead/>));
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); delete (navigator as unknown as Record<string, unknown>).serviceWorker; vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); delete (window as unknown as Record<string, unknown>).__QINGREAD_HARMONY__; delete (navigator as unknown as Record<string, unknown>).serviceWorker; vi.unstubAllGlobals(); vi.clearAllMocks(); });
 describe('offline about page and Android update entry', () => {
+  it('shows Harmony identity and never substitutes another platform when its release is missing', async () => {
+    native.android = false;
+    Object.defineProperty(window, '__QINGREAD_HARMONY__', { configurable: true, value: { bridgeVersion: 1, version: '0.11.0', build: '1' } });
+    await act(async () => root.render(<AboutQingRead key="harmony"/>));
+    expect(host.textContent).toContain('HarmonyOS 0.11.0 (1)');
+    await click('检查'); expect(host.textContent).toContain('当前服务尚未发布鸿蒙版本信息');
+    expect(host.textContent).not.toContain('当前已是最新版本'); expect(host.textContent).not.toContain('更新网页'); expect(host.querySelector('a[href$=".apk"]')).toBeNull();
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...feed(), platforms: { ...feed().platforms, harmony: { version: '0.11.0', build: 2, notes: ['鸿蒙更新'] } } })));
+    await click('检查'); expect(host.textContent).toContain('发现新版本 0.11.0 (2)'); expect(host.textContent).toContain('同一签名的新 HAP');
+    expect(host.querySelector('a[href$=".hap"]')).toBeNull();
+    await click('使用说明'); expect(host.textContent).not.toContain('APK'); expect(host.textContent).not.toContain('iPhone 自签版');
+  });
   it('shows the actual installed build and leaves checking behind a user action', async () => {
     expect(host.textContent).toContain('Android 0.10.1 (500)'); expect(fetch).not.toHaveBeenCalled();
     await click('检查'); expect(host.textContent).toContain('发现新版本 0.10.1 (501)');

@@ -39,6 +39,17 @@ beforeEach(()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.clearAllMocks();});
 
 describe('cloud client account boundaries',()=>{
+  it('keeps Harmony login in session storage even when remember was requested', async()=>{
+    vi.stubGlobal('window', { location: { origin: 'https://localhost' }, navigator: { userAgent: 'QingReadHarmony/1' }, __QINGREAD_HARMONY__: { bridgeVersion: 1, version: '0.11.0', build: '1' } });
+    localStorage.setItem('qingread.cloud-session.v1', JSON.stringify({address:'https://reader.test/api',session:session('b')}));
+    const cloud=new CloudSync(); await cloud.initialize();
+    expect(cloud.getSnapshot().session).toBeNull(); expect(localStorage.getItem('qingread.cloud-session.v1')).toBeNull();
+    await cloud.login('a','password',false,true);
+    expect(cloud.getSnapshot().session?.user.id).toBe('a');
+    expect(sessionStorage.getItem('qingread.cloud-session.v1')).toContain('reader-a');
+    expect(localStorage.getItem('qingread.cloud-session.v1')).toBeNull(); expect(context.native.save).not.toHaveBeenCalled();
+    await cloud.logout();
+  });
   it('does not let a late login replace the account chosen after logout',async()=>{
     const cloud=new CloudSync(),response=deferred<Response>();await cloud.initialize();
     fetcher.mockImplementationOnce(()=>response.promise);const oldLogin=cloud.login('a','password',false,true).catch(error=>error);

@@ -1,10 +1,11 @@
 import type { Book, Category, Chapter, ChapterContent, DiscoverySection, SearchResponse, SourceDefinition } from '../shared/types';
-import { androidServerIssue, isAndroidApp } from './android';
+import { androidServerIssue } from './android';
+import { isNativeApp } from './nativePlatform';
 import { authenticationRequiredEvent, serverConnectionStore, ServerAuthenticationError } from './connection';
 
 export function apiBase(): string {
   const configured = localStorage.getItem('qingread.apiBase')?.trim().replace(/\/+$/, '') || import.meta.env.VITE_API_BASE?.replace(/\/+$/, '') || '';
-  if (isAndroidApp()) { const issue = androidServerIssue(configured); if (issue) throw new Error(issue); }
+  if (isNativeApp()) { const issue = androidServerIssue(configured); if (issue) throw new Error(issue); }
   return serverConnectionStore().apiAddress();
 }
 function headers(address: string, json = false): HeadersInit {

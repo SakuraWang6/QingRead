@@ -1,3 +1,5 @@
+import { useBodyScrollLock } from '../lib/bodyScrollLock';
+import { harmonyBackgroundEvent, isHarmonyApp } from '../lib/harmony';
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, List, Settings2, Headphones, Play, Pause, X, Moon, Sun, LoaderCircle, Download, Search, RefreshCw } from 'lucide-react';
 import type { Book, Chapter, ChapterContent, ReaderSettings, ReadingTheme } from '../shared/types';
@@ -131,11 +133,8 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   }, []);
   useAndroidBack(() => { if (workflow) { setWorkflow(null); if(workflow==='notes'){setSelection(undefined);window.getSelection()?.removeAllRanges();} return true; } if (panel) setPanel(null); else close(); return true; }, 300);
 
-  useEffect(() => {
-    const original = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = original; speech.current.stop(); };
-  }, []);
+  useBodyScrollLock();
+  useEffect(() => () => speech.current.stop(), []);
 
   useEffect(() => () => cancelParagraphPress(), [currentChapter?.id, settings.turnMode, panel, workflow]);
 
@@ -287,7 +286,9 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     const save = () => { if (currentChapter && content?.chapter.id === currentChapter.id) void library.savePosition(book, currentChapter, text.length ? anchorRef.current / text.length : 0, anchorRef.current); };
     window.addEventListener('pagehide', save);
     document.addEventListener('visibilitychange', save);
-    return () => { save(); window.removeEventListener('pagehide', save); document.removeEventListener('visibilitychange', save); };
+    const background = () => { if (isHarmonyApp()) { save(); speech.current.pause(); } };
+    window.addEventListener(harmonyBackgroundEvent, background);
+    return () => { save(); window.removeEventListener('pagehide', save); document.removeEventListener('visibilitychange', save); window.removeEventListener(harmonyBackgroundEvent, background); };
   }, [currentChapter?.id, content]);
 
   useEffect(() => {
@@ -460,7 +461,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   }, [content, loading]);
 
   useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
+    if (isHarmonyApp() || !('mediaSession' in navigator)) return;
     const session = navigator.mediaSession;
     if (typeof MediaMetadata !== 'undefined') session.metadata = new MediaMetadata({ title: currentChapter?.title || book.title, artist: book.author, album: book.title });
     const actions: [MediaSessionAction, () => void][] = [
@@ -470,7 +471,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     for (const [action, handler] of actions) { try { session.setActionHandler(action, handler); } catch { /* Device-dependent media action. */ } }
     return () => { for (const [action] of actions) { try { session.setActionHandler(action, null); } catch {} } };
   }, [currentChapter?.id]);
-  useEffect(() => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = speechState.speaking ? speechState.paused ? 'paused' : 'playing' : 'none'; }, [speechState]);
+  useEffect(() => { if (!isHarmonyApp() && 'mediaSession' in navigator) navigator.mediaSession.playbackState = speechState.speaking ? speechState.paused ? 'paused' : 'playing' : 'none'; }, [speechState]);
 
   function openWorkflow(value: 'source'|'download'|'manager'|'notes') {
     speech.current.pause(); setPanel(null); setControls(false); setWorkflow(value);
@@ -555,7 +556,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
           <div className="reader-playback"><button onClick={() => { const previous = Math.max(0, text.lastIndexOf('\n', Math.max(0, anchorRef.current - 2))); moveToOffset(previous); if (speech.current.speaking) { speech.current.stop(); startSpeech(); } }} aria-label="上一段"><ChevronLeft/></button><button className="reader-play-button" disabled={!ReaderSpeech.supported || !content} onClick={() => { if (!speechState.speaking) startSpeech(); else if (speechState.paused) speech.current.resume(); else speech.current.pause(); }}>{speechState.speaking && !speechState.paused ? <Pause/> : <Play/>}<span>{speechState.speaking && !speechState.paused ? '暂停' : speechState.paused ? '继续' : '开始听书'}</span></button><button onClick={() => { const next = text.indexOf('\n', anchorRef.current + 1); moveToOffset(next < 0 ? text.length : next + 1); if (speech.current.speaking) { speech.current.stop(); startSpeech(); } }} aria-label="下一段"><ChevronRight/></button></div>
           <label>定时停止</label><div className="reader-sleep-options">{([0,15,30,60,'chapter'] as const).map(value=><button key={value} className={sleepMode===value?'active':''} onClick={()=>setSleepMode(value)}>{value==='chapter'?'本章结束':value?`${value} 分钟`:'关闭'}</button>)}</div>
           {speechState.speaking && <button className="reader-stop-speech" onClick={() => speech.current.stop()}>结束听书</button>}
-          {!ReaderSpeech.supported && <p role="status" className="reader-muted">这个浏览器暂不支持听书，请换用 Safari 或 Chrome。</p>}
+          {!ReaderSpeech.supported && <p role="status" className="reader-muted">当前设备暂未提供可用的听书接口。</p>}
         </div>}
       </section>
     </div>}

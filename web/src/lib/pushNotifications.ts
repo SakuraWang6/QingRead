@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { isNativeApp } from './nativePlatform';
 import type { CloudSession } from '../shared/sync';
 
 export interface PushAuth { apiAddress: string; session: CloudSession }
@@ -7,7 +7,7 @@ export interface PushStatus extends PushConfiguration { devices: number; subscri
 let generation = 0;
 export function cancelPendingPushChanges() { generation++; }
 export function pushSupport(): { supported: boolean; reason: string } {
-  if (Capacitor.isNativePlatform()) return { supported: false, reason: '请在网页版开启推送。' };
+  if (isNativeApp()) return { supported: false, reason: '请在网页版开启推送。' };
   const installed = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
   const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
   if (appleMobile && !installed) return { supported: false, reason: '先将清读添加到主屏幕，再从图标打开。' };
@@ -29,7 +29,7 @@ export const pushStatus = (auth: PushAuth) => request<PushStatus>(auth, 'status'
 export const savePushBooks = (auth: PushAuth, bookIDs: string[]) => request<PushStatus>(auth, 'books', { bookIDs });
 
 async function registration(): Promise<ServiceWorkerRegistration | undefined> {
-  if (!('serviceWorker' in navigator)) return undefined;
+  if (isNativeApp() || !('serviceWorker' in navigator)) return undefined;
   const scope = new URL(import.meta.env.BASE_URL, window.location.href).href;
   const value = await navigator.serviceWorker.getRegistration(scope);
   // A previous root worker or another application on a shared origin must not
