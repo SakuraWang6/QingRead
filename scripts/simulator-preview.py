@@ -8,6 +8,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOT_TIMEOUT = 300
+COLD_BOOT_TIMEOUT = 600
+SHUTDOWN_TIMEOUT = 120
 ERROR_OUTPUT_LIMIT = 4000
 
 
@@ -85,11 +87,15 @@ def prepare_simulator(runtime, device, directory, runner=run):
     udid = device["udid"]
     record("Selected simulator " + json.dumps({"runtime": runtime, "name": device["name"],
                                               "udid": udid, "initialState": device["state"]}))
-    if device["state"] != "Booted":
+    cold_start = device["state"] != "Booted"
+    if cold_start:
         command("boot", udid, timeout=60)
     for attempt in range(2):
         try:
-            command("bootstatus", udid, "-b", timeout=BOOT_TIMEOUT)
+            # A fresh simulator must finish Apple's first-boot data migration.
+            # Warm boots and the sole recovery retain the ordinary ready limit.
+            ready_timeout = COLD_BOOT_TIMEOUT if cold_start and attempt == 0 else BOOT_TIMEOUT
+            command("bootstatus", udid, "-b", timeout=ready_timeout)
             record(f"Simulator ready bootstatusAttempt={attempt + 1}")
             return
         except subprocess.TimeoutExpired:
@@ -97,7 +103,7 @@ def prepare_simulator(runtime, device, directory, runner=run):
                 record("Simulator bootstatus timed out twice; no further recovery attempted.")
                 raise
             record("Simulator cold start timed out; shut down and boot the same device once.")
-            command("shutdown", udid, timeout=60)
+            command("shutdown", udid, timeout=SHUTDOWN_TIMEOUT)
             command("boot", udid, timeout=60)
 
 
