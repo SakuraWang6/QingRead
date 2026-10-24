@@ -2,7 +2,20 @@
 
 免费无广告的多端阅读器，支持多源搜书、EPUB / PDF / TXT、离线阅读与自建服务器同步。提供 iPhone、Web、Android 和 HarmonyOS 测试版。
 
-[开始使用](#开始使用) · [自建服务器](web/deploy/README.md) · [文档](docs/README.md) · [反馈问题](https://github.com/SakuraWang6/QingRead/issues)
+[下载与使用](#下载与使用) · [本地运行](#开始使用) · [自建服务器](web/deploy/README.md) · [文档](docs/README.md) · [反馈问题](https://github.com/SakuraWang6/QingRead/issues)
+
+## 下载与使用
+
+| 平台 | 入口 | 当前使用方式 |
+| --- | --- | --- |
+| Android | [下载 APK](https://192.144.237.46/downloads/QingRead-Android-latest.apk) | 当前 0.12.0，约 7.3 MB；下载后按系统提示允许浏览器安装，同签名旧版可覆盖升级 |
+| Web | [打开清读](https://192.144.237.46/qingread/) | 手机、平板或电脑浏览器直接使用，无需安装 |
+| iPhone | [Xcode 安装说明](docs/development.md#iphone) | 需要 Mac、Xcode 和自己的 Apple 账号签名安装；暂未提供 App Store 或 IPA 下载 |
+| HarmonyOS · 测试版 | [构建与签名说明](docs/harmony-build.md) | 已构建未签名 HAP，需用 DevEco Studio 配置自己的签名后安装真机；暂未提供可直接安装的签名包 |
+
+Android 也可下载[固定版本 0.12.0](https://192.144.237.46/downloads/QingRead-Android-0.12.0.apk)，运行需要 Android System WebView 125 或以上。iPhone 和鸿蒙暂不安装 App 时，也可以使用上方 Web；iPhone 可在 Safari 中选择「分享 → 添加到主屏幕」。
+
+源码仓库不提交 APK、HAP、IPA 或 `.app` 构建产物，也没有附带个人签名证书。安卓安装包通过上方链接提供；鸿蒙本地未签名包目前仅在官方模拟器验证，不能直接转发给朋友在任意手机安装。
 
 ## 界面预览
 
@@ -65,15 +78,15 @@ npm run dev
 
 ### 安装到手机
 
-- **iPhone**：用 Xcode 打开 `QingRead.xcodeproj`，选择模拟器运行；真机安装需配置自己的 Apple Team，免费个人签名通常 7 天有效。见 [iPhone 构建](docs/development.md#iphone) 与 [签名和续签](docs/sideloading.md)。
-- **Android**：按 [Android 指南](web/android/README.md) 构建 APK，或使用仓库的 Android debug APK 工作流。长期分发需自行保管固定签名。
-- **HarmonyOS（测试版）**：使用官方 DevEco Studio / Command Line Tools 打开 `harmony/`，生成 Web 资源并配置自己的签名；见[构建说明](docs/harmony-build.md)。
+- **iPhone**：在 Mac 用 Xcode 打开 `QingRead.xcodeproj`，选择自己的 Apple Team，连接 iPhone，按提示启用开发者模式后运行。模拟器无需真机签名；免费个人签名通常 7 天有效。见 [iPhone 构建](docs/development.md#iphone) 与 [签名和续签](docs/sideloading.md)。
+- **Android**：直接使用[上方安装包](#下载与使用)。需要自行构建时，见 [Android 指南](web/android/README.md)或 [Android debug APK 工作流](https://github.com/SakuraWang6/QingRead/actions/workflows/android.yml)；CI 调试包使用临时签名，不能保证覆盖安装上方固定签名包。
+- **HarmonyOS（测试版）**：使用官方 DevEco Studio 打开 `harmony/`，生成 Web 资源；真机运行需用自己的华为开发者账号配置调试证书、Profile 和设备。当前未签名 HAP 已在 HarmonyOS 7 官方模拟器运行，真机尚未验证。见[构建与签名说明](docs/harmony-build.md)。
 
 ### 开启跨设备同步
 
-按 [部署指南](web/deploy/README.md) 自建 HTTPS 服务，让各设备连接同一服务器并登录同一账号。书架、整理状态、当前位置、书签笔记与 EPUB / PDF / TXT 原文件会同步，朋友使用独立账号即可分别保存数据。同步范围、冲突处理及备份见 [云同步说明](docs/cloud-sync.md)。
+可使用上方 Web 在线实例，也可按 [部署指南](web/deploy/README.md) 自建 HTTPS 服务。App 接入当前在线实例时，服务地址填写 `https://192.144.237.46`；各设备连接同一服务器并登录同一账号，即可同步书架、整理状态、当前位置、书签笔记与 EPUB / PDF / TXT 原文件。朋友使用独立账号即可分别保存数据。同步范围、冲突处理及备份见 [云同步说明](docs/cloud-sync.md)。
 
-项目不预设公共共享服务器；不登录时，书架和文件保存在当前设备。
+源码和自行构建的客户端不预设公共服务器地址；不登录时，书架和文件保存在当前设备。
 
 ## 书源与文件
 
