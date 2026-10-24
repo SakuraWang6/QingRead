@@ -2,6 +2,8 @@
 
 清读鸿蒙版使用 ArkTS Stage 工程和 ArkWeb，打包同一套 Web 阅读界面。已使用官方 SDK 实际编译，并在 HarmonyOS 7.0.0（API 26）本地模拟器安装、运行未签名 HAP；尚未进行鸿蒙真机或旧系统验证，也没有自动构建鸿蒙安装包的 CI。工程入口和原生能力说明见 [harmony/README.md](../harmony/README.md)。
 
+已构建的 0.12.0 未签名 HAP 与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.0)获取。它不是可直接安装到朋友手机的发行包；真机仍需配置自己的签名，见本文[签名与发布边界](#签名与发布边界)。
+
 ## 工具链
 
 从[华为官方下载中心](https://developer.huawei.com/consumer/cn/download/)选择 macOS ARM 对应的 Command Line Tools，或安装 DevEco Studio。下载需要登录华为账号；按页面要求自行确认协议，并核对官方工具完整性校验值。Command Line Tools 包含 HarmonyOS SDK、Hvigor、ohpm 和 hdc，不需要用第三方 SDK 镜像。实测 macOS ARM 26.0.0.851 包未包含默认 `tool/node`，需通过 `DEVECO_NODE_HOME` 指向已有 Node.js 24。

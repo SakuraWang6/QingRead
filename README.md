@@ -8,14 +8,14 @@
 
 | 平台 | 入口 | 当前使用方式 |
 | --- | --- | --- |
-| Android | [下载 APK](https://192.144.237.46/downloads/QingRead-Android-latest.apk) | 当前 0.12.0，约 7.3 MB；下载后按系统提示允许浏览器安装，同签名旧版可覆盖升级 |
+| Android | [下载 APK](https://github.com/SakuraWang6/QingRead/releases/download/v0.12.0/QingRead-Android-0.12.0.apk) | 当前 0.12.0，约 7.3 MB；下载后按系统提示允许浏览器安装，同签名旧版可覆盖升级 |
 | Web | [打开清读](https://192.144.237.46/qingread/) | 手机、平板或电脑浏览器直接使用，无需安装 |
 | iPhone | [Xcode 安装说明](docs/development.md#iphone) | 需要 Mac、Xcode 和自己的 Apple 账号签名安装；暂未提供 App Store 或 IPA 下载 |
-| HarmonyOS · 测试版 | [构建与签名说明](docs/harmony-build.md) | 已构建未签名 HAP，需用 DevEco Studio 配置自己的签名后安装真机；暂未提供可直接安装的签名包 |
+| HarmonyOS · 测试版 | [下载未签名 HAP](https://github.com/SakuraWang6/QingRead/releases/download/v0.12.0/QingRead-HarmonyOS-0.12.0-unsigned.hap) · [签名说明](docs/harmony-build.md) | 需用 DevEco Studio 配置自己的签名后安装真机；暂未提供可直接安装的签名包 |
 
-Android 也可下载[固定版本 0.12.0](https://192.144.237.46/downloads/QingRead-Android-0.12.0.apk)，运行需要 Android System WebView 125 或以上。iPhone 和鸿蒙暂不安装 App 时，也可以使用上方 Web；iPhone 可在 Safari 中选择「分享 → 添加到主屏幕」。
+Android 也可使用[服务器备用下载](https://192.144.237.46/downloads/QingRead-Android-latest.apk)，运行需要 Android System WebView 125 或以上。iPhone 和鸿蒙暂不安装 App 时，也可以使用上方 Web；iPhone 可在 Safari 中选择「分享 → 添加到主屏幕」。
 
-源码仓库不提交 APK、HAP、IPA 或 `.app` 构建产物，也没有附带个人签名证书。安卓安装包通过上方链接提供；鸿蒙本地未签名包目前仅在官方模拟器验证，不能直接转发给朋友在任意手机安装。
+安装包和 SHA-256 校验文件统一放在 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.0)，不提交进源码历史；签名私钥、账号数据与个人描述文件不发布。鸿蒙未签名包目前仅在官方模拟器验证，不能直接转发给朋友在任意手机安装。
 
 ## 界面预览
 
