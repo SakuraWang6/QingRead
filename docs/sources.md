@@ -21,7 +21,7 @@
 
 ## 旧版 iPhone 补充文学书源
 
-尚未内置白鹿书院的 iPhone 版可直接导入[书源 JSON](book-sources/bailushuyuan.json)，无需逐本找网址或重装 App。在「设置 → 书源 → 导入」选择「从 JSON 文件导入」，或将 JSON 内容粘贴到「粘贴 JSON 规则」。导入后搜索《教父》，选择来源为「白鹿书院 · 外国文学」的结果；其他来源的同名网文可能属于不同作者。
+尚未内置白鹿书院的 iPhone 版可直接导入[书源 JSON](book-sources/bailushuyuan.json)，在线实例也提供[规则下载](https://192.144.237.46/qingread/book-sources/bailushuyuan.json)，无需逐本找网址或重装 App。Safari 预览文件时可通过「分享 → 存储到文件」保存。在「设置 → 书源 → 导入」选择「从 JSON 文件导入」，或将 JSON 内容粘贴到「粘贴 JSON 规则」。导入后搜索《教父》，选择来源为「白鹿书院 · 外国文学」的结果；其他来源的同名网文可能属于不同作者。
 
 新版内置此来源后无需再次导入；升级时相同 ID 的导入规则不会重复显示。Web / Android / HarmonyOS 使用服务器登记的来源，服务器更新后重新打开 App 即可取得来源列表，不能用客户端 JSON 检查代替服务器登记。
 

@@ -1,6 +1,6 @@
 # 部署维护基线
 
-当前客户端源码为 0.12.0，API 保持 0.10.0。本轮只发布静态网页、客户端包与版本清单，不更换 API 镜像、不迁移数据库、不改共享 Caddy。实际发布状态与检查记录见[项目验证](../../docs/verification.md)，上一版事实见[0.11 验证归档](../../docs/history/reader-0.11-verification.md)。
+当前客户端源码为 0.12.0，API 接口版本保持 0.10.0。客户端静态发布不需要更换 API 镜像；修改服务器书源或解析时，按本文「API 更新与连接」单独构建并仅重建清读服务，不改共享 Caddy。客户端发布状态见[项目验证](../../docs/verification.md)，新增文学来源与旧版 iPhone 导入方式见[书源说明](../../docs/sources.md)。
 
 地址示例使用 `https://read.example.com`，部署者应替换为自己的主机；仓库没有默认公共共享服务器。
 
@@ -10,7 +10,7 @@
 | --- | --- |
 | 平台 | Ubuntu、`linux/amd64` Docker 镜像 |
 | 目录与 Compose 项目 | `/srv/qingread`，项目 `qingread` |
-| API 镜像 | `qingread-web:0.10.0`，保留既有基础镜像修复与匹配锁文件的生产依赖 |
+| API 镜像 | `qingread-web:0.10.0` 基线及已验收的书源补丁；实际标签以私有 `.env` 的 `QINGREAD_IMAGE` 为准 |
 | Web 发布 | `downloads/sites/` 中的版本目录，由 `qingread-current` 指向当前版本 |
 | 共享入口 | 清读只使用 `/qingread/`；根路径空白 404，其他项目保持各自路由与端口 |
 | 私有应用入口 | `qingread:8787` |
