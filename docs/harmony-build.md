@@ -2,7 +2,7 @@
 
 清读鸿蒙版使用 ArkTS Stage 工程和 ArkWeb，打包同一套 Web 阅读界面。已使用官方 SDK 实际编译，并在 HarmonyOS 7.0.0（API 26）本地模拟器安装、运行未签名 HAP；尚未进行鸿蒙真机或旧系统验证，也没有自动构建鸿蒙安装包的 CI。工程入口和原生能力说明见 [harmony/README.md](../harmony/README.md)。
 
-已构建的 0.12.0 未签名 HAP 与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.0)获取。它不是可直接安装到朋友手机的发行包；真机仍需配置自己的签名，见本文[签名与发布边界](#签名与发布边界)。
+0.12.0 HAP 测试包与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.0)获取。测试包未签名，真机调试需配置开发者签名，见本文[签名与发布边界](#签名与发布边界)。
 
 ## 工具链
 
