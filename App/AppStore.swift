@@ -425,7 +425,10 @@ final class AppStore: ObservableObject {
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
-    private func rebuildSources() { sources = SourceDefinition.builtIn + importedSources }
+    private func rebuildSources() {
+        let builtInIDs = Set(SourceDefinition.builtIn.map(\.id))
+        sources = SourceDefinition.builtIn + importedSources.filter { !builtInIDs.contains($0.id) }
+    }
     private func persistSources() { persist(SavedSources(imported: importedSources, disabledIDs: disabledSourceIDs), name: "sources.json") }
     private func read<T: Decodable>(_ type: T.Type, name: String) throws -> T? {
         let url = root.appendingPathComponent(name)

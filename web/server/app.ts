@@ -52,7 +52,7 @@ export async function createApp(options: { token?: string; origins?: string[]; s
     reply.code(status).send({ message: error instanceof ServiceError ? error.message : statusCode === 429 ? '请求太频繁，请稍后再试。' : statusCode === 400 ? '请求参数无效。' : userError(error) });
   });
   const objectSchema = { type: 'object', required: ['book'], properties: { book: { type: 'object' }, chapter: { type: 'object' } }, additionalProperties: false } as const;
-  const searchSchema = { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 100 }, sourceIDs: { type: 'array', maxItems: 10, uniqueItems: true, items: { type: 'string', maxLength: 80 } } }, additionalProperties: false } as const;
+  const searchSchema = { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 100 }, sourceIDs: { type: 'array', maxItems: sources.length, uniqueItems: true, items: { type: 'string', maxLength: 80 } } }, additionalProperties: false } as const;
   app.get('/api/health', async () => ({ ok: true, version: '0.10.0', sources: sources.length, requiresToken: Boolean(token), syncEnabled: Boolean(options.cloud), filesEnabled: Boolean(options.files) }));
   if (options.cloud) {
     // The optional worker uses its own read-only account connection.

@@ -71,7 +71,8 @@ function image($: cheerio.CheerioAPI, row: any, selector: string, base: string |
 export function parseHTMLSearch(html: string, base: URL | string, source: SourceDefinition): Book[] {
   const c = source.html!, $ = cheerio.load(html), rows = $(c.resultSelector).toArray();
   const books = rows.flatMap(row => {
-    const title = text($, row, c.titleSelector), url = resolve($(row).find(c.linkSelector).first().attr('href'), base, source);
+    const link = $(row).is(c.linkSelector) ? $(row) : $(row).find(c.linkSelector).first();
+    const title = text($, row, c.titleSelector), url = resolve(link.attr('href'), base, source);
     return title && url ? [makeBook(source, url, title, { author: text($, row, c.authorSelector), summary: text($, row, c.summarySelector), coverURL: c.coverSelector ? image($, row, c.coverSelector, base, source) : undefined })] : [];
   });
   if (rows.length && !books.length) throw new ServiceError('来源搜索结构已变化，暂时无法解析书目。');

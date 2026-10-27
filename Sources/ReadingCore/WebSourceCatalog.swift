@@ -4,6 +4,18 @@ import Foundation
 enum WebSourceCatalog {
     static let sources: [SourceDefinition] = [
         SourceDefinition(
+            id: "bailushuyuan", name: "白鹿书院 · 外国文学",
+            summary: "外国文学作品，支持站内书名搜索。搜索页未提供作者与封面时留空。",
+            homeURL: URL(string: "https://bailushuyuan.org/")!, kind: .html,
+            html: HTMLSourceConfiguration(
+                searchURL: "/novel/traditional/categories/4/search/{query}",
+                resultSelector: "main a[title].col-6", titleSelector: ".text-truncate",
+                linkSelector: "a[href]",
+                chapterSelector: "main ol a[href^='/novel/traditional/chapters/']",
+                contentSelector: "#chaptersShowContent"
+            )
+        ),
+        SourceDefinition(
             id: "biequgei", name: "笔趣阁 · biequgei",
             summary: "网络小说来源，支持站内搜书。目录与章节由来源网站提供。",
             homeURL: URL(string: "https://www.biequgei.com/")!, kind: .html,

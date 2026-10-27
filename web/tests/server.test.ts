@@ -60,6 +60,20 @@ describe('known-source network boundary', () => {
     expect((await app.inject({method:'POST',url:'/api/search',payload:{query:'x',sourceIDs:['unknown']}})).statusCode).toBe(400);
     expect((await app.inject({method:'POST',url:'/api/search',payload:{query:'x'.repeat(101)}})).statusCode).toBe(400);
   });
+  it('accepts the full registered source list as the catalog grows', async () => {
+    const isolated = await createApp({ serveWeb: false, token: '' });
+    // Stop after request validation so this schema regression never contacts sources.
+    isolated.addHook('preHandler', async (_request, reply) => reply.send({ validated: true }));
+    try {
+      for (const url of ['/api/search', '/api/search/stream']) {
+        const accepted = await isolated.inject({ method: 'POST', url, payload: { query: '示例', sourceIDs: sources.map(source => source.id) } });
+        expect(accepted.statusCode).toBe(200);
+        expect(accepted.json()).toEqual({ validated: true });
+        const rejected = await isolated.inject({ method: 'POST', url, payload: { query: '示例', sourceIDs: Array.from({ length: sources.length + 1 }, (_, index) => `source-${index}`) } });
+        expect(rejected.statusCode).toBe(400);
+      }
+    } finally { await isolated.close(); }
+  });
 });
 describe('source parsing', () => {
   it('returns real 404s for stale PWA/PDF assets while retaining SPA routes', async () => {
@@ -80,10 +94,20 @@ describe('source parsing', () => {
       expect((await staticApp.inject('/api/not-found')).statusCode).toBe(404);
     } finally { await staticApp.close(); await rm(root, {recursive:true, force:true}); }
   });
-  it('preserves ten sources and supports classical simplified/traditional lookup', async () => {
-    expect(sources).toHaveLength(10);
+  it('includes foreign literature and supports classical simplified/traditional lookup', async () => {
+    expect(sources).toHaveLength(11);
     const result = await searchSource('紅樓夢',sourceFor('chinese-classics'));
     expect(result[0].title).toBe('红楼梦'); expect(result[0].id).toContain('chinese-classics|');
+  });
+  it('parses a book link that is itself the search result without inventing metadata', () => {
+    const source = sourceFor('bailushuyuan');
+    const html = '<main><a class="col-6" title="示例文学" href="/sample-book"><div class="text-truncate">示例文学</div></a><a href="/novel/traditional/authors/1">作者分类</a></main>';
+    const books = parseHTMLSearch(html, source.homeURL, source);
+    expect(books).toHaveLength(1);
+    expect(books[0]).toMatchObject({ title: '示例文学', author: '', url: 'https://bailushuyuan.org/sample-book', sourceID: 'bailushuyuan' });
+    expect(books[0].coverURL).toBeUndefined();
+    expect(() => parseHTMLSearch(html.replace('/sample-book', 'https://evil.example/book'), source.homeURL, source)).toThrow();
+    expect(() => validateSourceURL('https://bailushuyuan.org.evil.example/book', source.id)).toThrow();
   });
   it('decodes declared GB18030 and searches using canonical links', () => {
     const html='<meta charset="gb2312"><ul class="txt-list"><li><span class="s2"><a href="/book/9/">超神机械师</a></span><span class="s4">齐佩甲</span></li></ul>';

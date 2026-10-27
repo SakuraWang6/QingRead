@@ -7,6 +7,67 @@ import FoundationNetworking
 #endif
 
 @Suite struct SourceExpansionTests {
+    @Test func literatureSearchAcceptsAnchorCardsWithoutInventingMetadata() async throws {
+        let source = try #require(SourceDefinition.builtIn.first { $0.id == "bailushuyuan" })
+        try SourceImporter.validate(source)
+        let service = ReadingService(sources: [source], client: ExpansionStub { request in
+            let url = request.url!
+            if url.path.hasPrefix("/novel/traditional/categories/4/search/") {
+                #expect(url.lastPathComponent == "测试")
+                return expansionHTML(request, """
+                <aside><a class="col-6" title="广告书" href="/advertisement"><div class="text-truncate">广告书</div></a></aside>
+                <main><div class="card-body"><div class="row">
+                <a class="col-4" title="测试作者" href="/author"><div class="text-truncate">测试作者</div></a>
+                <a class="col-6 col-sm-4" title="测试文学" href="/literature">
+                <div class="bg-body-tertiary"></div><div class="text-truncate">测试文学</div></a>
+                </div></div></main>
+                """)
+            }
+            if url.path == "/literature" {
+                return expansionHTML(request, """
+                <a href="/novel/traditional/chapters/999">最新章节</a>
+                <main><article><ol>
+                <li><a href="/novel/traditional/chapters/42">第一节</a></li>
+                <li><a href="/novel/traditional/chapters/7">第二节</a></li>
+                <li><a href="/novel/traditional/chapters/19">第三节</a></li>
+                </ol></article><a href="/novel/traditional/chapters/999">推荐章节</a></main>
+                """)
+            }
+            #expect(url.path == "/novel/traditional/chapters/42")
+            return expansionHTML(request, """
+            <nav>上一章 下一章</nav><h1>第一节</h1>
+            <div id="chaptersShowContent"><p>测试甲段</p><p>测试乙段</p><script>advertisement()</script></div>
+            <aside>相关推荐</aside>
+            """)
+        })
+        let result = await service.search(query: "测试")
+        #expect(result.failures.isEmpty)
+        #expect(result.books.map(\.title) == ["测试文学"])
+        let book = try #require(result.books.first)
+        #expect(book.url.path == "/literature")
+        #expect(book.author.isEmpty)
+        #expect(book.coverURL == nil)
+        let chapters = try await service.chapters(for: book)
+        #expect(chapters.map(\.title) == ["第一节", "第二节", "第三节"])
+        #expect(chapters.map(\.index) == [0, 1, 2])
+        #expect(chapters.map(\.url.lastPathComponent) == ["42", "7", "19"])
+        let content = try await service.content(for: #require(chapters.first), in: book)
+        #expect(content.paragraphs == ["测试甲段", "测试乙段"])
+    }
+
+    @Test func literatureRuleCanBeImportedIntoAnExistingClient() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let sources = try SourceImporter.decode(Data(contentsOf: root.appendingPathComponent("docs/book-sources/bailushuyuan.json")))
+        let source = try #require(sources.first)
+        let builtIn = try #require(SourceDefinition.builtIn.first { $0.id == "bailushuyuan" })
+        #expect(sources.count == 1)
+        #expect(source.id == builtIn.id)
+        #expect(source.homeURL == builtIn.homeURL)
+        #expect(source.kind == builtIn.kind)
+        #expect(source.html == builtIn.html)
+    }
+
     @Test func mixedPageEncodingsUseDeclaredCharsetAndRetainConfiguredFallback() throws {
         let big5 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.big5.rawValue)))
         let search = "<meta charset='UTF-8'><h1>超神机械师</h1>"

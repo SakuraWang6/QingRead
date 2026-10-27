@@ -11,6 +11,7 @@ export class ServiceError extends Error {
 export const MAX_DOWNLOAD = 250 * 1024 * 1024;
 const MAX_PAGE = 8 * 1024 * 1024;
 export const hostRules: Record<string, string[]> = {
+  bailushuyuan: ['bailushuyuan.org'],
   biequgei: ['www.biequgei.com', 'biequgei.com'],
   woshuge: ['www.woshuge.com', 'woshuge.com'],
   canghaishuge: ['www.canghaishuge.com', 'canghaishuge.com'],
@@ -23,6 +24,20 @@ export const hostRules: Record<string, string[]> = {
   'zh-wikisource': ['zh.wikisource.org', 'upload.wikimedia.org'],
 };
 
+const vpnSyntheticNetworks = new net.BlockList();
+vpnSyntheticNetworks.addSubnet('198.18.0.0', 15, 'ipv4');
+vpnSyntheticNetworks.addSubnet('2001:2::', 48, 'ipv6');
+const globalIPv6Networks = new net.BlockList();
+globalIPv6Networks.addSubnet('2000::', 3, 'ipv6');
+const excludedIPv6Networks = new net.BlockList();
+excludedIPv6Networks.addSubnet('2001:db8::', 32, 'ipv6');
+excludedIPv6Networks.addSubnet('2001::', 32, 'ipv6');
+
+function isVPNSyntheticAddress(address: string): boolean {
+  if (net.isIPv4(address)) return vpnSyntheticNetworks.check(address, 'ipv4');
+  return net.isIPv6(address) && vpnSyntheticNetworks.check(address, 'ipv6');
+}
+
 /** Reject special-purpose, mapped IPv4, multicast and link-local addresses. */
 export function isPublicIP(address: string): boolean {
   if (net.isIPv4(address)) {
@@ -33,9 +48,8 @@ export function isPublicIP(address: string): boolean {
       (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113));
   }
   if (net.isIPv6(address)) {
-    const value = address.toLowerCase();
-    // Public global unicast only. Reject mapped IPv4 and documentation prefixes.
-    return /^[23]/.test(value) && !value.startsWith('2001:db8:') && !value.startsWith('2001:0:');
+    // Compare networks rather than spellings, including expanded IPv6 forms.
+    return globalIPv6Networks.check(address, 'ipv6') && !excludedIPv6Networks.check(address, 'ipv6') && !isVPNSyntheticAddress(address);
   }
   return false;
 }
@@ -57,9 +71,9 @@ const dnsCache = new Map<string, { address: string; family: number; expires: num
 async function publicAddresses(hostname: string): Promise<{ address: string; family: number }[]> {
   const known = dnsCache.get(hostname); if (known && known.expires > Date.now()) return [known];
   const resolved = await dns.lookup(hostname, { all: true });
-  // Desktop VPNs commonly synthesize 198.18/15 addresses. Do not whitelist those
-  // addresses: obtain a real A record over authenticated, fixed-IP DoH instead.
-  if (resolved.length && resolved.every(item => /^198\.(18|19)\./.test(item.address))) {
+  // Desktop VPNs can synthesize both benchmark ranges in one DNS answer. Never
+  // connect to them; resolve a real A record over authenticated, fixed-IP DoH.
+  if (resolved.length && resolved.every(item => isVPNSyntheticAddress(item.address))) {
     const answer = await new Promise<any>((resolve, reject) => {
       const request = https.get({ hostname: '1.1.1.1', servername: 'cloudflare-dns.com', path: '/dns-query?name=' + encodeURIComponent(hostname) + '&type=A', headers: { Accept: 'application/dns-json' } }, response => {
         const chunks: Buffer[] = []; let size = 0;

@@ -47,6 +47,106 @@ afterEach(() => {
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 const target = 'https://www.biequgei.com/novel/test.html';
 
+function mockDoH(answer: unknown, statusCode = 200, raw = false) {
+  return vi.spyOn(https, 'get').mockImplementation((...args: unknown[]) => {
+    const response = Object.assign(new PassThrough(), { statusCode, headers: {} }) as UpstreamResponse;
+    const callback = args[1] as (response: UpstreamResponse) => void;
+    const request = Object.assign(new EventEmitter(), {
+      setTimeout() { return request; },
+      destroy(error?: Error) { request.emit('error', error); return request; },
+    });
+    queueMicrotask(() => { callback(response); response.end(raw ? String(answer) : JSON.stringify(answer)); });
+    return request as never;
+  });
+}
+
+describe('public source DNS resolution', () => {
+  it.each([
+    '2001:2::e', '2001:0002:0000:0000:0000:0000:0000:000e',
+    '2001:2:0:ffff:ffff:ffff:ffff:ffff', '2001:0db8:0000:0000:0000:0000:0000:0001',
+    '2001:0000:0001:0000:0000:0000:0000:0001', '::ffff:1.1.1.1',
+  ])('rejects special IPv6 address %s regardless of spelling', async address => {
+    const { isPublicIP } = await import('../server/network');
+    expect(isPublicIP(address)).toBe(false);
+  });
+
+  it.each([
+    [{ address: '198.18.0.12', family: 4 }],
+    [{ address: '198.19.255.254', family: 4 }, { address: '2001:2::e', family: 6 }],
+    [{ address: '2001:0002:0000:0000:0000:0000:0000:000e', family: 6 }],
+  ])('resolves synthetic-only DNS answers through fixed-IP authenticated DoH: %j', async (...addresses) => {
+    vi.mocked(dns.lookup).mockResolvedValue(addresses as never);
+    const doh = mockDoH({ Answer: [{ type: 1, data: '93.184.215.14' }] });
+    const { fetchStream } = await import('../server/network');
+    const result = await fetchStream(target, 'biequgei');
+    expect(doh).toHaveBeenCalledOnce();
+    expect(doh.mock.calls[0][0]).toMatchObject({ hostname: '1.1.1.1', servername: 'cloudflare-dns.com', path: '/dns-query?name=www.biequgei.com&type=A' });
+    expect(doh.mock.calls[0][0]).not.toHaveProperty('rejectUnauthorized', false);
+    const [url, options] = vi.mocked(https.request).mock.calls[0] as unknown as [URL, { lookup: (hostname: string, options: { all: boolean }, callback: (...args: unknown[]) => void) => void }];
+    expect(url.hostname).toBe('www.biequgei.com');
+    expect(options).not.toHaveProperty('rejectUnauthorized', false);
+    const resolved = vi.fn();
+    options.lookup(url.hostname, { all: true }, resolved);
+    expect(resolved).toHaveBeenCalledWith(null, [{ address: '93.184.215.14', family: 4 }]);
+    result.stream.destroy();
+    const again = await fetchStream(target, 'biequgei');
+    again.stream.destroy();
+    expect(doh).toHaveBeenCalledOnce();
+    expect(dns.lookup).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [{ address: '198.18.0.12', family: 4 }, { address: '127.0.0.1', family: 4 }],
+    [{ address: '2001:2::e', family: 6 }, { address: '192.168.1.1', family: 4 }],
+    [{ address: '198.18.0.12', family: 4 }, { address: '1.1.1.1', family: 4 }],
+    [{ address: '198.18.0.12', family: 4 }, { address: '2001:db8::1', family: 6 }],
+    [{ address: '1.1.1.1', family: 4 }, { address: '10.0.0.1', family: 4 }],
+    [{ address: '2606:4700:4700::1111', family: 6 }, { address: '::1', family: 6 }],
+  ])('rejects other mixed DNS answers without opening DoH or a source connection: %j', async (...addresses) => {
+    vi.mocked(dns.lookup).mockResolvedValue(addresses as never);
+    const doh = mockDoH({ Answer: [{ type: 1, data: '1.1.1.1' }] });
+    const { fetchStream } = await import('../server/network');
+    await expect(fetchStream(target, 'biequgei')).rejects.toMatchObject({ statusCode: 400 });
+    expect(doh).not.toHaveBeenCalled();
+    expect(https.request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [], [{ type: 1, data: '127.0.0.1' }], [{ type: 1, data: '198.18.0.12' }],
+    [{ type: 1, data: '1.1.1.1' }, { type: 1, data: '192.168.1.1' }],
+    [{ type: 1, data: 'not-an-address' }], [{ type: 28, data: '2001:2::e' }],
+  ])('rejects unsafe or missing DoH A records without connecting: %j', async (...Answer) => {
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '198.18.0.12', family: 4 }, { address: '2001:2::e', family: 6 }] as never);
+    const doh = mockDoH({ Answer });
+    const { fetchStream } = await import('../server/network');
+    await expect(fetchStream(target, 'biequgei')).rejects.toMatchObject({ statusCode: 400 });
+    expect(doh).toHaveBeenCalledOnce();
+    expect(https.request).not.toHaveBeenCalled();
+  });
+
+  it.each([[503, false], [200, true]])('does not connect after a failed DoH response (HTTP %s, malformed %s)', async (status, malformed) => {
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '2001:2::e', family: 6 }] as never);
+    mockDoH(malformed ? '{invalid' : { Answer: [{ type: 1, data: '1.1.1.1' }] }, status, malformed);
+    const { fetchStream } = await import('../server/network');
+    await expect(fetchStream(target, 'biequgei')).rejects.toThrow('无法安全解析来源地址');
+    expect(https.request).not.toHaveBeenCalled();
+  });
+
+  it.each(['2001:4860:4860::8888', '2001:4860:4860:0:0:0:0:8888', '2606:4700:4700::1111'])('connects to ordinary public IPv6 %s without DoH', async address => {
+    vi.mocked(dns.lookup).mockResolvedValue([{ address, family: 6 }] as never);
+    const doh = mockDoH({ Answer: [] });
+    const { fetchStream, isPublicIP } = await import('../server/network');
+    expect(isPublicIP(address)).toBe(true);
+    const result = await fetchStream(target, 'biequgei');
+    const options = vi.mocked(https.request).mock.calls[0][1] as unknown as { lookup: (host: string, options: { all: boolean }, callback: (...args: unknown[]) => void) => void };
+    const resolved = vi.fn();
+    options.lookup('www.biequgei.com', { all: true }, resolved);
+    expect(resolved).toHaveBeenCalledWith(null, [{ address, family: 6 }]);
+    expect(doh).not.toHaveBeenCalled();
+    result.stream.destroy();
+  });
+});
+
 describe('bounded upstream work', () => {
   it.each([
     [undefined, 4], ['0', 1], ['99', 8], ['invalid', 4], ['3.8', 3],

@@ -1,0 +1,17 @@
+{
+  "id": "bailushuyuan",
+  "name": "白鹿书院 · 外国文学",
+  "summary": "外国文学作品，支持站内书名搜索。搜索页未提供作者与封面时留空。",
+  "homeURL": "https://bailushuyuan.org/",
+  "kind": "html",
+  "html": {
+    "searchURL": "/novel/traditional/categories/4/search/{query}",
+    "encoding": "utf8",
+    "resultSelector": "main a[title].col-6",
+    "titleSelector": ".text-truncate",
+    "linkSelector": "a[href]",
+    "chapterSelector": "main ol a[href^='/novel/traditional/chapters/']",
+    "contentSelector": "#chaptersShowContent",
+    "removeSelectors": []
+  }
+}
