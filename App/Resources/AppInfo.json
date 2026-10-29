@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "清读",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "repositoryURL": "https://github.com/SakuraWang6/QingRead",
   "feedbackURL": "https://github.com/SakuraWang6/QingRead/issues/new",
   "license": {
@@ -12,6 +12,15 @@
     "manifestPath": "/qingread/releases.json"
   },
   "releases": [
+    {
+      "version": "0.12.1",
+      "date": "2026-10-30",
+      "changes": [
+        "书架、继续阅读和其他界面文字统一使用系统字体。",
+        "iPhone 书架适配系统大字号，阅读正文字体仍可单独设置。",
+        "补充外国文学书源。"
+      ]
+    },
     {
       "version": "0.12.0",
       "date": "2026-10-24",

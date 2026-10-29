@@ -507,7 +507,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     '--reader-font-size': `${settings.fontSize}px`, '--reader-line-height': `${settings.fontSize + settings.lineSpacing}px`,
     '--reader-paragraph-gap': `${settings.paragraphSpacing}px`, '--reader-margin': `${settings.horizontalMargin}px`,
     '--reader-font-weight': settings.isBold ? '600' : '400',
-    '--reader-font-family': settings.font === 'song' ? '"Noto Serif SC", "Songti SC", "STSong", serif' : settings.font === 'rounded' ? 'ui-rounded, "PingFang SC", sans-serif' : '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif',
+    '--reader-font-family': settings.font === 'song' ? '"Noto Serif SC", "Songti SC", "STSong", serif' : settings.font === 'rounded' ? 'ui-rounded, system-ui, sans-serif' : 'var(--sans)',
   } as CSSProperties;
   const visiblePage = pages[page] ?? { start: 0, end: text.length };
   const visibleText = isScroll ? paragraphSlices(text, 0, text.length) : paragraphSlices(text, visiblePage.start, visiblePage.end);

@@ -2,7 +2,7 @@ body:has(.workflow-backdrop){overflow:hidden}
 .workflow-backdrop{position:fixed;inset:0;z-index:1200;display:flex;align-items:flex-end;justify-content:center;padding:20px 16px max(16px,env(safe-area-inset-bottom));background:#211f1a66;overscroll-behavior:contain;color:var(--ink);font:16px/1.5 var(--sans)}
 .workflow-sheet{width:min(100%,560px);max-height:85dvh;overflow:auto;overscroll-behavior:contain;background:var(--sheet);border-radius:14px;padding:18px 22px 24px;box-shadow:0 12px 60px #17140e28;outline:none}
 .workflow-header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:18px}
-.workflow-header h2{font:600 21px/1.5 var(--serif)}
+.workflow-header h2{font:600 21px/1.5 var(--sans)}
 .workflow-book{display:flex;flex-direction:column;gap:5px;margin:8px 0 20px}.workflow-book strong{font-size:18px}.workflow-book span,.workflow-target span,.workflow-hint,.workflow-job-foot{color:var(--muted);font-size:14px}
 .workflow-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;color:var(--muted)}
 .workflow-empty{padding:40px 0;text-align:center;color:var(--muted)}

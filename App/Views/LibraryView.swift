@@ -3,6 +3,7 @@ import ReadingCore
 
 struct LibraryView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var readingBook: Book?
     @State private var detailBook: Book?
     @State private var removingBook: Book?
@@ -21,24 +22,29 @@ struct LibraryView: View {
         }
     }
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: 3)
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: dynamicTypeSize.isAccessibilitySize ? 2 : 3)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack {
+                let filterLayout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                    : AnyLayout(HStackLayout())
+                filterLayout {
                     Menu {
                         Button("全部") { statusFilter = "all" }
                         ForEach(ShelfReadingStatus.allCases, id: \.self) { status in Button(statusName(status)) { statusFilter = status.rawValue } }
-                    } label: { HStack(spacing: 4) { Text(statusFilter == "all" ? "全部 \(store.shelf.count)" : statusName(ShelfReadingStatus(rawValue: statusFilter) ?? .reading)); Image(systemName: "chevron.down").font(.caption2) }.font(.system(size: 14)).foregroundStyle(Palette.ink) }
+                    } label: { HStack(spacing: 4) { Text(statusFilter == "all" ? "全部 \(store.shelf.count)" : statusName(ShelfReadingStatus(rawValue: statusFilter) ?? .reading)); Image(systemName: "chevron.down").font(.caption2) }.font(.subheadline).foregroundStyle(Palette.ink) }
                     Menu {
                         Button("全部分组") { groupFilter = "all" }
                         Button("未分组") { groupFilter = "" }
                         ForEach(store.shelfGroups, id: \.self) { group in Button(group) { groupFilter = group } }
-                    } label: { Text(groupFilter == "all" ? "分组" : groupFilter.isEmpty ? "未分组" : groupFilter).font(.system(size: 13)).foregroundStyle(Palette.secondary) }
-                    Spacer()
+                    } label: { Text(groupFilter == "all" ? "分组" : groupFilter.isEmpty ? "未分组" : groupFilter).font(.footnote).foregroundStyle(Palette.secondary) }
+                    if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                     Button(isManaging ? "完成" : "管理") { isManaging.toggle(); selectedIDs = [] }
-                        .font(.system(size: 14)).foregroundStyle(isManaging ? Palette.cinnabar : Palette.secondary)
+                        .font(.subheadline).foregroundStyle(isManaging ? Palette.cinnabar : Palette.secondary)
                         .disabled(store.shelf.isEmpty)
                 }.padding(.top, 10)
 
@@ -47,8 +53,14 @@ struct LibraryView: View {
                 if let recent = store.recentEntry, !isManaging {
                     Button { readingBook = recent.book } label: {
                         HStack(spacing: 8) {
-                            Text("继续阅读").font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.cinnabar)
-                            Text(recent.book.title).font(.system(size: 13)).foregroundStyle(Palette.ink).lineLimit(1)
+                            let layout = dynamicTypeSize.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                                : AnyLayout(HStackLayout(spacing: 8))
+                            layout {
+                                Text("继续阅读").font(.caption.weight(.medium)).foregroundStyle(Palette.cinnabar)
+                                Text(recent.book.title).font(.footnote).foregroundStyle(Palette.ink)
+                                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                            }
                             Spacer(minLength: 4)
                             Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.secondary)
                         }
@@ -61,7 +73,7 @@ struct LibraryView: View {
                     VStack(spacing: 0) {
                         QuietEmptyState(symbol: "books.vertical", title: "书架暂无书籍", message: "搜索小说后，可以加入书架。")
                         NavigationLink { SearchView() } label: {
-                            Text("去搜书").font(.system(size: 14, weight: .medium))
+                            Text("去搜书").font(.subheadline.weight(.medium))
                                 .padding(.horizontal, 28).padding(.vertical, 11)
                                 .foregroundStyle(.white).background(Palette.cinnabar, in: Capsule())
                         }.buttonStyle(.plain)
@@ -134,15 +146,16 @@ struct LibraryView: View {
                         .overlay(alignment: .topTrailing) {
                             if store.newChapterCount(for: entry.book) > 0 && !isManaging {
                                 Text("更新 \(store.newChapterCount(for: entry.book)) 章")
-                                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.white)
+                                    .font(.caption2.weight(.medium)).foregroundStyle(.white)
                                     .padding(.horizontal, 6).padding(.vertical, 4)
                                     .background(Palette.cinnabar, in: RoundedRectangle(cornerRadius: 4)).padding(4)
                             }
                         }
-                    Text(entry.book.title).font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Palette.ink).lineLimit(2, reservesSpace: true)
+                    Text(entry.book.title).font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.ink).lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2, reservesSpace: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(progressLabel(entry)).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1)
+                    Text(progressLabel(entry)).font(.caption2).foregroundStyle(Palette.secondary)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                 }
                 .contentShape(Rectangle())
             }
@@ -191,7 +204,7 @@ struct LibraryView: View {
                 Button("新建分组") { groupingIDs = selectedIDs; showGroupName = true }
             }.disabled(selectedIDs.isEmpty)
             Button("移除", role: .destructive) { confirmBatchRemoval = true }.disabled(selectedIDs.isEmpty)
-        }.font(.system(size: 13)).padding(.horizontal, 20).padding(.vertical, 16).background(Palette.paper)
+        }.font(.footnote).padding(.horizontal, 20).padding(.vertical, 16).background(Palette.paper)
     }
 
 }

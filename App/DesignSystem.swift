@@ -25,10 +25,10 @@ struct PageHeading: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Rectangle().fill(Palette.cinnabar).frame(width: 24, height: 2)
-                Text(eyebrow).font(.system(size: 11, weight: .medium, design: .monospaced))
+                Text(eyebrow).font(.caption2.weight(.medium))
                     .tracking(2).foregroundStyle(Palette.secondary)
             }
-            Text(title).font(.bookTitle(36)).foregroundStyle(Palette.ink)
+            Text(title).font(.largeTitle.weight(.semibold)).foregroundStyle(Palette.ink)
             Text(subtitle).font(.subheadline).foregroundStyle(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -46,8 +46,8 @@ struct QuietEmptyState: View {
         VStack(spacing: 10) {
             Image(systemName: symbol).font(.system(size: 30, weight: .light))
                 .foregroundStyle(Palette.secondary.opacity(0.65)).padding(.bottom, 6)
-            Text(title).font(.system(size: 17, weight: .medium)).foregroundStyle(Palette.ink)
-            Text(message).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            Text(title).font(.body.weight(.medium)).foregroundStyle(Palette.ink)
+            Text(message).font(.footnote).foregroundStyle(Palette.secondary)
                 .multilineTextAlignment(.center).lineSpacing(4)
         }
         .frame(maxWidth: .infinity)
@@ -154,14 +154,14 @@ struct BookRow: View {
         HStack(alignment: .top, spacing: 14) {
             BookSpine(book: book, compact: true)
             VStack(alignment: .leading, spacing: 6) {
-                Text(book.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.ink).lineLimit(2)
+                Text(book.title).font(.headline).foregroundStyle(Palette.ink).lineLimit(2)
                 Text(book.author.isEmpty ? "作者未标注" : book.author)
-                    .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                    .font(.caption).foregroundStyle(Palette.secondary)
                 if !book.summary.isEmpty {
-                    Text(book.summary).font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                    Text(book.summary).font(.caption).foregroundStyle(Palette.secondary)
                         .lineLimit(2)
                 }
-                Text(annotation ?? book.sourceName).font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                Text(annotation ?? book.sourceName).font(.caption2).foregroundStyle(Palette.secondary)
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
@@ -179,7 +179,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 15, weight: .medium))
+        configuration.label.font(.subheadline.weight(.medium))
             .frame(maxWidth: .infinity).padding(.vertical, 15)
             .foregroundStyle(Palette.surface)
             .background(Palette.cinnabar.opacity(configuration.isPressed ? 0.75 : 1),

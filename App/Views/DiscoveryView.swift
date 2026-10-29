@@ -20,7 +20,7 @@ struct RecommendationsView: View {
                     let books = section.books.filter { store.enabledSourceIDs.contains($0.sourceID) }
                     if !books.isEmpty {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text(section.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
+                            Text(section.title).font(.headline).foregroundStyle(Palette.ink)
                             DiscoveryBookGrid(books: books)
                         }
                     }
@@ -60,7 +60,7 @@ struct CategoriesView: View {
                 HStack(spacing: 10) {
                     ForEach(categories) { category in
                         Button { selected = category.id } label: {
-                            Text(category.title).font(.system(size: 14)).foregroundStyle(selected == category.id ? Palette.cinnabar : Palette.secondary)
+                            Text(category.title).font(.subheadline).foregroundStyle(selected == category.id ? Palette.cinnabar : Palette.secondary)
                                 .padding(.horizontal, 15).padding(.vertical, 10)
                                 .background(selected == category.id ? Palette.cinnabar.opacity(0.08) : Palette.rule.opacity(0.28), in: Capsule())
                         }.buttonStyle(.plain)
@@ -118,15 +118,19 @@ struct AuthorBooksView: View {
 
 private struct DiscoveryBookGrid: View {
     let books: [Book]
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: 3)
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: dynamicTypeSize.isAccessibilitySize ? 2 : 3)
+    }
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
             ForEach(books) { book in
                 NavigationLink { BookDetailView(book: book) } label: {
                     VStack(alignment: .leading, spacing: 7) {
                         BookCoverView(book: book)
-                        Text(book.title).font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.ink).lineLimit(2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
-                        Text(book.author).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1)
+                        Text(book.title).font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(book.author).font(.caption2).foregroundStyle(Palette.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
