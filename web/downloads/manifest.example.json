@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "artifacts": [
+    {
+      "id": "android-1.0.0",
+      "file": "QingRead-Android-1.0.0.apk",
+      "size": 123456,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "names": ["QingRead-Android-1.0.0.apk", "QingRead-Android-latest.apk"]
+    }
+  ]
+}

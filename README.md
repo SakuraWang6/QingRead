@@ -37,10 +37,10 @@
 
 | 平台 | 下载与安装 |
 | --- | --- |
-| Android | [下载 APK](https://github.com/SakuraWang6/QingRead/releases/download/v0.12.0/QingRead-Android-0.12.0.apk) · [构建指南](web/android/README.md) |
+| Android | [下载 APK](https://github.com/SakuraWang6/QingRead/releases/download/v0.12.1/QingRead-Android-0.12.1.apk) · [构建指南](web/android/README.md) |
 | iPhone | [Xcode 构建与安装](docs/development.md#iphone) |
 | Web / PWA | [本地运行](web/README.md#本地运行) · [部署指南](web/deploy/README.md) |
-| HarmonyOS | [HAP 测试包（需签名）](https://github.com/SakuraWang6/QingRead/releases/download/v0.12.0/QingRead-HarmonyOS-0.12.0-unsigned.hap) · [构建指南](docs/harmony-build.md) |
+| HarmonyOS | [HAP 测试包（需签名）](https://github.com/SakuraWang6/QingRead/releases/download/v0.12.1/QingRead-HarmonyOS-0.12.1-unsigned.hap) · [构建指南](docs/harmony-build.md) |
 
 各平台的环境要求、签名步骤和功能支持范围见对应指南。
 

@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前源码 **0.12.0 / versionCode 12**，支持书架整理、长按段落笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。源码版本、固定升级签名与公开分发包的实际状态统一见[验证记录](../../docs/verification.md)；没有 Android 真机或模拟器运行结论。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前源码 **0.12.1 / versionCode 13**，支持书架整理、长按段落笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。源码版本、固定升级签名与公开分发包的实际状态统一见[验证记录](../../docs/verification.md)；没有 Android 真机或模拟器运行结论。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 

@@ -11,12 +11,12 @@
 0.11 起，镜像构建使用**仓库根目录**作为 context，以读取共用的 AppInfo 和许可；不再使用 `web/` 作为 context。在开发电脑的仓库根执行：
 
 ```sh
-docker buildx build --platform linux/amd64 -f web/Dockerfile -t qingread-web:0.12.0 --load .
+docker buildx build --platform linux/amd64 -f web/Dockerfile -t qingread-web:0.12.1 --load .
 ```
 
 根 `.dockerignore` 默认拒绝、仅放行公开构建输入，排除私有配置、签名、备份、数据库和 node_modules。独立 Python metadata 阶段验证版本与许可并生成 generic 清单；Node 阶段显式准备 PDF 资源后构建，运行镜像不增加 Python 或其他生产依赖。`web/compose.yaml` 已使用同一根 context。已有服务仅更新客户端页面、APK 和 `releases.json` 时，不需要重建运行镜像，按[静态客户端发布步骤](../../docs/app-updates.md)操作即可。
 
-部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。独占域名时复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 APK，该目录仅供 Caddy 只读访问。然后执行：
+部署目录的 `.env` 需要 `QINGREAD_IMAGE`、`QINGREAD_PUBLIC_HOST`（域名或公网 IPv4）、可选的 `QINGREAD_ACCESS_TOKEN`。当前共享实例设 `QINGREAD_PUBLIC_ACCESS=true` 且访问码留空；未明确开启公共模式时，对外监听仍要求访问码。文件权限设为 600，不提交 Git；将同目录的 `caddy-data`、`caddy-config`、`app-data` 创建为 UID/GID 1000、权限 700。独占域名时复制本目录的 Caddyfile。若启用安装包直链，在 `downloads/` 放置已验签的 APK，该目录仅供 Caddy 只读访问。静态下载模板不自带专门的防刷或下载统计；需要这些能力时，按[安装包下载防护与统计](../downloads/README.md)接入独立服务，只替换清读下载路径。然后执行：
 
 ```sh
 docker compose -f compose.production.yaml config --quiet

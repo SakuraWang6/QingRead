@@ -8,7 +8,7 @@
 2. 在 `web/` 目录安装依赖后执行 `QINGREAD_WEB_BASE=/ npm run harmony:sync`。它先按应用根路径构建 Web，再生成 `entry/src/main/resources/rawfile/web/` 和 `qingread-assets.json`，不要手工维护这些产物。已有构建产物时也可在项目根目录执行 `python3 scripts/prepare-harmony.py --web-dist web/dist`。
 3. 在 DevEco Studio 配置自己的调试签名，使用真实鸿蒙设备或 HarmonyOS 模拟器运行 `entry`。ArkWeb 不支持 IDE 的静态 Previewer。
 
-应用标识为 `app.qingread.harmony`，安装版本以 `AppScope/app.json5` 为准。签名证书、设备信息、本机 SDK 路径和用户服务器地址不进入仓库。当前目录没有预置签名；没有实际构建记录时，不应将源码工程描述为已验证的安装包。
+应用标识为 `app.qingread.harmony`，当前源码 **0.12.1 / versionCode 3**，安装版本以 `AppScope/app.json5` 为准。签名证书、设备信息、本机 SDK 路径和用户服务器地址不进入仓库。工程不预置签名；构建及设备验证范围见[验证记录](../docs/verification.md)。
 
 工具链安装、命令行构建和签名边界见[构建说明](../docs/harmony-build.md)。
 

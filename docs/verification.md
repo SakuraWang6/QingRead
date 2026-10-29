@@ -1,18 +1,32 @@
 # 验证与交付记录
 
-更新于 2026-10-27（Asia/Shanghai）。本页区分源码、构建、设备运行与线上发布，不将模拟器通过视为真机通过。上一版本事实见 [0.11 归档](history/reader-0.11-verification.md)。
+更新于 2026-10-30（Asia/Shanghai）。本页区分源码、构建、设备运行与线上发布，不将模拟器通过视为真机通过。上一版本事实见 [0.11 归档](history/reader-0.11-verification.md)。
 
 ## 版本与交付
 
 | 平台 | 当前源码 | 本轮已验证范围 |
 | --- | --- | --- |
-| iPhone | 0.12.0 / build 16 | 已同签名覆盖安装真机并启动，内置白鹿书院；安装前后 891 个阅读文件逐一校验一致 |
-| Web | 0.12.0 | 已上线；390 × 844 浏览器阅读、设置、关于、账号与分类页检查通过 |
-| Android | 0.12.0 / versionCode 12 | CI 构建、固定证书签名、版本与公网文件校验通过；没有真机运行结论 |
-| HarmonyOS | 0.12.0 / versionCode 2 | 官方 SDK 26 编译、HarmonyOS 7 / API 26 模拟器运行；HAP 未签名 |
+| iPhone | 0.12.1 / build 17 | 模拟器与真机签名构建通过；尚未覆盖安装，已安装 App 与独立续签副本仍为 0.12.0 / build 16 |
+| Web | 0.12.1 | 已上线，共用界面字体修复与完整回归通过 |
+| Android | 0.12.1 / versionCode 13 | CI 构建、固定升级签名、版本与分发包校验通过；没有真机运行结论 |
+| HarmonyOS | 0.12.1 / versionCode 3 | 官方 SDK 26 编译、HarmonyOS 7 / API 26 模拟器安装与界面检查通过；HAP 未签名 |
 | API | 0.10.0 | 10 月 27 日补充外国文学来源至 11 个，仅更新清读 API 镜像；没有数据库迁移 |
 
 iPhone 已安装版本与独立自动续签副本均为 0.12.0 / build 16，使用同一实际已安装的新签名基线，严格签名校验通过。原阅读数据、旧签名应用与续签备份继续保留。Android 尚无真机运行结论，鸿蒙最低 API 12 是兼容配置，旧系统与真机仍待验证。
+
+## 2026-10-30 系统字体与安装包下载
+
+页面标题、继续阅读及书架书名改用系统界面字体，阅读正文保留用户的字体选择，封面装饰字独立保留。Android 与 HarmonyOS 共用 Web 界面，iPhone 原生界面同步调整。Web 回归 **293 项通过、4 项条件式联网测试跳过**；独立下载服务 **12 项 HTTP 测试通过**，覆盖文件校验、代理身份、限流恢复、并发、限速、断开、超时、Range 与统计持久化。
+
+运行时代码 `06d4725` 的 [Web 检查](https://github.com/SakuraWang6/QingRead/actions/runs/40917521826)、[Android 检查](https://github.com/SakuraWang6/QingRead/actions/runs/40917521711)与 [iPhone 完整检查](https://github.com/SakuraWang6/QingRead/actions/runs/40917521833)均通过。
+
+Android 发布包为 0.12.1 / code 13，沿用固定升级证书，SHA-256 为 `a47c1182399329382e2388c211af580a389962b0980ffaee5878954c274dd64e`。HarmonyOS 使用官方 CLT 26.0.0.851 构建，模拟器确认 0.12.1 / code 3 的安装、启动和书架字体；未签名 HAP 的 SHA-256 为 `24d9368efd8ec5f7a734c93d39e4ee472e6ecc0ca620e2b28a20e2f60ea1e54f`。iPhone 0.12.1 / build 17 的模拟器与真机签名构建成功、严格签名校验通过；本轮尚未安装，不改变现有手机数据或续签基线。
+
+Web 与 Android 分发包已更新为 0.12.1，[Release](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.1)已发布 APK、未签名 HAP 与校验文件。服务器只新增独立下载容器，限制为 **96 MiB / 0.15 CPU**；共享代理仅对清读安装包 handler 热加载。原有八个容器的 ID、启动时间与重启数保持不变，清读 API 镜像、主 Compose 和原环境配置不变。最终九个容器均健康，下载容器未重启、无 OOM，可用内存约 **660 MiB**，未迁移账号数据库。
+
+公网 20 项检查通过，包括 APK 完整 SHA-256、Range 首末、多段 Range 拒绝、HEAD、304、代理覆盖客户端身份头及私有路径保护。清读版本和课程访问页正常，原有课程入口跳转保持不变。
+
+下载入口采用固定文件清单、SHA-256、每 IP 与全局限流、并发及带宽限制，统计数据库与账号数据隔离。按 UTC 日期记录完整 HTTP 200 下载、Range、传输字节、中断与拒绝；不保存 IP 或 User-Agent，完整下载次数不代表安装人数。统计仅通过本地只读 CLI 查询，从启用时开始保留 365 天。配置与口径见[下载防护与统计](../web/downloads/README.md)。
 
 ## 2026-10-27 文学书源与 iPhone 更新
 

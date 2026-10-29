@@ -55,10 +55,10 @@ python3 scripts/generate-release-manifest.py
 
 ```sh
 python3 scripts/generate-release-manifest.py \
-  --android-apk /absolute/private/path/QingRead-Android-0.12.0.apk \
-  --android-url /downloads/QingRead-Android-0.12.0.apk \
+  --android-apk /absolute/private/path/QingRead-Android-0.12.1.apk \
+  --android-url /downloads/QingRead-Android-0.12.1.apk \
   --apksigner /absolute/path/to/apksigner.jar \
-  --published-at 2026-10-23T18:00:00+08:00 \
+  --published-at 2026-10-30T12:00:00+08:00 \
   --output /absolute/private/path/release-site/releases.json
 ```
 
@@ -68,12 +68,12 @@ python3 scripts/generate-release-manifest.py \
 
 ## 发布顺序与回滚
 
-本轮客户端页面和版本清单不需要更新 API、数据库或业务容器。在开发电脑构建；共享站点使用 `QINGREAD_WEB_BASE=/qingread/`，Android 打包使用默认根路径。
+客户端页面和版本清单更新不需要重建 API 或迁移数据库。在开发电脑构建；共享站点使用 `QINGREAD_WEB_BASE=/qingread/`，Android 打包使用默认根路径。已接入[独立下载服务](../web/downloads/README.md)时，安装包由它的私有文件清单管理。
 
 1. 检查资源余量，记录原容器 ID / 启动时刻、共享配置哈希及当前静态链接，保留旧静态目录和备份。
-2. 上传新 Web 版本至独立静态目录；上传并重新核对固定签名的版本 APK，确认实际下载文件可用且 SHA-256 / 长度一致。无 APK 时保留 generic 清单。
-3. **最后**把与实际文件匹配、包含 artifact 的清单原子写入新静态目录；不覆盖仍被旧版本引用的 APK。
-4. 只原子切换清读静态链接。若首次补充清单响应头，只验证并热加载 Caddy；不重建业务容器，不改其他站点路由。
-5. 验证公开清单、响应头、网页资源、APK 哈希、其他服务入口与容器状态。账号 API 的鉴权应保持原样。
+2. 上传新 Web 版本至独立静态目录；上传并重新核对固定签名的版本 APK。固定版本文件一旦发布就不得覆盖，用新版本文件名发布新内容，保留旧文件用于已发布清单和回滚。无 APK 时保留 generic 清单。
+3. 使用独立下载服务时，在私有下载清单登记新文件的实际普通文件名、字节数、SHA-256 与固定版本公开名称，保留已有文件和旧 latest 映射。原子替换私有清单，**仅重启下载服务**使其执行启动校验；不重启清读 API 或共享代理。验证新固定版本 URL 的完整哈希、Range 和统计。
+4. 确认文件可下载后，**最后**发布与实际文件匹配的 `releases.json`、原子切换清读静态链接。使用独立下载服务时，再将私有下载清单的 latest 别名切到新文件；latest 清单变化也只需重启下载服务，客户端更新清单始终引用固定版本 URL。不要用文件系统符号链接代替清单映射。
+5. 验证公开清单、响应头、网页资源、版本与 latest 文件哈希、其他服务入口及容器状态。首次接入下载代理或补充清单响应头时，先验证并热加载 Caddy；后续发布不改共享路由。账号 API 的鉴权应保持原样。
 
-回滚切回旧静态目录，保留原 APK 和旧清单。客户端更新失败不清空书架或原文件；iPhone 的签名备份与自动续签运行副本应另行保留。
+回滚切回旧静态目录与版本清单；使用独立下载服务时，恢复私有下载清单的旧别名并仅重启该服务。保留所有固定版本安装包和统计目录。客户端更新失败不清空书架或原文件；iPhone 的签名备份与自动续签运行副本应另行保留。

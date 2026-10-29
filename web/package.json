@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
     "test": "vitest run",
+    "test:downloads": "node --test downloads/server.check.mjs",
     "android:sync": "npm run build && cap sync android",
     "harmony:sync": "npm run build && python3 ../scripts/prepare-harmony.py --web-dist dist",
     "prepare:assets": "node scripts/copy-pdf-assets.mjs",

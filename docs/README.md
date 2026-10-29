@@ -12,6 +12,7 @@
 | [HarmonyOS（测试版）](harmony-build.md) | ArkTS / ArkWeb、原生能力、官方 SDK 与签名边界 |
 | [服务器部署](../web/deploy/README.md) | HTTPS、资源限制、数据持久化与备份 |
 | [部署维护基线](../web/deploy/DEPLOYMENT.md) | 当前部署方式、验证范围与回滚 |
+| [安装包下载防护与统计](../web/downloads/README.md) | 固定文件清单、限流限速、隔离统计与部署 |
 | [云同步](cloud-sync.md) | 账号隔离、原文件、阅读位置与冲突处理 |
 | [追更、换源与下载](reading-workflows.md) | 系统通知、来源切换、后台下载与云端准备 |
 | [书架、笔记与电子书](reading-tools.md) | 书架整理、标注、正文搜索、EPUB 原版与 PDF |

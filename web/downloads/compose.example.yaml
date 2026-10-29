@@ -1,0 +1,35 @@
+# Merge only this service into the existing deployment, or use an external
+# network shared with its Caddy container. Reuse the already present image.
+services:
+  downloads:
+    image: ${QINGREAD_IMAGE:?Use the existing Node 24 QingRead image}
+    command: [node, --max-old-space-size=32, /service/server.mjs]
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8790"
+      QINGREAD_DOWNLOAD_PROXIES: ${QINGREAD_DOWNLOAD_PROXIES:?Exact Caddy container IP}
+    expose: ["8790"]
+    volumes:
+      - ./download-service:/service:ro
+      - ./download-config:/config:ro
+      - ./downloads:/artifacts:ro
+      - ./download-stats:/stats
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 96m
+    memswap_limit: 96m
+    cpus: 0.15
+    pids_limit: 32
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 1m, max-file: "2"}

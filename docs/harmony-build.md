@@ -2,7 +2,7 @@
 
 清读鸿蒙版使用 ArkTS Stage 工程和 ArkWeb，打包同一套 Web 阅读界面。已使用官方 SDK 实际编译，并在 HarmonyOS 7.0.0（API 26）本地模拟器安装、运行未签名 HAP；尚未进行鸿蒙真机或旧系统验证，也没有自动构建鸿蒙安装包的 CI。工程入口和原生能力说明见 [harmony/README.md](../harmony/README.md)。
 
-0.12.0 HAP 测试包与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.0)获取。测试包未签名，真机调试需配置开发者签名，见本文[签名与发布边界](#签名与发布边界)。
+0.12.1 HAP 测试包与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.1)获取。测试包未签名，真机调试需配置开发者签名，见本文[签名与发布边界](#签名与发布边界)。
 
 ## 工具链
 
@@ -43,7 +43,9 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 
 `harmony:sync` 先执行完整 Web 构建，再由 `scripts/prepare-harmony.py` 校验并复制离线资源。它拒绝 `/qingread/` 等前缀构建、缺失资源、符号链接、私有文件后缀及超限文件，生成资源清单和 SHA-256。不要手动把 `.env`、账号数据、证书或签名目录复制到 rawfile。生成的 Web 资源和构建产物不提交 Git。
 
-2026-10-23 已使用官方 CLT 26.0.0.851 / Hvigor 6.26.8 实际编译出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。该工具的模块 SemVer 检查拒绝主版本为 `0`，因而对 `0.x` 版本输出警告；未为消除警告而修改版本或厂商工具。未配置签名也会输出相应提示。当前源码为 0.12.0 / versionCode 2，原生能力与实际验证分别见[工程说明](../harmony/README.md)和[验证记录](verification.md)。
+2026-10-23 已使用官方 CLT 26.0.0.851 / Hvigor 6.26.8 实际编译出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。该工具的模块 SemVer 检查拒绝主版本为 `0`，因而对 `0.x` 版本输出警告；未为消除警告而修改版本或厂商工具。未配置签名也会输出相应提示。
+
+当前源码为 **0.12.1 / versionCode 3**，已使用上述官方工具链编译并在 HarmonyOS 7 / API 26 模拟器验证安装、启动和书架界面。原生能力与完整验证范围分别见[工程说明](../harmony/README.md)和[验证记录](verification.md)。
 
 在仓库根目录可运行不依赖鸿蒙 SDK 的检查：
 
