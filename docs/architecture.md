@@ -2,7 +2,7 @@
 
 [文档导航](README.md) · [开发与验证](development.md)
 
-更新于 2026-10-24。当前源码为 0.12.0：iPhone build 16、Android versionCode 12、HarmonyOS versionCode 2；交付验证见[验证记录](verification.md)。
+更新于 2026-11-01。当前源码为 0.12.2：iPhone build 18、Android versionCode 14、HarmonyOS versionCode 4；交付验证见[验证记录](verification.md)。
 
 ## 客户端与服务端
 
@@ -14,8 +14,9 @@
 | `App/` | 原生界面、持久化、阅读排版、封面缓存、语音和账号同步 |
 | `web/src/` | Web、Android 与鸿蒙版共用界面、IndexedDB 存储、阅读器与同步客户端 |
 | `web/server/` | Node 24 书源 API、账号会话、SQLite 同步、私有云文件、可选推送与云端准备 |
+| `web/downloads/` | 独立安装包分发、固定文件清单、限流限速及隔离下载统计 |
 | `web/src/shared/` | Web/API 共用的书源、类型与同步协议 |
-| `web/android/` | Android 壳、返回键、安全区、KeyStore、电量、前台下载服务与 WorkManager |
+| `web/android/` | Android 壳、返回键、安全区、KeyStore、电量、前台下载、应用更新与 WorkManager |
 | `harmony/` | ArkTS / ArkWeb 宿主、本地资源白名单、系统文件选择、返回、版本及能力桥接 |
 
 Swift 与 TypeScript 书源引擎分别维护。iPhone 普通搜索与正文可直接请求来源，统一发现与后台批次下载使用配置的 API；Web、Android 与鸿蒙工程通过自建 Node 服务请求已登记来源。未登录时本地阅读，登录后同步个人书架、整理状态、笔记和文件。

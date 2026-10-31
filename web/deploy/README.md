@@ -11,7 +11,7 @@
 0.11 起，镜像构建使用**仓库根目录**作为 context，以读取共用的 AppInfo 和许可；不再使用 `web/` 作为 context。在开发电脑的仓库根执行：
 
 ```sh
-docker buildx build --platform linux/amd64 -f web/Dockerfile -t qingread-web:0.12.1 --load .
+docker buildx build --platform linux/amd64 -f web/Dockerfile -t qingread-web:0.12.2 --load .
 ```
 
 根 `.dockerignore` 默认拒绝、仅放行公开构建输入，排除私有配置、签名、备份、数据库和 node_modules。独立 Python metadata 阶段验证版本与许可并生成 generic 清单；Node 阶段显式准备 PDF 资源后构建，运行镜像不增加 Python 或其他生产依赖。`web/compose.yaml` 已使用同一根 context。已有服务仅更新客户端页面、APK 和 `releases.json` 时，不需要重建运行镜像，按[静态客户端发布步骤](../../docs/app-updates.md)操作即可。

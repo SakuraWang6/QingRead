@@ -1,6 +1,6 @@
 # 清读 Android
 
-Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前源码 **0.12.1 / versionCode 13**，支持书架整理、长按段落笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。源码版本、固定升级签名与公开分发包的实际状态统一见[验证记录](../../docs/verification.md)；没有 Android 真机或模拟器运行结论。
+Android 壳使用 Capacitor 8，共享 `web/src` 的书架、搜索、阅读、目录、缓存、EPUB/PDF/TXT 导入与设置。当前源码 **0.12.2 / versionCode 14**，支持书架整理、长按段落笔记、缓存正文搜索、EPUB 原版、PDF 页笔记与搜索、听书定时和账号安全。下载由原生前台服务执行，后台追更由 WorkManager 调度，见[章节工作流](../../docs/reading-workflows.md)。源码版本、固定升级签名与公开分发包的实际状态统一见[验证记录](../../docs/verification.md)；没有 Android 真机或模拟器运行结论。
 
 安装系统下限沿用 Capacitor 的 Android 7 / API 24，但清读实际运行需要 **Android System WebView 125+**；系统不能更新到该版本的旧设备不在本版兼容范围。较低版本会打开本地更新提示页。PDF 使用与主依赖同版本的 `legacy` 构建，并在打开 PDF 时才加载，失败不会阻止普通书籍阅读。
 
@@ -19,6 +19,12 @@ cd android
 调试包在 `app/build/outputs/apk/debug/app-debug.apk`。仓库的 **Android debug APK** 工作流执行同样的构建和检查，并将 APK 保存为可下载 Artifact。手动运行时通过 `api_base` 输入项填写公开的 HTTPS API 地址；不填也能构建，安装后再在 App 内配置。
 
 公开 CI 不读取个人签名 Secret，使用临时调试签名构建验证包。不同 Runner 的调试包可能不能覆盖升级；要长期分发和保留数据，请自行保管固定签名，在私有构建环境通过 `QINGREAD_DEBUG_KEYSTORE_PATH` 传给 Gradle。keystore、私钥及 Base64 都不能提交到仓库。已有个人固定签名保留在本地私有目录，历史包升级必须保持相同证书。
+
+## 应用更新与数据保留
+
+应用在前台择机检查，连续使用同一服务器时自动检查间隔为 12 小时；也可在「设置 → 关于清读」手动检查。点击更新后由独立前台服务下载、校验 APK，再通过 Android 系统确认覆盖安装；允许来源权限、后台下载限制和旧版本升级方式见[客户端更新](../../docs/app-updates.md#android-应用内更新)。
+
+同包名、同签名覆盖安装保留本地阅读数据，不需要先卸载。Android 10 及以上通过系统支持的卸载保留数据选项提供额外保护，具体显示由系统和厂商决定。JSON 阅读备份不包含导入原文件及正文缓存，完整边界见[卸载与备份](../../docs/app-updates.md#卸载与备份)。
 
 ## 服务器、同步与离线
 
