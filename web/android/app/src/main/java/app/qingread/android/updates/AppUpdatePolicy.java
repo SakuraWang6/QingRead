@@ -1,6 +1,7 @@
 package app.qingread.android.updates;
 
 import java.net.URI;
+import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.Locale;
 
@@ -35,9 +36,19 @@ public final class AppUpdatePolicy {
     private static boolean https(URI value) {
         String host = value.getHost();
         return "https".equalsIgnoreCase(value.getScheme()) && host != null && value.getRawUserInfo() == null
-            && !host.equalsIgnoreCase("localhost") && !host.toLowerCase(Locale.ROOT).endsWith(".localhost")
-            && !host.equals("127.0.0.1") && !host.equals("[::1]") && !host.equals("::1")
+            && !localHost(host)
             && (value.getPort() == -1 || value.getPort() > 0 && value.getPort() <= 65535);
+    }
+    private static boolean localHost(String host) {
+        String value = host.toLowerCase(Locale.ROOT);
+        if (value.equals("localhost") || value.endsWith(".localhost") || value.startsWith("127.") || value.equals("0.0.0.0") || value.matches("[0-9]+")) return true;
+        if (value.indexOf(':') >= 0) {
+            // The colon identifies an IPv6 literal; this parses it locally,
+            // without making a DNS query for an arbitrary hostname.
+            try { InetAddress address = InetAddress.getByName(value); return address.isLoopbackAddress() || address.isAnyLocalAddress(); }
+            catch (Exception error) { return true; }
+        }
+        return false;
     }
     private static int port(URI value) { return value.getPort() < 0 ? 443 : value.getPort(); }
     public static boolean trustedPage(String value) {

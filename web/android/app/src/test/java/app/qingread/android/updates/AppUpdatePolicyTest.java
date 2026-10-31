@@ -45,6 +45,11 @@ public class AppUpdatePolicyTest {
         assertTrue(AppUpdatePolicy.newerVersion("0.12.1", 14, "0.12.1", 13));
         assertFalse(AppUpdatePolicy.newerVersion("0.13.0", 12, "0.12.1", 13));
     }
+    @Test public void rejectsLoopbackRepresentationsWithMatchingOrigins() {
+        for (String host : new String[]{"localhost", "127.0.0.2", "[::1]", "[0:0:0:0:0:0:0:1]", "[::ffff:127.0.0.1]", "2130706433", "[::]"}) {
+            try { check("https://" + host + "/api", "https://" + host + "/downloads/QingRead-Android-0.12.2.apk", "0.12.2", 7000000, hash, 14, 13); fail(host); } catch (IllegalArgumentException expected) { }
+        }
+    }
     @Test public void preservesExactCurrentSignerSet() {
         assertTrue(AppUpdatePolicy.sameSigners(new String[]{"b", "a"}, new String[]{"a", "b"}));
         assertFalse(AppUpdatePolicy.sameSigners(new String[]{"a"}, new String[]{"b"}));
