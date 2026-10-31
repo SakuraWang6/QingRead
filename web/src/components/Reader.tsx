@@ -571,7 +571,7 @@ function ReaderSettingsControls({ settings }: { settings: ReaderSettings }) {
   const update = (partial: Partial<ReaderSettings>) => void library.updateSettings(partial);
   return <div className="reader-setting-controls">
     <div className="reader-setting-row"><span>翻页</span><div className="reader-segmented">{([['slide', '滑动'], ['cover', '覆盖'], ['scroll', '滚动']] as const).map(([value, label]) => <button key={value} className={settings.turnMode === value ? 'reader-selected' : ''} onClick={() => update({ turnMode: value })}>{label}</button>)}</div></div>
-    <div className="reader-setting-row"><span>字体</span><div className="reader-segmented">{([['song', '宋体'], ['system', '黑体'], ['rounded', '圆体']] as const).map(([value, label]) => <button key={value} className={settings.font === value ? 'reader-selected' : ''} onClick={() => update({ font: value })}>{label}</button>)}</div></div>
+    <div className="reader-setting-row"><span>字体</span><div className="reader-segmented">{([['song', '宋体'], ['system', '系统'], ['rounded', '圆体']] as const).map(([value, label]) => <button key={value} className={settings.font === value ? 'reader-selected' : ''} onClick={() => update({ font: value })}>{label}</button>)}</div></div>
     <SettingSlider name="字号" value={settings.fontSize} min={16} max={34} onChange={value => update({ fontSize: value })}/>
     <SettingSlider name="行距" value={settings.lineSpacing} min={4} max={22} onChange={value => update({ lineSpacing: value })}/>
     <SettingSlider name="段距" value={settings.paragraphSpacing} min={0} max={28} onChange={value => update({ paragraphSpacing: value })}/>
