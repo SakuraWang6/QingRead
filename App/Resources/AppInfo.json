@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "清读",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "repositoryURL": "https://github.com/SakuraWang6/QingRead",
   "feedbackURL": "https://github.com/SakuraWang6/QingRead/issues/new",
   "license": {
@@ -12,6 +12,16 @@
     "manifestPath": "/qingread/releases.json"
   },
   "releases": [
+    {
+      "version": "0.12.2",
+      "date": "2026-11-01",
+      "changes": [
+        "正文首行统一缩进两字，修复书源自带空格叠加。",
+        "正文默认使用系统字体，仍可自行选择宋体或圆体。",
+        "安卓自动检查新版本，支持应用内下载、校验及系统确认覆盖安装。",
+        "安卓启用系统支持的卸载保留数据提示。"
+      ]
+    },
     {
       "version": "0.12.1",
       "date": "2026-10-30",
@@ -86,7 +96,7 @@
     {
       "id": "updates",
       "title": "更新清读",
-      "body": "「检查更新」读取当前服务的版本信息，不会自动安装或清理阅读数据。iPhone 通过现有 Mac 签名流程更新；安卓下载同一签名的新 APK 后覆盖安装；鸿蒙需自行签名覆盖安装；Web 在新资源就绪后更新页面。"
+      "body": "在「关于清读」检查更新。安卓支持应用内下载后覆盖安装，保留现有阅读数据，无需先卸载；系统安装确认仍需本人操作。卸载会清除本地数据，Android 10及以上部分系统可选择保留。已同步的书架与进度可登录恢复；未同步内容需自行备份。iPhone通过Mac签名更新，鸿蒙自行签名覆盖，Web更新页面。"
     }
   ]
 }

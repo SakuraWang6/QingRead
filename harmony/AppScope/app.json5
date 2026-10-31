@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "app.qingread.harmony",
     "vendor": "QingRead",
-    "versionCode": 3,
-    "versionName": "0.12.1",
+    "versionCode": 4,
+    "versionName": "0.12.2",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }

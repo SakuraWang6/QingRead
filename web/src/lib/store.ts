@@ -55,8 +55,10 @@ function progressRecords(value:unknown,strict=false):Record<string,Record<string
 function sourceIDs(value:unknown):string[]{return Array.isArray(value)?value.filter(safeID):[];}
 export function normalizeSettings(input:Partial<ReaderSettings>):ReaderSettings {
   const s={...defaultSettings,...input};
-  return {...s,fontSize:bounded(s.fontSize,16,34,21),lineSpacing:bounded(s.lineSpacing,4,22,9),paragraphSpacing:bounded(s.paragraphSpacing,0,28,6),horizontalMargin:bounded(s.horizontalMargin,16,40,24),speechRate:bounded(s.speechRate,.6,1.8,1),
-    theme:['paper','dusk','mint','gray','rose','night'].includes(s.theme)?s.theme:'paper',turnMode:['slide','cover','scroll'].includes(s.turnMode)?s.turnMode:'slide',font:['song','system','rounded'].includes(s.font)?s.font:'song',speechEngine:s.speechEngine==='kokoro'?'kokoro':'system',isBold:s.isBold===true,isNightMode:s.isNightMode===true,speechVoiceIdentifier:typeof s.speechVoiceIdentifier==='string'?s.speechVoiceIdentifier:'',kokoroVoiceID:bounded(s.kokoroVoiceID,3,102,46)};
+  const legacyFont=!(typeof input.fontPreferenceVersion==='number'&&input.fontPreferenceVersion>=1);
+  const font=legacyFont&&input.font==='song'?'system':s.font;
+  return {...s,fontPreferenceVersion:1,fontSize:bounded(s.fontSize,16,34,21),lineSpacing:bounded(s.lineSpacing,4,22,9),paragraphSpacing:bounded(s.paragraphSpacing,0,28,6),horizontalMargin:bounded(s.horizontalMargin,16,40,24),speechRate:bounded(s.speechRate,.6,1.8,1),
+    theme:['paper','dusk','mint','gray','rose','night'].includes(s.theme)?s.theme:'paper',turnMode:['slide','cover','scroll'].includes(s.turnMode)?s.turnMode:'slide',font:['song','system','rounded'].includes(font)?font:'system',speechEngine:s.speechEngine==='kokoro'?'kokoro':'system',isBold:s.isBold===true,isNightMode:s.isNightMode===true,speechVoiceIdentifier:typeof s.speechVoiceIdentifier==='string'?s.speechVoiceIdentifier:'',kokoroVoiceID:bounded(s.kokoroVoiceID,3,102,46)};
 }
 export class BrowserLibrary {
   private state:LibraryState={ready:false,shelf:[],settings:defaultSettings,sources:[],disabledSourceIDs:[],updates:{},checkingUpdates:false,downloads:[]};

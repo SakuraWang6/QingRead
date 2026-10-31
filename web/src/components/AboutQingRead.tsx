@@ -11,13 +11,14 @@ import { isHarmonyApp } from '../lib/harmony';
 import { supportsHarmonyDownloads, supportsHarmonyUpdates } from '../lib/harmonyBackground';
 import { hasHarmonyCapability } from '../lib/harmonyNative';
 import { useWebUpdates, webUpdates } from '../lib/webUpdates';
+import { AndroidAppUpdateActions } from './AndroidAppUpdate';
+import { androidUpdates, useAndroidUpdates, type AndroidUpdateStore } from '../lib/androidUpdateStore';
 import './AboutQingRead.css';
 
 type View = 'main' | 'log' | 'help' | 'feedback' | 'license';
 type Check = { kind: 'idle' | 'checking' | 'current' | 'older' | 'available' | 'error'; message?: string; release?: PlatformRelease };
 const viewNames = { main: '关于清读', log: '更新日志', help: '使用说明', feedback: '问题反馈', license: '许可与致谢' };
-const sizeLabel = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
-export function AboutQingRead() {
+export function AboutQingRead({ updates = androidUpdates }: { updates?: AndroidUpdateStore }) {
   const [view, setView] = useState<View>('main');
   const [identity, setIdentity] = useState<ClientIdentity>();
   const [identityError, setIdentityError] = useState('');
@@ -25,6 +26,7 @@ export function AboutQingRead() {
   const [copied, setCopied] = useState('');
   const pending = useRef<AbortController | null>(null);
   const worker = useWebUpdates();
+  const androidState = useAndroidUpdates(updates);
   const android = isAndroidApp(), harmony = isHarmonyApp(), web = !android && !harmony;
   useAndroidBack(() => { if (view === 'main') return false; setView('main'); return true; }, 150);
   useEffect(() => {
@@ -33,6 +35,7 @@ export function AboutQingRead() {
     return () => { live = false; pending.current?.abort(); };
   }, []);
   async function checkUpdates() {
+    if (android) { await updates.refresh(); await updates.check(true); return; }
     pending.current?.abort(); const controller = new AbortController(); pending.current = controller;
     setCheck({ kind: 'checking' }); setIdentityError('');
     try {
@@ -55,14 +58,14 @@ export function AboutQingRead() {
       setCheck({ kind: 'error', message });
     } finally { if (pending.current === controller) pending.current = null; }
   }
-  function cancelCheck() { pending.current?.abort(); pending.current = null; setCheck({ kind: 'idle' }); }
+  function cancelCheck() { if (android) { updates.cancelCheck(); return; } pending.current?.abort(); pending.current = null; setCheck({ kind: 'idle' }); }
   async function copyDiagnostics() {
     if (!identity) return;
     try { await navigator.clipboard.writeText(versionDiagnostics(identity)); setCopied('已复制版本与平台信息'); }
     catch { setCopied('复制失败，可手动复制下方信息'); }
   }
-  const updateStatus = check.kind === 'checking' ? '正在检查' : check.kind === 'error' ? check.message : check.kind === 'older' ? '当前版本高于服务端发布版本' : web && worker.waiting && !worker.blockedByVersion ? '网页资源已准备好' : check.kind === 'available' ? `发现新版本 ${check.release!.version}${!web ? ` (${check.release!.build})` : ''}` : check.kind === 'current' ? '当前已是最新版本' : '';
-  const apk = android && check.kind === 'available' ? check.release?.artifact : undefined;
+  const displayedCheck: Check = android ? { kind: androidState.check, message: androidState.error, release: androidState.release } : check;
+  const updateStatus = displayedCheck.kind === 'checking' ? '正在检查' : displayedCheck.kind === 'error' ? displayedCheck.message : displayedCheck.kind === 'older' ? '当前版本高于服务端发布版本' : web && worker.waiting && !worker.blockedByVersion ? '网页资源已准备好' : displayedCheck.kind === 'available' ? `发现新版本 ${displayedCheck.release!.version}${!web ? ` (${displayedCheck.release!.build})` : ''}` : displayedCheck.kind === 'current' ? '当前已是最新版本' : '';
   if (view !== 'main') return <div className="panel-content about-content">
     <button className="text-button about-back" onClick={() => setView('main')}><ArrowLeft size={16}/>关于清读</button><h3 className="about-page-title">{viewNames[view]}</h3>
     {view === 'log' && appInfo.releases.map(release => <article className="about-release" key={release.version}><h4>{release.version}<time>{release.date}</time></h4><ul>{release.changes.map(change => <li key={change}>{change}</li>)}</ul></article>)}
@@ -73,16 +76,16 @@ export function AboutQingRead() {
   return <div className="panel-content about-content">
     <div className="about-identity"><span className="brand-mark">清</span><h3>{appInfo.name}</h3><p>{identity ? `${identity.platform === 'harmony' ? 'HarmonyOS' : identity.platform === 'android' ? 'Android' : 'Web'} ${identity.version}${identity.build ? ` (${identity.build})` : ''}` : identityError || '正在读取版本'}</p></div>
     <section className="about-update" aria-label="软件更新">
-      <div className="about-update-row"><strong>检查更新</strong><button className="text-button" disabled={check.kind === 'checking'} onClick={() => void checkUpdates()}>{check.kind === 'checking' ? <LoaderCircle className="spin" size={16}/> : <RefreshCw size={16}/>}检查</button></div>
-      {updateStatus && <p className={`about-note ${check.kind === 'error' ? 'about-error' : ''}`} role="status">{updateStatus}</p>}
-      {check.kind === 'checking' && <button className="text-button" onClick={cancelCheck}>取消</button>}
-      {check.kind === 'available' && <ul className="about-update-notes">{check.release!.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
+      <div className="about-update-row"><strong>检查更新</strong><button className="text-button" disabled={displayedCheck.kind === 'checking'} onClick={() => void checkUpdates()}>{displayedCheck.kind === 'checking' ? <LoaderCircle className="spin" size={16}/> : <RefreshCw size={16}/>}检查</button></div>
+      {updateStatus && <p className={`about-note ${displayedCheck.kind === 'error' ? 'about-error' : ''}`} role="status">{updateStatus}</p>}
+      {displayedCheck.kind === 'checking' && <button className="text-button" onClick={cancelCheck}>取消</button>}
+      {displayedCheck.kind === 'available' && <ul className="about-update-notes">{displayedCheck.release!.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
       {web && worker.waiting && !worker.blockedByVersion && <button className="primary-button full-width" disabled={worker.activating} onClick={() => void webUpdates.activate().catch(error => setCheck({ kind: 'error', message: error.message }))}>{worker.activating ? '正在准备更新' : '更新网页'}</button>}
-      {web && !worker.waiting && worker.canReload && check.kind === 'available' && <button className="primary-button full-width" onClick={() => webUpdates.reloadWithoutWorker()}>重新加载网页</button>}
-      {web && !worker.waiting && !worker.canReload && check.kind === 'available' && <p className="about-note">新版本已发布，网页资源尚未准备好，请稍后再试。</p>}
-      {apk && <><a className="primary-button full-width" href={apk.url} target="_blank" rel="noopener noreferrer">下载 APK · {sizeLabel(apk.size)}<ExternalLink size={16}/></a><p className="about-note">按系统提示覆盖安装；新包须与现有 App 签名一致，请勿先卸载。</p><details className="about-apk-details"><summary>安装包校验信息</summary><code>SHA-256 {apk.sha256}</code></details></>}
-      {harmony && check.kind === 'available' && <p className="about-note">请使用同一签名的新 HAP，通过 DevEco Studio 或系统支持的安装方式覆盖安装；请勿先卸载。</p>}
-      {android && check.kind === 'available' && !apk && <p className="about-note">新版本安装包尚未发布，请稍后再试。</p>}
+      {web && !worker.waiting && worker.canReload && displayedCheck.kind === 'available' && <button className="primary-button full-width" onClick={() => webUpdates.reloadWithoutWorker()}>重新加载网页</button>}
+      {web && !worker.waiting && !worker.canReload && displayedCheck.kind === 'available' && <p className="about-note">新版本已发布，网页资源尚未准备好，请稍后再试。</p>}
+      {android && <AndroidAppUpdateActions store={updates}/>}
+      {harmony && displayedCheck.kind === 'available' && <p className="about-note">请使用同一签名的新 HAP，通过 DevEco Studio 或系统支持的安装方式覆盖安装；请勿先卸载。</p>}
+      {android && displayedCheck.kind === 'available' && !displayedCheck.release?.artifact && <p className="about-note">新版本安装包尚未发布，请稍后再试。</p>}
     </section>
     <nav className="about-links" aria-label="关于清读功能">{(['log', 'help', 'feedback', 'license'] as const).map(value => <button key={value} onClick={() => { setCopied(''); setView(value); }}><span>{viewNames[value]}</span><ChevronRight size={17}/></button>)}</nav>
   </div>;

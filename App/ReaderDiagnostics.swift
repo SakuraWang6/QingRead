@@ -11,6 +11,14 @@ import ReadingCore
             let sparse = try JSONDecoder().decode(ReaderSettings.self, from: Data("{}".utf8))
             assert(sparse.turnMode == .slide && sparse.followsSystemBrightness)
             assert(sparse.paragraphSpacing == 6 && sparse.kokoroVoiceID == 46)
+            assert(sparse.font == .system && sparse.fontPreferenceVersion == 1)
+            let legacySong = try JSONDecoder().decode(ReaderSettings.self, from: Data(#"{"font":"song"}"#.utf8))
+            let legacyRounded = try JSONDecoder().decode(ReaderSettings.self, from: Data(#"{"font":"rounded"}"#.utf8))
+            assert(legacySong.font == .system && legacyRounded.font == .rounded)
+            var selectedSong = legacySong; selectedSong.font = .song
+            let restoredSong = try JSONDecoder().decode(ReaderSettings.self, from: JSONEncoder().encode(selectedSong))
+            assert(restoredSong.font == .song && restoredSong.fontPreferenceVersion == 1)
+            verifyParagraphIndent()
             let roundTrip = try JSONDecoder().decode(ReaderSettings.self, from: JSONEncoder().encode(old))
             assert(roundTrip == old)
             ReaderSpeechController.runDiagnostics()
@@ -28,7 +36,8 @@ import ReadingCore
             speech.stop()
             let chapter = Chapter(id: "diagnostic-utf16", title: "分页与文字位置", url: URL(string: "https://example.invalid/diagnostic")!, index: 0)
             let sentence = "这是独立的分页测试文字。👩🏽‍🚀联合字形、𠮷与e\u{301}都必须完整保留。"
-            let content = ChapterContent(chapter: chapter, paragraphs: Array(repeating: String(repeating: sentence, count: 8), count: 25))
+            let indentation = ["", "  ", "\u{3000}\u{3000}", "\t\t"]
+            let content = ChapterContent(chapter: chapter, paragraphs: (0..<25).map { indentation[$0 % indentation.count] + String(repeating: sentence, count: 8) })
             verifyAnnotationLayout(content: content)
             var settings = ReaderSettings()
             let canvas = ReaderCanvas(frame: CGRect(x: 0, y: 0, width: 393, height: 690))
@@ -88,6 +97,35 @@ import ReadingCore
             print("QINGREAD_READER_SELFTEST migration=passed speechIntent=passed bookProgress=passed progressSeek=passed previousPageTap=passed backwardsChapterResize=passed utf16=\(document.text.length) slidePages=\(first.ranges.count) largeFontPages=\(resized.ranges.count) coverPages=\(covered.ranges.count) anchor=passed")
             Task { await verifyPreparedChapterTurns(content: content) }
         } catch { assertionFailure("Reader diagnostics failed: \(error)") }
+    }
+
+    private static func verifyParagraphIndent() {
+        let chapter = Chapter(id: "diagnostic-indent", title: "段首缩进", url: URL(string: "https://example.invalid/indent")!, index: 0)
+        let prefixes = ["", "  ", "\u{3000}\u{3000}", "\t\t", "\u{00a0}\u{3000} "]
+        let body = "同一行正文。👩🏽‍🚀"
+        let content = ChapterContent(chapter: chapter, paragraphs: prefixes.map { $0 + body })
+        for mode in [ReaderTurnMode.slide, .cover, .scroll] {
+            var settings = ReaderSettings(); settings.turnMode = mode
+            let document = ReaderDocument(content: content, settings: settings)
+            assert(document.text.string == chapter.title + "\n" + content.paragraphs.joined(separator: "\n"), "Display indentation must not change stored UTF-16 positions")
+            let canvas = ReaderCanvas(frame: CGRect(x: 0, y: 0, width: 393, height: 690))
+            canvas.apply(content: content, settings: settings, initialOffset: 0, seek: nil)
+            canvas.layoutIfNeeded()
+            let reference = canvas.debugPoint(atUTF16: document.paragraphRanges[0].location)!
+            for index in prefixes.indices {
+                let source = document.paragraphRanges[index]
+                let visible = source.location + (prefixes[index] as NSString).length
+                let point = canvas.debugPoint(atUTF16: visible)!
+                assert(abs(point.x - reference.x) < 0.1, "Source spaces and tabs must not add to the two-character indent")
+                assert(NSLocationInRange(canvas.debugAnnotationOffset(at: point) ?? NSNotFound, source), "Collapsed leading whitespace must preserve paragraph hit testing")
+            }
+            assert(canvas.debugValidatePageLayout())
+            if mode != .scroll {
+                assert(canvas.debugPagination().ranges.reduce(0) { $0 + $1.length } == document.text.length)
+            }
+            canvas.cancelPreparation()
+        }
+        print("QINGREAD_PARAGRAPH_INDENT twoCharacters=passed sourceUTF16=passed tabs=passed hitTest=passed")
     }
 
     private static func verifyAnnotationLayout(content: ChapterContent) {

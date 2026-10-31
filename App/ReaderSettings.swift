@@ -44,7 +44,7 @@ enum ReaderFont: String, Codable, CaseIterable, Identifiable {
     case song, system, rounded
     var id: String { rawValue }
     var name: String {
-        switch self { case .song: return "宋体"; case .system: return "黑体"; case .rounded: return "圆体" }
+        switch self { case .song: return "宋体"; case .system: return "系统"; case .rounded: return "圆体" }
     }
     func uiFont(size: CGFloat, bold: Bool = false) -> UIFont {
         switch self {
@@ -70,7 +70,8 @@ struct ReaderSettings: Codable, Equatable {
     var theme: ReadingTheme = .paper
     var isNightMode = false
     var turnMode: ReaderTurnMode = .slide
-    var font: ReaderFont = .song
+    var font: ReaderFont = .system
+    var fontPreferenceVersion = 1
     var isBold = false
     var horizontalMargin: Double = 24
     var followsSystemBrightness = true
@@ -85,7 +86,7 @@ struct ReaderSettings: Codable, Equatable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case fontSize, lineSpacing, paragraphSpacing, theme, isNightMode, turnMode, font, isBold
+        case fontSize, lineSpacing, paragraphSpacing, theme, isNightMode, turnMode, font, fontPreferenceVersion, isBold
         case horizontalMargin, followsSystemBrightness, brightness, speechRate, speechVoiceIdentifier, speechEngine, kokoroVoiceID
     }
 
@@ -98,7 +99,12 @@ struct ReaderSettings: Codable, Equatable {
         lineSpacing = Self.bounded((try? values.decode(Double.self, forKey: .lineSpacing)) ?? 9, in: 4...22, fallback: 9)
         paragraphSpacing = Self.bounded((try? values.decode(Double.self, forKey: .paragraphSpacing)) ?? 6, in: 0...28, fallback: 6)
         turnMode = (try? values.decode(ReaderTurnMode.self, forKey: .turnMode)) ?? .slide
-        font = (try? values.decode(ReaderFont.self, forKey: .font)) ?? .song
+        let storedFont = (try? values.decode(ReaderFont.self, forKey: .font)) ?? .system
+        let storedFontVersion = (try? values.decode(Int.self, forKey: .fontPreferenceVersion)) ?? 0
+        // Legacy settings did not distinguish the old default Songti from an
+        // explicit selection. Migrate it once; later selections round-trip.
+        font = storedFontVersion < 1 && storedFont == .song ? .system : storedFont
+        fontPreferenceVersion = 1
         isBold = (try? values.decode(Bool.self, forKey: .isBold)) ?? false
         horizontalMargin = Self.bounded((try? values.decode(Double.self, forKey: .horizontalMargin)) ?? 24, in: 16...40, fallback: 24)
         followsSystemBrightness = (try? values.decode(Bool.self, forKey: .followsSystemBrightness)) ?? true
@@ -117,6 +123,9 @@ struct ReaderSettings: Codable, Equatable {
 
 /// The same UTF-16 document backs pagination, scroll position and speech seeking.
 struct ReaderDocument {
+    /// Preserve the source's UTF-16 positions while suppressing duplicate
+    /// indentation during glyph generation, for both scrolling and pagination.
+    static let collapsedIndent = NSAttributedString.Key("QingReadCollapsedParagraphIndent")
     let content: ReadingCore.ChapterContent
     let text: NSAttributedString
     let paragraphRanges: [NSRange]
@@ -143,6 +152,12 @@ struct ReaderDocument {
                 .font: settings.font.uiFont(size: settings.fontSize, bold: settings.isBold),
                 .foregroundColor: color, .paragraphStyle: bodyStyle
             ]))
+            let leading = paragraph.unicodeScalars.prefix { CharacterSet.whitespaces.contains($0) }
+            let leadingLength = leading.reduce(0) { $0 + String($1).utf16.count }
+            if leadingLength > 0 {
+                result.addAttribute(Self.collapsedIndent, value: true,
+                                    range: NSRange(location: ranges[index].location, length: leadingLength))
+            }
         }
         text = result
         paragraphRanges = ranges

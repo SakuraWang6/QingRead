@@ -719,8 +719,42 @@ private final class ReaderChapterLayout {
 
 /// Display-only underlines keep the immutable text storage and cached page
 /// geometry intact. UIKit's layout manager has no temporary-attribute API.
-private final class ReaderAnnotationLayoutManager: NSLayoutManager {
+private final class ReaderAnnotationLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     var annotationRanges: [NSRange] = []
+
+    override init() { super.init(); delegate = self }
+    required init?(coder: NSCoder) { super.init(coder: coder); delegate = self }
+
+    func layoutManager(_ layoutManager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+                       properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+                       characterIndexes charIndexes: UnsafePointer<Int>, font: UIFont,
+                       forGlyphRange glyphRange: NSRange) -> Int {
+        guard let storage = textStorage else { return 0 }
+        var adjusted = Array(UnsafeBufferPointer(start: props, count: glyphRange.length))
+        var changed = false
+        for index in 0..<glyphRange.length {
+            if storage.attribute(ReaderDocument.collapsedIndent, at: charIndexes[index], effectiveRange: nil) as? Bool == true {
+                // A zero-advance control preserves TextKit's paragraph start.
+                // Null glyphs would also discard the first-line indent.
+                adjusted[index] = .controlCharacter
+                changed = true
+            }
+        }
+        guard changed else { return 0 }
+        adjusted.withUnsafeBufferPointer { buffer in
+            setGlyphs(glyphs, properties: buffer.baseAddress!, characterIndexes: charIndexes,
+                      font: font, forGlyphRange: glyphRange)
+        }
+        return glyphRange.length
+    }
+
+    func layoutManager(_ layoutManager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction,
+                       forControlCharacterAt charIndex: Int) -> NSLayoutManager.ControlCharacterAction {
+        if textStorage?.attribute(ReaderDocument.collapsedIndent, at: charIndex, effectiveRange: nil) as? Bool == true {
+            return .zeroAdvancement
+        }
+        return action
+    }
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)

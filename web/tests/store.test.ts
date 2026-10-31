@@ -44,6 +44,21 @@ describe('browser storage',()=>{
     await vi.waitFor(()=>expect(spy).toHaveBeenCalled());await store.clearCache();resolve({chapter,paragraphs:['late']});await pending;
     expect(await store.hasContent(book,chapter)).toBe(false);spy.mockRestore();
   });
+  it('migrates the legacy Songti default once and keeps later explicit font choices',async()=>{
+    expect(defaultSettings.font).toBe('system');
+    const migrated=normalizeSettings({font:'song'});
+    expect(migrated.font).toBe('system');expect(migrated.fontPreferenceVersion).toBe(1);
+    expect(normalizeSettings({font:'rounded'}).font).toBe('rounded');
+    expect(normalizeSettings({font:'system'}).font).toBe('system');
+    expect(normalizeSettings({...migrated,font:'song'}).font).toBe('song');
+    const raw={shelf:[{book:sampleBook,addedAt:'2026-10-20T12:00:00.000Z'}],settings:{font:'song'},sources:[],disabledSourceIDs:[]};
+    const{name,db}=await seededDatabase(raw);const store=new BrowserLibrary(name);await store.initialized;
+    expect(store.getSnapshot().settings.font).toBe('system');
+    await store.updateSettings({font:'song'});
+    const reopened=new BrowserLibrary(name);await reopened.initialized;
+    expect(reopened.getSnapshot().settings.font).toBe('song');expect(reopened.getSnapshot().shelf).toEqual(raw.shelf);
+    db.close();
+  });
   it('clamps corrupt numeric reader settings',()=>{
     const s=normalizeSettings({fontSize:999,paragraphSpacing:-5,speechRate:NaN});expect(s.fontSize).toBe(34);expect(s.paragraphSpacing).toBe(0);expect(s.speechRate).toBe(1);
   });

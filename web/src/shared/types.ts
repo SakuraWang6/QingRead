@@ -34,13 +34,13 @@ export interface ShelfEntry { book: Book; position?: ReadingPosition; addedAt: s
 export type ReadingTheme = 'paper'|'dusk'|'mint'|'gray'|'rose'|'night';
 export interface ReaderSettings {
   fontSize: number; lineSpacing: number; paragraphSpacing: number; theme: ReadingTheme; isNightMode: boolean;
-  turnMode: 'slide'|'cover'|'scroll'; font: 'song'|'system'|'rounded'; isBold: boolean;
+  turnMode: 'slide'|'cover'|'scroll'; font: 'song'|'system'|'rounded'; fontPreferenceVersion: number; isBold: boolean;
   horizontalMargin: number; speechRate: number; speechVoiceIdentifier: string;
   speechEngine: 'system' | 'kokoro'; kokoroVoiceID: number;
 }
 export const defaultSettings: ReaderSettings = {
   fontSize:21, lineSpacing:9, paragraphSpacing:6, theme:'paper', isNightMode:false,
-  turnMode:'slide', font:'song', isBold:false, horizontalMargin:24,
+  turnMode:'slide', font:'system', fontPreferenceVersion:1, isBold:false, horizontalMargin:24,
   speechRate:1, speechVoiceIdentifier:'', speechEngine:'system', kokoroVoiceID:46,
 };
 export interface LibraryState { ready: boolean; shelf: ShelfEntry[]; settings: ReaderSettings; sources: SourceDefinition[]; disabledSourceIDs: string[]; updates: Record<string, BookUpdateState>; checkingUpdates: boolean; downloads: ChapterDownloadJob[]; storageError?: string }

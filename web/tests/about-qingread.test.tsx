@@ -4,10 +4,15 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AboutQingRead } from '../src/components/AboutQingRead';
+import { AndroidUpdateStore } from '../src/lib/androidUpdateStore';
+import { readClientIdentity } from '../src/lib/appIdentity';
+import { fetchReleaseManifest } from '../src/lib/appUpdates';
+import { serverConnectionStore } from '../src/lib/connection';
 const native = vi.hoisted(() => ({ android: true, getInfo: vi.fn() }));
 vi.mock('@capacitor/app', () => ({ App: { getInfo: native.getInfo } }));
 vi.mock('../src/lib/android', () => ({ isAndroidApp: () => native.android, useAndroidBack: vi.fn() }));
-let host: HTMLDivElement, root: Root;
+let host: HTMLDivElement, root: Root, updates: AndroidUpdateStore;
+const bridge = { getState: vi.fn(), download: vi.fn(), cancel: vi.fn(), install: vi.fn() };
 const feed = () => ({ schemaVersion: 1, publishedAt: '2026-10-23T12:00:00Z', platforms: { ios: { version: '0.11.0', build: 16, notes: [] }, web: { version: '0.11.0', notes: [] }, android: { version: '0.10.1', build: 501, notes: ['新功能'] } } });
 const button = (label: string) => [...host.querySelectorAll('button')].find(item => item.textContent === label)!;
 async function click(label: string) { await act(async () => { button(label).click(); await new Promise(resolve => setTimeout(resolve, 0)); }); }
@@ -17,15 +22,18 @@ beforeEach(async () => {
   native.getInfo.mockResolvedValue({ version: '0.10.1', build: '500' });
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(feed()))));
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
+  bridge.getState.mockResolvedValue({ status: 'idle', receivedBytes: 0, totalBytes: 0, needsPermission: false });
+  bridge.download.mockResolvedValue({ status: 'downloading', receivedBytes: 0, totalBytes: 7_000_000, needsPermission: false });
+  updates = new AndroidUpdateStore({ native: () => native.android, address: () => serverConnectionStore().apiAddress(), now: Date.now, visible: () => true, online: () => true, identity: readClientIdentity, manifest: fetchReleaseManifest, bridge, storage: localStorage });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  await act(async () => root.render(<AboutQingRead/>));
+  await act(async () => root.render(<AboutQingRead updates={updates}/>));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); delete (window as unknown as Record<string, unknown>).__QINGREAD_HARMONY__; delete (navigator as unknown as Record<string, unknown>).serviceWorker; vi.unstubAllGlobals(); vi.clearAllMocks(); });
 describe('offline about page and Android update entry', () => {
   it('shows Harmony identity and never substitutes another platform when its release is missing', async () => {
     native.android = false;
     Object.defineProperty(window, '__QINGREAD_HARMONY__', { configurable: true, value: { bridgeVersion: 1, version: '0.11.0', build: '1' } });
-    await act(async () => root.render(<AboutQingRead key="harmony"/>));
+    await act(async () => root.render(<AboutQingRead key="harmony" updates={updates}/>));
     expect(host.textContent).toContain('HarmonyOS 0.11.0 (1)');
     await click('检查'); expect(host.textContent).toContain('当前服务尚未发布鸿蒙版本信息');
     expect(host.textContent).not.toContain('当前已是最新版本'); expect(host.textContent).not.toContain('更新网页'); expect(host.querySelector('a[href$=".apk"]')).toBeNull();
@@ -40,11 +48,12 @@ describe('offline about page and Android update entry', () => {
     expect(host.textContent).toContain('安装包尚未发布'); expect(host.querySelector('a[href$=".apk"]')).toBeNull();
     expect(fetch).toHaveBeenCalledWith('https://read.example/qingread/releases.json', expect.objectContaining({ credentials: 'omit', redirect: 'error' }));
   });
-  it('shows a safe APK link only for a newer release with size and digest', async () => {
+  it('downloads a newer APK through the native verifier with its exact size and digest', async () => {
     vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...feed(), platforms: { ...feed().platforms, android: { ...feed().platforms.android, artifact: { url: '/downloads/QingRead-Android-0.11.0.apk', sha256: 'a'.repeat(64), size: 7_000_000 } } } })));
-    await click('检查'); const link = host.querySelector<HTMLAnchorElement>('a[href$=".apk"]')!;
-    expect(link.href).toBe('https://read.example/downloads/QingRead-Android-0.11.0.apk'); expect(link.target).toBe('_blank');
-    expect(host.textContent).toContain('签名一致'); expect(host.textContent).toContain('a'.repeat(64));
+    await click('检查'); expect(host.querySelector('a[href$=".apk"]')).toBeNull();
+    await click('更新至 0.10.1');
+    expect(bridge.download).toHaveBeenCalledWith({ apiBase: 'https://read.example/api', artifact: { url: 'https://read.example/downloads/QingRead-Android-0.11.0.apk', sha256: 'a'.repeat(64), size: 7_000_000 }, version: '0.10.1', build: 501 });
+    expect(host.textContent).toContain('覆盖安装');
   });
   it('never offers an older Android version even when it carries a larger build and valid APK', async () => {
     vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...feed(), platforms: { ...feed().platforms, android: { version: '0.9.0', build: 9999, notes: [], artifact: { url: '/downloads/older.apk', sha256: 'a'.repeat(64), size: 7_000_000 } } } })));
@@ -62,7 +71,7 @@ describe('offline about page and Android update entry', () => {
     native.android = false;
     const registration = Object.assign(new EventTarget(), { scope: new URL(import.meta.env.BASE_URL, location.href).href, waiting: null, installing: null, update: vi.fn(async () => { throw new Error('offline'); }) });
     Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn(async () => registration) } });
-    await act(async () => root.render(<AboutQingRead key="web"/>));
+    await act(async () => root.render(<AboutQingRead key="web" updates={updates}/>));
     await click('检查');
     expect(registration.update).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('网页资源检查失败'); expect(host.textContent).not.toContain('当前已是最新版本');

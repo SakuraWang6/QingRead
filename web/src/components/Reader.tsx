@@ -199,7 +199,8 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     if(measure&&container&&container.clientHeight>0){
       const oldHeight=measure.style.height;measure.style.height='1px';
       for(const {chapter,cached} of values)if(cached){
-        measure.replaceChildren(...cached.paragraphs.map(text=>{const p=document.createElement('p');p.textContent=text||'\u200b';return p;}));
+        const cachedText=cached.paragraphs.join('\n');
+        measure.replaceChildren(...paragraphSlices(cachedText,0,cachedText.length).map(part=>{const p=document.createElement('p');p.textContent=part.text||'\u200b';return p;}));
         counts[chapter.index]=Math.max(1,Math.ceil(measure.scrollHeight/container.clientHeight));
       }
       measure.style.height=oldHeight;

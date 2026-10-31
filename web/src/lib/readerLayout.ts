@@ -63,7 +63,12 @@ export function paragraphSlices(text: string, start: number, end: number): Parag
   // A separator included at the page edge is not an extra blank paragraph.
   // Keep interior empty paragraphs: those are actual spacing in the source.
   return parts.map((part, index) => {
-    const item = { text: part, start: offset, continuation: index === 0 && start > 0 && text[start - 1] !== '\n' };
+    const paragraphStart = offset > 0 ? text.lastIndexOf('\n', offset - 1) + 1 : 0;
+    const sourceParagraph = text.slice(paragraphStart, text.indexOf('\n', paragraphStart) < 0 ? text.length : text.indexOf('\n', paragraphStart));
+    const prefix = /^[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]*/.exec(sourceParagraph)![0].length;
+    const visibleStart = Math.min(offset + part.length, Math.max(offset, paragraphStart + prefix));
+    const item = { text: part.slice(visibleStart - offset), start: visibleStart,
+      continuation: index === 0 && start > paragraphStart + prefix };
     offset += part.length + 1;
     return item;
   }).filter((part, index) => part.text.length > 0 || (index > 0 && index < parts.length - 1));

@@ -7,6 +7,7 @@ import { api, apiBase } from './lib/api';
 import { cloudSync, useCloudSync } from './lib/cloud';
 import { AccountPanel } from './components/AccountPanel';
 import { AboutQingRead } from './components/AboutQingRead';
+import { AndroidAppUpdatePrompt } from './components/AndroidAppUpdate';
 import { library, useLibrary } from './lib/store';
 import { Reader } from './components/Reader';
 import { AuthorBooks } from './components/AuthorBooks';
@@ -152,6 +153,7 @@ export default function App() {
     {author&&<AuthorBooks author={author} onClose={()=>setAuthor(null)} onBook={book=>{setAuthor(null);setSelected(book);}}/>}
     {showDownloads && <DownloadManager onClose={() => setShowDownloads(false)}/>}
     {notice && <div className="toast" role="status">{notice}</div>}
+    {isAndroidApp() && <AndroidAppUpdatePrompt paused={Boolean(reading || selected || author || showDownloads || tab === 'settings')}/>}
   </>;
 }
 

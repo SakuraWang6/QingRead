@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(QingReadSessionPlugin.class);
         registerPlugin(QingReadDevicePlugin.class);
         registerPlugin(app.qingread.android.background.QingReadBackgroundPlugin.class);
+        registerPlugin(app.qingread.android.updates.QingReadAppUpdatesPlugin.class);
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
     }

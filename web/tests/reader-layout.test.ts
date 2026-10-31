@@ -39,6 +39,26 @@ describe('reader measured pagination and native position compatibility', () => {
       { text: '甲', start: 0, continuation: false }, { text: '', start: 2, continuation: false }, { text: '乙', start: 3, continuation: false },
     ]);
   });
+  it('displays one two-character indent without deleting source whitespace or moving offsets', () => {
+    const text = '  第一段。\n\u3000\u3000第二段👩🏽‍💻。\n\t\t第三段。';
+    expect(paragraphSlices(text, 0, text.length)).toEqual([
+      { text: '第一段。', start: 2, continuation: false },
+      { text: '第二段👩🏽‍💻。', start: text.indexOf('第二'), continuation: false },
+      { text: '第三段。', start: text.indexOf('第三'), continuation: false },
+    ]);
+    for (const part of paragraphSlices(text, 0, text.length)) {
+      expect(text.slice(part.start, part.start + part.text.length)).toBe(part.text);
+      expect(paragraphAtOffset(text, part.start)?.quote).toBe(text.slice(text.lastIndexOf('\n', part.start - 1) + 1, text.indexOf('\n', part.start) < 0 ? text.length : text.indexOf('\n', part.start)));
+    }
+    expect(text.startsWith('  ')).toBe(true);
+  });
+  it('does not re-indent a continuation or display a partial leading-space prefix after a seek', () => {
+    const text = '\u3000\u3000首行文字跨页后续读。';
+    expect(paragraphSlices(text, 1, text.length)).toEqual([{ text: text.slice(2), start: 2, continuation: false }]);
+    expect(paragraphSlices(text, 2, text.length)).toEqual([{ text: text.slice(2), start: 2, continuation: false }]);
+    expect(paragraphSlices(text, 5, text.length)).toEqual([{ text: text.slice(5), start: 5, continuation: true }]);
+    expect(paragraphSlices(text, 0, 1)).toEqual([]);
+  });
   it('selects the complete source paragraph when long pressing a continued page fragment', () => {
     const text = '开头。\n跨页的👩🏽‍💻段落，仍应引用整段。\n尾声。';
     const offset = text.indexOf('仍');
