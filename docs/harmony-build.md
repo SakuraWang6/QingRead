@@ -1,8 +1,8 @@
 # 构建 HarmonyOS 版
 
-清读鸿蒙版使用 ArkTS Stage 工程和 ArkWeb，打包同一套 Web 阅读界面。已使用官方 SDK 实际编译，并在 HarmonyOS 7.0.0（API 26）本地模拟器安装、运行未签名 HAP；尚未进行鸿蒙真机或旧系统验证，也没有自动构建鸿蒙安装包的 CI。工程入口和原生能力说明见 [harmony/README.md](../harmony/README.md)。
+清读鸿蒙版使用 ArkTS Stage 工程和 ArkWeb，打包同一套 Web 阅读界面。当前版本已使用官方 SDK 编译并核对包内资源；设备运行范围见[验证记录](verification.md)，尚未进行鸿蒙真机或旧系统验证，也没有自动构建鸿蒙安装包的 CI。工程入口和原生能力说明见 [harmony/README.md](../harmony/README.md)。
 
-0.12.2 HAP 测试包与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.2)获取。测试包未签名，真机调试需配置开发者签名，见本文[签名与发布边界](#签名与发布边界)。
+0.12.3 HAP 测试包与 SHA-256 校验文件可从 [Releases 下载区](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.3)获取。测试包未签名，真机调试需配置开发者签名，见本文[签名与发布边界](#签名与发布边界)。
 
 ## 工具链
 
@@ -45,7 +45,7 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 
 2026-10-23 已使用官方 CLT 26.0.0.851 / Hvigor 6.26.8 实际编译出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。该工具的模块 SemVer 检查拒绝主版本为 `0`，因而对 `0.x` 版本输出警告；未为消除警告而修改版本或厂商工具。未配置签名也会输出相应提示。
 
-当前源码为 **0.12.2 / versionCode 4**，已使用上述官方工具链编译，并在 HarmonyOS 7 / API 26 模拟器验证覆盖安装、启动、正文排版和系统字体选项。包内 213 个 Web 资源的 SHA-256 与最终构建一致。完整验证范围见[验证记录](verification.md)，原生能力见[工程说明](../harmony/README.md)。
+当前源码为 **0.12.3 / versionCode 5**，已使用上述官方工具链编译，包内 213 个 Web 资源的 SHA-256 与最终构建一致。原生能力见[工程说明](../harmony/README.md)，设备运行范围集中记录在[验证记录](verification.md)。
 
 在仓库根目录可运行不依赖鸿蒙 SDK 的检查：
 
@@ -57,7 +57,7 @@ node --test harmony/tests/*.test.mjs
 
 ## 本地模拟器
 
-以下参数已对照实际 CLT 26.0.0.851 的 `Emulator -help` 核验。先查询镜像，再使用返回的完整 `osVersion`；本次测试值为 `HarmonyOS 7.0.0(26.0.0)`。镜像与实例目录使用独立目录，避免覆盖其他项目的模拟器。
+以下参数已对照实际 CLT 26.0.0.851 的 `Emulator -help` 核验。先查询镜像，再使用返回的完整 `osVersion`；此前测试值为 `HarmonyOS 7.0.0(26.0.0)`。镜像与实例目录使用独立目录，避免覆盖其他项目的模拟器。
 
 ```sh
 export PATH="$DEVECO_SDK_HOME/default/openharmony/toolchains:$PATH"
@@ -85,9 +85,9 @@ hdc -t "$QINGREAD_HDC_TARGET" shell aa start \
   -a EntryAbility -b app.qingread.harmony -m entry
 ```
 
-镜像下载与首次启动可能分别显示 SDK 许可、HarmonyOS 软件许可与服务协议，需使用者本人阅读并确认；不自动传入同意协议的参数。若所选镜像要求开发者账号授权或实名认证，应按官方界面完成，本次模拟器成功记录不代表所有镜像都免授权。具体命令见[官方模拟器 CLI 说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/ide-emulator-command-line)。
+镜像下载与首次启动可能分别显示 SDK 许可、HarmonyOS 软件许可与服务协议，需使用者本人阅读并确认；不自动传入同意协议的参数。若所选镜像要求开发者账号授权或实名认证，应按官方界面完成，此前的模拟器成功记录不代表所有镜像都免授权。具体命令见[官方模拟器 CLI 说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/ide-emulator-command-line)。
 
-本次已实际走通系统文件选择器导入 EPUB、PDF、TXT 并阅读，分类书目与封面显示、安装版本读取，以及覆盖安装后保留书架和阅读进度。未签名 HAP 可在**本次使用的模拟器**安装；此结论不适用于真机、其他系统版本或需要特殊签名的 Kit。旧系统、真机、耗电和后台运行仍需分别验证，交付范围见[验证记录](verification.md)。
+既有模拟器验证包含系统文件选择器导入 EPUB、PDF、TXT 并阅读，分类书目与封面、安装版本读取，以及覆盖安装保留书架和阅读进度。未签名 HAP 的安装结果仅适用于对应的测试模拟器，不适用于真机、其他系统版本或需要特殊签名的 Kit。具体版本和交付范围见[验证记录](verification.md)，旧系统、真机、耗电和后台运行仍需分别验证。
 
 ## 签名与发布边界
 

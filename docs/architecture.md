@@ -2,11 +2,11 @@
 
 [文档导航](README.md) · [开发与验证](development.md)
 
-更新于 2026-11-01。当前源码为 0.12.2：iPhone build 18、Android versionCode 14、HarmonyOS versionCode 4；交付验证见[验证记录](verification.md)。
+更新于 2026-11-01。当前源码为 0.12.3：iPhone build 19、Android versionCode 15、HarmonyOS versionCode 5；交付验证见[验证记录](verification.md)。
 
 ## 客户端与服务端
 
-清读有两个界面实现：iPhone 使用 SwiftUI 与 UIKit，Web 使用 React 与 TypeScript，Android 通过 Capacitor 8 复用 Web 界面。HarmonyOS 测试版使用原生 ArkTS Stage 工程与 ArkWeb，打包同一套 Web 界面，目标 SDK 26，最低兼容 HarmonyOS 5.0（API 12）。各端支持书架、搜书、分类、章节阅读、文件导入和可选账号同步；鸿蒙版已接入设备能力桥接，并完成官方 SDK 编译和 HarmonyOS 7 模拟器流程验证，尚未完成签名分发、真机或旧系统验证。平台差异见 [Web](../web/README.md)、[Android](../web/android/README.md)、[HarmonyOS](../harmony/README.md) 和 [离线语音](offline-voice.md)。
+清读有两个界面实现：iPhone 使用 SwiftUI 与 UIKit，Web 使用 React 与 TypeScript，Android 通过 Capacitor 8 复用 Web 界面。HarmonyOS 测试版使用原生 ArkTS Stage 工程与 ArkWeb，打包同一套 Web 界面，目标 SDK 26，最低兼容 HarmonyOS 5.0（API 12）。各端支持书架、搜书、分类、章节阅读、文件导入和可选账号同步；鸿蒙版已接入设备能力桥接并通过官方 SDK 编译，尚未完成签名分发、真机或旧系统验证。平台差异见 [Web](../web/README.md)、[Android](../web/android/README.md)、[HarmonyOS](../harmony/README.md) 和 [离线语音](offline-voice.md)。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -21,7 +21,7 @@
 
 Swift 与 TypeScript 书源引擎分别维护。iPhone 普通搜索与正文可直接请求来源，统一发现与后台批次下载使用配置的 API；Web、Android 与鸿蒙工程通过自建 Node 服务请求已登记来源。未登录时本地阅读，登录后同步个人书架、整理状态、笔记和文件。
 
-鸿蒙宿主将包内静态资源映射到固定 `https://localhost/` 虚拟来源，通过精确白名单拦截读取，不启动本地服务，也不代理 API。远程 API 使用普通 HTTPS 与 CORS，凭据不传入资源拦截器；只读启动元数据提供实际安装版本和探测成功的能力。原生使用仅交给固定来源主文档的 WebMessagePort，不开放 JavaScriptProxy、任意路径或通用命令接口；闭包握手、请求白名单、消息大小与速率限制共同约束调用，重载后旧通道和迟到请求失效。原生文件选择器衔接已有文件导入流程，系统返回复用共用的弹层与阅读器返回栈。现已通过官方 SDK 编译，在 HarmonyOS 7.0.0（API 26）模拟器实际验证系统选择器导入 EPUB、PDF、TXT 与阅读、分类书目和封面、安装版本读取及覆盖安装后保留阅读进度；旧系统与真机仍待测试。资源和构建约定见 [HarmonyOS 工程](../harmony/README.md)与[构建说明](harmony-build.md)。
+鸿蒙宿主将包内静态资源映射到固定 `https://localhost/` 虚拟来源，通过精确白名单拦截读取，不启动本地服务，也不代理 API。远程 API 使用普通 HTTPS 与 CORS，凭据不传入资源拦截器；只读启动元数据提供实际安装版本和探测成功的能力。原生使用仅交给固定来源主文档的 WebMessagePort，不开放 JavaScriptProxy、任意路径或通用命令接口；闭包握手、请求白名单、消息大小与速率限制共同约束调用，重载后旧通道和迟到请求失效。原生文件选择器衔接已有文件导入流程，系统返回复用共用的弹层与阅读器返回栈。各版本的模拟器与设备运行结果见[验证记录](verification.md)。资源和构建约定见 [HarmonyOS 工程](../harmony/README.md)与[构建说明](harmony-build.md)。
 
 ## 来源与搜索
 
@@ -77,6 +77,6 @@ API 23 及以上的鸿蒙设备可主动开启 WorkScheduler 定期追更与本�
 
 Xcode 工程由仓库内 Python 脚本生成，签名配置仅保存在忽略的本地文件。Web 与 Android 共用 TypeScript 检查、测试和构建；公开 CI 使用临时 Android 调试签名，个人分发包在私有环境使用固定证书。
 
-鸿蒙使用官方 SDK 26 配套工具链；打包脚本生成根路径 Web 资源和校验清单，生成物、SDK 路径及签名文件不提交。当前已实际编译未签名 HAP，并在 HarmonyOS 7 模拟器安装运行及验证覆盖安装保留数据；未做鸿蒙真机与旧系统验证，工具链与安装边界见 [HarmonyOS 构建](harmony-build.md)。
+鸿蒙使用官方 SDK 26 配套工具链；打包脚本生成根路径 Web 资源和校验清单，生成物、SDK 路径及签名文件不提交。当前未签名 HAP 已编译并校验包内资源，工具链与安装边界见 [HarmonyOS 构建](harmony-build.md)。
 
 生产部署将静态 Web 与 API 放进限额 Node 容器，经独立 HTTPS 代理访问，账号数据库、原文件和证书均在镜像外持久化。变更只更新清读项目，保留上一兼容镜像和数据备份。运行入口见 [开发指南](development.md)、[部署维护基线](../web/deploy/DEPLOYMENT.md)；已测设备与未测范围见 [验证记录](verification.md)。
