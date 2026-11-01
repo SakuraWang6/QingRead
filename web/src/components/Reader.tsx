@@ -7,6 +7,7 @@ import type { Book, Chapter, ChapterContent, ReaderSettings, ReadingTheme } from
 import { api } from '../lib/api';
 import { library, useLibrary } from '../lib/store';
 import { pageForOffset, paginateText, paragraphAtOffset, paragraphSlices, safeOffset, type TextPage } from '../lib/readerLayout';
+import { observeReaderIndent } from '../lib/readerIndent';
 import { bookPageNumber, estimateBookPages, pageAtFraction, pageFraction, pageLocation, swipeTurn } from '../lib/bookProgress';
 import { ReaderDeviceStatus } from './ReaderDeviceStatus';
 import { ReaderSpeech, observeSpeechVoices, type ReaderVoice } from '../lib/speech';
@@ -71,6 +72,8 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   const adjacentContents=useRef(new Map<string,ChapterContent>());
   const [anchor, setAnchor] = useState(0);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [paragraphIndent, setParagraphIndent] = useState<number>();
+  const [fontRevision, setFontRevision] = useState(0);
   const [transition, setTransition] = useState('');
   const [laidOutSignature, setLaidOutSignature] = useState('');
   const [query, setQuery] = useState('');
@@ -81,6 +84,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
   const [sliderValue, setSliderValue] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
+  const indentProbeRef = useRef<HTMLSpanElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef(0);
   const targetRef = useRef<{ chapterID?: string; offset?: number; fraction?: number; lastPage?: boolean }>({});
@@ -115,13 +119,13 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     const timer=setTimeout(()=>{continueSpeech.current=false;speech.current.stop();setSleepMode(0);setCacheNotice('定时听书已结束');},sleepMode*60_000);
     return()=>clearTimeout(timer);
   },[sleepMode]);
-  const layoutSignature = [currentChapter?.id, text, viewport.width, viewport.height, settings.fontSize, settings.lineSpacing, settings.paragraphSpacing, settings.horizontalMargin, settings.font, settings.isBold, settings.turnMode].join('\u0001');
+  const layoutSignature = [currentChapter?.id, text, viewport.width, viewport.height, settings.fontSize, settings.lineSpacing, settings.paragraphSpacing, settings.horizontalMargin, settings.font, settings.isBold, settings.turnMode, paragraphIndent, fontRevision].join('\u0001');
   const layoutPending = contentReady && settings.turnMode !== 'scroll' && Boolean(text) && laidOutSignature !== layoutSignature;
   const layoutPendingRef = useRef(layoutPending); layoutPendingRef.current = layoutPending;
   const turnModeRef = useRef(settings.turnMode); turnModeRef.current = settings.turnMode;
   const fraction = text.length ? Math.min(1, anchor / text.length) : 0;
   const isScroll = settings.turnMode === 'scroll';
-  const paginationKey=[viewport.width,viewport.height,settings.fontSize,settings.lineSpacing,settings.paragraphSpacing,settings.horizontalMargin,settings.font,settings.isBold,settings.turnMode].join('|');
+  const paginationKey=[viewport.width,viewport.height,settings.fontSize,settings.lineSpacing,settings.paragraphSpacing,settings.horizontalMargin,settings.font,settings.isBold,settings.turnMode,paragraphIndent,fontRevision].join('|');
   const paginationKeyRef=useRef(paginationKey);paginationKeyRef.current=paginationKey;
   const bookPages=estimateBookPages(chapters.length,chapterLengths,{...(estimatedLayouts.key===paginationKey?estimatedLayouts.counts:{}),...(measuredPages.key===paginationKey?measuredPages.counts:{})},pageCapacity);
   const totalPages=Math.max(1,bookPages.reduce((a,b)=>a+b,0));
@@ -221,6 +225,25 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     observer.observe(element); return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    // A font can change Latin/vertical metrics without changing 水's advance.
+    // Only real font events invalidate the cached chapter counts; subscribing
+    // here avoids a resolved fonts.ready promise repeatedly changing the key.
+    const changed = () => setFontRevision(value => value + 1);
+    document.fonts?.addEventListener('loadingdone', changed);
+    document.fonts?.addEventListener('loadingerror', changed);
+    return () => {
+      document.fonts?.removeEventListener('loadingdone', changed);
+      document.fonts?.removeEventListener('loadingerror', changed);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const probe = indentProbeRef.current;
+    if (!probe) return;
+    return observeReaderIndent(probe, width => setParagraphIndent(previous => previous === width ? previous : width));
+  }, [settings.font, settings.fontSize, settings.isBold, viewport.width, viewport.height]);
+
   const repaginate = useCallback(() => {
     const element = measureRef.current;
     const container = viewportRef.current;
@@ -274,7 +297,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     if (!text || !isScroll || !scrollRef.current) return;
     const handle = requestAnimationFrame(() => scrollToOffset(anchorRef.current));
     return () => cancelAnimationFrame(handle);
-  }, [text, isScroll, viewport, settings.fontSize, settings.lineSpacing, settings.paragraphSpacing, settings.horizontalMargin, settings.font]);
+  }, [text, isScroll, viewport, settings.fontSize, settings.lineSpacing, settings.paragraphSpacing, settings.horizontalMargin, settings.font, settings.isBold, paragraphIndent, fontRevision]);
 
   useEffect(() => {
     if (!content || !currentChapter || content.chapter.id !== currentChapter.id) return;
@@ -508,6 +531,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
     '--reader-font-size': `${settings.fontSize}px`, '--reader-line-height': `${settings.fontSize + settings.lineSpacing}px`,
     '--reader-paragraph-gap': `${settings.paragraphSpacing}px`, '--reader-margin': `${settings.horizontalMargin}px`,
     '--reader-font-weight': settings.isBold ? '600' : '400',
+    '--reader-indent': paragraphIndent === undefined ? undefined : `${paragraphIndent}px`,
     '--reader-font-family': settings.font === 'song' ? '"Noto Serif SC", "Songti SC", "STSong", serif' : settings.font === 'rounded' ? 'ui-rounded, system-ui, sans-serif' : 'var(--sans)',
   } as CSSProperties;
   const visiblePage = pages[page] ?? { start: 0, end: text.length };
@@ -527,6 +551,7 @@ function TextReader({ book, onClose, initialChapterID, onOriginal }: ReaderProps
           {isScroll && <div className="reader-chapter-actions"><button disabled={index === 0} onClick={() => changeChapter(index - 1)}>上一章</button><button onClick={() => { if (index < chapters.length - 1) changeChapter(index + 1); else void checkAtEnd(); }}>下一章</button></div>}
         </div>}
       <div ref={measureRef} className="reader-text reader-measure" aria-hidden="true" />
+      <div className="reader-text reader-indent-probe" aria-hidden="true" inert><span ref={indentProbeRef}>水水</span></div>
     </main>
     <footer className="reader-running-foot"><span aria-label={`阅读进度，第 ${wholePage} 页，共 ${totalPages} 页`}>{wholePage} / {totalPages}</span><ReaderDeviceStatus/></footer>
 

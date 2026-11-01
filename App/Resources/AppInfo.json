@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "清读",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "repositoryURL": "https://github.com/SakuraWang6/QingRead",
   "feedbackURL": "https://github.com/SakuraWang6/QingRead/issues/new",
   "license": {
@@ -12,6 +12,14 @@
     "manifestPath": "/qingread/releases.json"
   },
   "releases": [
+    {
+      "version": "0.12.4",
+      "date": "2026-11-02",
+      "changes": [
+        "安卓、Web 和鸿蒙按实际字宽计算段首缩进，适配系统字体缩放。",
+        "调整字体或字号后同步重新分页，保留原文、阅读进度和笔记定位。"
+      ]
+    },
     {
       "version": "0.12.3",
       "date": "2026-11-01",
