@@ -1,18 +1,36 @@
 # 验证与交付记录
 
-更新于 2026-11-01（Asia/Shanghai）。本页区分源码、构建、设备运行与线上发布，不将模拟器通过视为真机通过。上一版本事实见 [0.11 归档](history/reader-0.11-verification.md)。
+更新于 2026-11-02（Asia/Shanghai）。本页区分源码、构建、设备运行与线上发布，不将模拟器通过视为真机通过。上一版本事实见 [0.11 归档](history/reader-0.11-verification.md)。
 
 ## 版本与交付
 
 | 平台 | 当前源码 | 本轮已验证范围 |
 | --- | --- | --- |
-| iPhone | 0.12.3 / build 19 | CI 模拟器编译与启动检查通过；原生排版不变，未安装真机或更新续签副本 |
-| Web | 0.12.3 | 已上线，本地回归、浏览器排版检查与 CI 通过 |
-| Android | 0.12.3 / versionCode 15 | 原生 CI 与固定签名安装包校验通过，安装包已发布；未做 Android 设备运行验证 |
-| HarmonyOS | 0.12.3 / versionCode 5 | 官方 CLT 26 编译与 213 个包内 Web 资源校验通过；本轮未运行模拟器，HAP 未签名 |
+| iPhone | 0.12.4 / build 20 | CI 模拟器编译与启动检查通过；原生排版不变，未安装真机或更新续签副本 |
+| Web | 0.12.4 | 已上线，本地完整回归、45 项浏览器排版检查与 CI 通过 |
+| Android | 0.12.4 / versionCode 16 | 原生 CI、固定签名与包内资源校验通过，安装包已发布；未做 Android 设备运行验证 |
+| HarmonyOS | 0.12.4 / versionCode 6 | 官方 CLT 26 构建及 213 个包内 Web 资源校验通过；本轮未运行模拟器，HAP 未签名 |
 | API | 0.10.0 | 10 月 27 日补充外国文学来源至 11 个，仅更新清读 API 镜像；没有数据库迁移 |
 
 iPhone 已安装版本与独立自动续签副本均为 0.12.0 / build 16，使用同一实际已安装的新签名基线，严格签名校验通过。原阅读数据、旧签名应用与续签备份继续保留。Android 尚无真机运行结论，鸿蒙最低 API 12 是兼容配置，旧系统与真机仍待验证。
+
+## 2026-11-02 实际字宽缩进修正（0.12.4）
+
+用户提供的 Android 截图中，段首空白约为 2.4 个汉字宽度。0.12.3 源码只有一层正文页边距和一次 `text-indent:2em`；本地实际 Reader 的 24 组字体、字号、左对齐 / 两端对齐及字距组合未复现额外半字缩进，同字墨迹对照也未出现偏移。重复页边距、两端对齐与现有字距未能解释截图差异。
+
+进一步使用浏览器 `FontFace` 的 `size-adjust` 受控改变本地字体字形大小：标称字号保持 21 px、缩进保持 42 px，字形缩为 80% 时，视觉缩进为约 2.5 字；85% 时约 2.35 字。这说明标称 `em` 与实际汉字宽度可能不一致，仅检查 CSS 为 `2em` 不足以确认视觉上的两字缩进，参见 [Chromium 字体长度换算](https://github.com/chromium/chromium/blob/125.0.6422.141/third_party/blink/renderer/core/css/css_to_length_conversion_data.h)。该实验改变的是桌面浏览器局部字体尺寸，不等同于 Android WebView 的 `TextZoom`；没有读取用户手机的 `fontScale`，不能据此认定其系统设置为 80% 或 85%。
+
+代码 `15d3131` 已通过正文同字体的 DOM「水水」探针测量实际两字宽度，统一用于显示和分页测量。字体度量变化时重新校准，保留系统字体与缩放适配、续段零缩进，以及原文和阅读位置；iPhone 原生排版代码未改。
+
+实际 Reader 的 **37 组主例、4 组真实跨页续段、4 组仅字体度量动态变化检查，共 45 项通过**，85% 字形尺寸的修复前后截图已核对。首行距离跟随实际两字宽度，续段为零，未出现溢出，原文与来源偏移保留。本地 Web **321 项通过、4 项条件式联网测试跳过**，TypeScript 与 17 项版本元数据检查通过。
+
+代码 `15d3131` 的 [Android 构建](https://github.com/SakuraWang6/QingRead/actions/runs/41329844372)、[Web 检查](https://github.com/SakuraWang6/QingRead/actions/runs/41329844428)与 [Verify](https://github.com/SakuraWang6/QingRead/actions/runs/41329844356)均通过，包含 iPhone 模拟器编译与启动检查。iPhone 未安装真机或更新独立续签副本，原生版式维持原实现。
+
+[0.12.4 Release](https://github.com/SakuraWang6/QingRead/releases/tag/v0.12.4)已发布 APK、未签名 HAP 与校验文件，三个公开附件的 GitHub digest 均核对通过。Android 包沿用固定升级证书，通过 v2 / v3 签名校验，213 个包内 Web 资源一致，并核对实际字宽探针及样式已打包；大小 **7,272,492 字节**，SHA-256 为 `f6e4562ea51ac1429b6f3699051806a840f1a47b50e70a8efa59c6d8e788919a`。HarmonyOS 包通过官方 CLT 26 构建与 213 个包内 Web 资源校验，大小 **6,839,907 字节**，SHA-256 为 `8a87929c3d57eaf918d62a5c11b0499854856f69a26aa96ed2861fcc3b88408b`；本轮未在鸿蒙模拟器或真机运行。
+
+Web 与 Android 分发包已更新至 0.12.4，最终公网 **41 项检查通过**：latest 指向准确版本，首页、Service Worker 与版本清单均匹配构建 SHA-256，私有路径、课程入口及根路由保持原有响应。API 镜像、共享 Caddy、主 Compose 与环境配置未变，其余八个容器的 ID、启动时间与重启数不变。统计启用时间及原有计数保留，发布后可用内存约 **517 MiB**。
+
+上述浏览器排版检查使用桌面 Chromium 的实际 Reader 与隔离合成文本，其中的字形缩放由 `FontFace size-adjust` 控制，不能作为 Android WebView `TextZoom` 或真机验证。
 
 ## 2026-11-01 段首缩进修正（0.12.3）
 

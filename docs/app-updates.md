@@ -71,10 +71,10 @@ python3 scripts/generate-release-manifest.py
 
 ```sh
 python3 scripts/generate-release-manifest.py \
-  --android-apk /absolute/private/path/QingRead-Android-0.12.3.apk \
-  --android-url /downloads/QingRead-Android-0.12.3.apk \
+  --android-apk /absolute/private/path/QingRead-Android-0.12.4.apk \
+  --android-url /downloads/QingRead-Android-0.12.4.apk \
   --apksigner /absolute/path/to/apksigner.jar \
-  --published-at 2026-11-01T12:00:00+08:00 \
+  --published-at 2026-11-02T12:00:00+08:00 \
   --output /absolute/private/path/release-site/releases.json
 ```
 
