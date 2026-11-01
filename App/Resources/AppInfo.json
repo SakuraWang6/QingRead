@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "清读",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "repositoryURL": "https://github.com/SakuraWang6/QingRead",
   "feedbackURL": "https://github.com/SakuraWang6/QingRead/issues/new",
   "license": {
@@ -12,6 +12,14 @@
     "manifestPath": "/qingread/releases.json"
   },
   "releases": [
+    {
+      "version": "0.12.3",
+      "date": "2026-11-01",
+      "changes": [
+        "修复安卓、Web 和鸿蒙中零宽字符与空格混排导致的段首缩进不一致。",
+        "保留原始正文、阅读位置和段落笔记，不改动表情内部的连接字符。"
+      ]
+    },
     {
       "version": "0.12.2",
       "date": "2026-11-01",

@@ -56,6 +56,16 @@ export function safeOffset(text: string, offset: number): number {
   return boundaries[lo];
 }
 
+/** Source sites may put zero-width separators before or between indent spaces.
+ * Only collapse the paragraph prefix; source text and interior shaping stay intact.
+ * A leading ZWJ/ZWNJ without indentation whitespace can carry script semantics.
+ */
+export function paragraphIndentPrefixLength(text: string): number {
+  const prefix = /^[\t \u00a0\u1680\u2000-\u200d\u202f\u205f\u2060\u3000\ufeff]*/.exec(text)![0];
+  if (/[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/.test(prefix)) return prefix.length;
+  return /^[\u200b\u2060\ufeff]*/.exec(prefix)![0].length;
+}
+
 export interface ParagraphSlice { text: string; start: number; continuation: boolean }
 export function paragraphSlices(text: string, start: number, end: number): ParagraphSlice[] {
   const parts = text.slice(start, end).split('\n');
@@ -65,7 +75,7 @@ export function paragraphSlices(text: string, start: number, end: number): Parag
   return parts.map((part, index) => {
     const paragraphStart = offset > 0 ? text.lastIndexOf('\n', offset - 1) + 1 : 0;
     const sourceParagraph = text.slice(paragraphStart, text.indexOf('\n', paragraphStart) < 0 ? text.length : text.indexOf('\n', paragraphStart));
-    const prefix = /^[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]*/.exec(sourceParagraph)![0].length;
+    const prefix = paragraphIndentPrefixLength(sourceParagraph);
     const visibleStart = Math.min(offset + part.length, Math.max(offset, paragraphStart + prefix));
     const item = { text: part.slice(visibleStart - offset), start: visibleStart,
       continuation: index === 0 && start > paragraphStart + prefix };

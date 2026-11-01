@@ -59,6 +59,33 @@ describe('reader measured pagination and native position compatibility', () => {
     expect(paragraphSlices(text, 5, text.length)).toEqual([{ text: text.slice(5), start: 5, continuation: true }]);
     expect(paragraphSlices(text, 0, 1)).toEqual([]);
   });
+  it('collapses interleaved invisible prefixes without losing source indices or interior text', () => {
+    const paragraphs = [
+      '正文中间\u200b\u3000空白保留。',
+      '\u200b\u3000\u3000正文中间\u200b\u3000空白保留。',
+      '\u2060 \u200b\u3000正文中间\u200b\u3000空白保留。',
+      '\ufeff\t\u200d \u200c正文中间\u200b\u3000空白保留。',
+    ];
+    const source = paragraphs.join('\n'), slices = paragraphSlices(source, 0, source.length);
+    expect(slices.map(part => part.text)).toEqual(Array(4).fill(paragraphs[0]));
+    let position = 0;
+    for (let index = 0; index < paragraphs.length; index++) {
+      const part = slices[index];
+      expect(part.start).toBe(position + paragraphs[index].indexOf('正文'));
+      expect(source.slice(part.start, part.start + part.text.length)).toBe(part.text);
+      expect(paragraphAtOffset(source, part.start)?.quote).toBe(paragraphs[index]);
+      position += paragraphs[index].length + 1;
+    }
+    const start = source.indexOf('正文', paragraphs[0].length + 1);
+    expect(paragraphSlices(source, start - 1, start + 2)[0]).toEqual({ text: '正文', start, continuation: false });
+    expect(paragraphSlices(source, start + 1, source.indexOf('。', start) + 1)[0].continuation).toBe(true);
+  });
+  it('retains meaningful joiners, bidi controls and complete emoji sequences', () => {
+    const text = '\u200d👩🏽‍💻在阅读。\n\u200cالعربية\n\u200f  اتجاه النص';
+    const slices = paragraphSlices(text, 0, text.length);
+    expect(slices.map(part => part.text)).toEqual(text.split('\n'));
+    expect(paragraphSlices('\u200b👩🏽‍💻甲', 0, 10)[0].text).toBe('👩🏽‍💻甲');
+  });
   it('selects the complete source paragraph when long pressing a continued page fragment', () => {
     const text = '开头。\n跨页的👩🏽‍💻段落，仍应引用整段。\n尾声。';
     const offset = text.indexOf('仍');
